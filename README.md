@@ -12,7 +12,7 @@ the SGDK library, including the inline asm blocks.
 The optimization depends heavily on the project you run it over. On some of them it saves 1% of CPU per frame 
 (approximately 2 scanlines), which is a sign that the project's hot path might be better rewritten in asm (if not already).
 
-See ![optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all peepholes and switches 
+See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all peepholes and switches 
 the optimizer provides.
 
 ### Build gcc and the plugin
