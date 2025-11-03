@@ -12233,7 +12233,7 @@ def remove_simple_abi(lines):
                         line_end_of_args_range = k + 1
                 # Remove the push into sp instructions by going forward
                 accum_sp_adjustment = 0
-                for k in range(line_end_of_args_range, i-1):  # forwards
+                for k in range(line_end_of_args_range, i):  # forwards
                     next_line = modified_lines_no_abi[k]
                     # Consider only single register push with move, not movem
                     if push_match := PUSH_REGS_INTO_STACK_REGEX.match(next_line):

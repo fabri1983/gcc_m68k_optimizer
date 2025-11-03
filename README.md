@@ -6,8 +6,8 @@ to the final binary rom artifact.
 This solution is intended to be executed with gcc plugin feature at `PLUGIN_FINISH` phase, which is 
 the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
-At `PLUGIN_FINISH` phase we can access all the m68k assembly code generated from all the .c units in our project and 
-the SGDK library, including the inline asm blocks.
+At `PLUGIN_FINISH` phase we can access all the m68k assembly code generated from all the **.c units** in our project 
+and the **SGDK** library, including the inline asm blocks.
 
 The optimization depends heavily on the project you run it over. On some of them it saves 1% of CPU per frame 
 (approximately 2 scanlines), which is a sign that the project's hot path might be better rewritten in asm (if not already).
