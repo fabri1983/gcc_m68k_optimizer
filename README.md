@@ -1,10 +1,10 @@
 ## GCC M68K Assembler Optimizer
 
-Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which it builds m68k elf artifacts prior 
-to the final binary build.
+Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds m68k elf artifacts prior 
+to the final binary rom artifact.
 
-This Python script is intended to be executed with gcc plugin feature at `PLUGIN_FINISH` phase which is 
-the last opportunity we have before exiting gcc and start the linking phase.
+This solution is intended to be executed with gcc plugin feature at `PLUGIN_FINISH` phase, which is 
+the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
 At `PLUGIN_FINISH` phase we can access all the m68k assembly code generated from all the .c units in our project and 
 the SGDK library, including the inline asm blocks.
@@ -22,8 +22,9 @@ even on WSL (Windows Subsytem for Linux), but impossible on Windows systems (I c
 Add the toolchain into your PATH (or copy it into SGDK's `bin` folder) so SGDK can see it.
 
 Then you need to compile the gcc plugin `optimizer_plugin.c`, responsible to execute the python script 
-over the gcc m68k assembly code. See script .  
-This will generate `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder, along 
+over the gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
+(or [build_plugin_w64.sh](build_plugin_w64.sh "build_plugin_w64.sh")).  
+This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder, along 
 with the `optimize_lst.py` file.
 
 ### Execution
