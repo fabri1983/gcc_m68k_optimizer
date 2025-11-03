@@ -29,10 +29,17 @@ with the `optimize_lst.py` file.
 
 ### Execution
 - Open SGDK's `makefile.gen`:
-  - Add next line after the inclusion of _common.mk_:  
+  - Add next line after the inclusion of **common.mk**:  
      `PLUGIN_PARAM := -fplugin=$(GDK)/tools/optimizer_plugin.so -fplugin-arg-optimizer_plugin-disable=0 -fplugin-arg-optimizer_plugin-keep-files=0`
   - Add `$(PLUGIN_PARAM)` to the target:  
-     `$(OUT_DIR)/rom.out: \$(OUT_DIR)/sega.o \$(OUT_DIR)/cmd_ \$(LIBMD)`
+     `$(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ \$(LIBMD)`  
+	 Eg:
+	 ```
+	 $(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ $(LIBMD)
+	 	@$(MKDIR) -p $(dir $@)
+	 	$(CC) $(PLUGIN_PARAM) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
+	 	@$(RM) $(OUT_DIR)/cmd_
+	 ```
 - Make sure python is in your PATH.
 - Build your project:
   - `make -f $GDK/makefile.gen release -j1`
