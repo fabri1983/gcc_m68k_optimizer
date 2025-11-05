@@ -1051,7 +1051,7 @@ def in_a_SGDK_sound_related_routine(modified_lines):
             continue
         # Found a function declaration?
         if match := FUNCTION_DECLARATION_REGEX.match(line):
-            return match.group(1).startswith(('Z80_','XGM_','XGM2_','SND_'))
+            return match.group(1).startswith(('Z80_','XGM_','XGM2_','SND_','PSG_','YM2612_'))
 
     return False
 
@@ -6241,29 +6241,6 @@ indirection_0_pattern = re.compile(
     r'(?:0\((%a[0-7]|%sp|%pc)\)|\(0,(%a[0-7]|%sp)\))'  # 0(aN) or (0,aN)
 )
 
-push_effective_address_into_sp_for_pea_pattern = re.compile(
-    r'^(\s*)move\.l(\s+)'     # whitespace + move.l
-    r'(?!'                    # NEGATIVE LOOKAHEAD START
-        r'\s*'                # optional space
-        r'(?:'
-            r'%[ad][0-7]\b'   # Data or Address registers
-            r'|'              # OR
-            r'%sp\b'          # sp
-            r'|'              # OR
-            r'-\(%a[0-7]\)'   # -(aN)
-            r'|'              # OR
-            r'-\(%sp\)'       # -(sp)
-            r'|'              # OR
-            r'\(%a[0-7]\)\+'  # (aN)+
-            r'|'              # OR
-            r'\(%sp\)\+'      # (sp)+
-        r')'
-        r'\s*,'               # end of invalid source operand
-    r')'                      # NEGATIVE LOOKAHEAD END
-    r'(.+?)'                  # valid source operand (non-greedy)
-    r'\s*-\((%sp)\);?$'       # destination is -(%sp)
-)
-
 def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
     """
     Optimize a single line of assembly code.
@@ -6514,26 +6491,8 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
         optimized_line = f'{match.group(1)}st.b{match.group(2)}{dN}'
         return ([optimized_line], True)
 
-    # move.b   #-1,<ea>    ->    st <ea>           ; Saves 0 to 4 cycles. Status flags wrong
-    # <ea>: effective address valid for ST instruction:
-    #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l
-    # Where s in xN.s is: b,w,l
-    # Note that gcc might put the displacement like next: (d,aN)   (d,aN,xN.s)
-    # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName or #symbolName
-    match = re.match(r'^(\s*)move\.b(\s+)#-1,\s*(.+)', line)
-    if match:
-        ea = match.group(3)
-        # Only valid st operands
-        if not ea.startswith(('%a','%sp')):
-            return ([], False)  # NOT_WORKING
-            # If ea is #symbolName or #num then remove the '#'.
-            #if ea.startswith("#"):
-            #    ea = ea[1:]
-            optimized_line = f'{match.group(1)}st{match.group(2)}{ea}'
-            return ([optimized_line], True)
-
     # Move long val to aN when -32767 <= val <= 32767, but val != 0
-    # move.l   #val,aN    ->   movea.w  #val,aN   ; Saves 4 cycles
+    # move.l   #val,aN    ->   movea.w   #val,aN   ; Saves 4 cycles
     match = re.match(r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|(?:0[xX]|\$)[0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line)
     if match:
         val = parseConstantUnsigned(match.group(4))
@@ -6560,28 +6519,8 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
     # NOTE: #symbolName is not being matched, don't know why. However, next reg expr pattern does it.
     match = re.match(r'^(\s*)move\.l(\s+)#([a-zA-Z_]\w*|-?\d+|(?:0[xX]|\$)[0-9a-fA-F]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
     if match:
-        return ([], False)  # NOT_WORKING
         mem_address = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
         optimized_line = f'{match.group(1)}pea{match.group(2)}{mem_address}'
-        return ([optimized_line], True)
-
-    # Push <ea> into sp.
-    # move.l   <ea>,-(sp)   ->   pea   <ea>      ; Saves [6,12] cycles
-    # <ea>: effective address valid for pea instruction:
-    #   (aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l   d(PC)   d(PC,xN.s)
-    # Note that gcc might put the displacement like next: (d,aN)   (d,aN,xN.s)   (d,pc)   (d,pc,xN.s)
-    match = push_effective_address_into_sp_for_pea_pattern.match(line)
-    if match:
-        return ([], False)  # NOT_WORKING
-        ea = match.group(3)
-        # If ea is #-520158600[.bwl][+-N] or #symbolName[.bwl][+-N] then remove the '#'
-        if ea.startswith('#'):
-            ea = ea[1:]
-        # NOTE: in previous reg expr pattern, #symbols are not correctly matched, so we handle it here
-        # Remove the comma before the destination operand
-        if ea.endswith(','):
-            ea = ea[:-1]
-        optimized_line = f'{match.group(1)}pea{match.group(2)}{ea}'
         return ([optimized_line], True)
 
     # Push constant val into <ea>, where -128 <= val <= 127
@@ -12202,7 +12141,7 @@ def remove_simple_abi(lines):
 
     # TODO: remove this after testing
     for key, value in args_pushed_per_function.items():
-        print(key, 'total_sp_adjustment:', value.total_sp_adjustment, ', args:', value.args)
+        print(f'{key} => total_sp_adjustment: {value.total_sp_adjustment} bytes, args: {value.args}')
     return lines
 
     # Phase 3: for those functions in args_pushed_per_function map:
