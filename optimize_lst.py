@@ -6,17 +6,17 @@
 # Gcc's gas assembly optimizer for cpu m68000.
 #
 # This script processes assembly output in gas syntax generated at the PLUGIN_FINISH phase.
-# It searches for known single and multi line peephole optimizations, and for multi line 
-# patterns produced by gcc that are not precisely optimized.
+# It searches for known single and multi line patterns that can be turned on into peephole 
+# optimizations, and for multi line patterns produced by gcc that are not precisely optimized.
 #
-# The functions provided here in search for a free register can't see the entirity 
-# of the context as they follow branches/jumps in a constrained way, hence might incur 
-# in new bugs if the supposly free register turns out to be not free in a more complex code 
-# flow. Nevertheless, attempts to push/pop the register in the stack are considered to keep 
-# trashed regs saved before returning the routine.
+# The functions provided here in search for a free register can't see the entirity of the 
+# context as they follow branches/jumps in a constrained way, hence might incur in new bugs 
+# if the candidate free register turns out to be not free in a more complex code flow. 
+# In addition, attempts to push/pop the register into the stack are considered to keep 
+# trashed regs saved before returning from the routine.
 #
-# Furthermore, some optimizations may leave the CCR flags in a different state than 
-# the original immediate instruction was expecting, therefor may incur in new bugs.
+# Some optimizations may leave the CCR flags in a different state than the original immediate 
+# instruction was expecting, therefor may incur in new bugs.
 # 
 # Test your game thoroughly not only in emulators but also in real hardware.
 #
@@ -81,7 +81,7 @@ except ImportError:
 # Use in conjunction with PRINT_OPTIMIZATION_LOG to print the findings as candidates.
 SAVE_OPTIMIZATIONS = True
 
-# Set to False to turn off prints.
+# Set to False to turn off printing of every pattern applied.
 PRINT_OPTIMIZATION_LOG = True
 
 # Which format do you like the most to print the logs? Columns or single line?
@@ -505,7 +505,7 @@ FUNCTION_EXIT_REGEX = re.compile(
     r'^\s*(rts|rte)\b'
 )
 INSTRUCTION_WITH_SIZE_REGEX = re.compile(
-    r'^\s*(\w+)(\.[bwl])?\s+(?:.+);?$'  # Only capture instruction mnemonic and size .s
+    r'^\s*(\w+)\.?([bwl])?\s+(?:.+);?$'  # Only capture instruction mnemonic and size .s
 )
 REG_AS_TARGET_REGEX = re.compile(
     r'^\s*'                          # Optional leading whitespace
@@ -818,7 +818,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
         return [None]
 
     control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
-    control_visited = set()
+    control_visited = set()  # Helps to avoid looping infinitely 
 
     # Phase 2: Scan remaining lines and keep those candidate registers satisfying the rules (forwards scan)
     overwritten_or_cleared_mask = 0;
@@ -826,7 +826,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
     rem_start = i_line + 1
     rem_end = len(lines)
     i = rem_start
-    while i < rem_end:
+    while i < rem_end:  # forwards
         line = lines[i]
         i += 1
 
@@ -852,11 +852,10 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                 # Is tatget label a special one?
                 if label in backward_number_labels or label in forward_number_labels:
                     if label[1] == 'b':
-                        # As we are going forwards in lines array it means we have already analyzed the code after the target label
+                        # As we are going forwards in lines array it means we have already analyzed the code in previous lines
                         continue
                     elif label[1] == 'f':
-                        # Move forwards until we find where the label is defined
-                        i += 1
+                        # Move forwards until we find where the label has been defined
                         while i < rem_end:
                             if match_label := LABEL_REGEX.match(lines[i]):
                                 if match_label.group(1) == label:
@@ -878,14 +877,15 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                         control_visited.add(label)  # Mark this label as visited
                         i = control_obj.pos_in_lines
                         continue
-                    # We can only iterate over the current array we are iterating in (lines in this case)
+                    # We can only iterate over the current array we are iterating at (lines in this case),
+                    # so we must stop here since we don't support iterating over modified_lines array starting
+                    # at control_obj.pos_in_modified_lines
                     else:
-                        # We don't know whether the candidates will be effectively used in that location
                         candidate_mask = 0  # Mark all candidates as unavailable
                         break
-        # If is an conditional branch jcc/bcc (except dbcc)
+        # If is a conditional branch jcc/bcc (except dbcc)
         # elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-            # TODO: follow the many paths the code would take
+            # TODO: follow the many paths the code could take
 
         # First check for overwrites/clears (if not used already)
         elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
@@ -980,7 +980,7 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type):
     used_as_source_or_indirect_or_target_mask = 0;
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
         line = modified_lines[i]
         if line[0] == '#':
             continue
@@ -990,7 +990,7 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type):
             break
 
         # If reaching to a movem/move pushing into stack then continue with the loop.
-        # THIS BEHAVIOR SEEMS USEFUL IN CASES WHERE THERE ARE ORPHAN REGISTERS and only its push into stack remains
+        # THIS BEHAVIOR SEEMS USEFUL IN CASES WHERE THERE ARE ORPHAN REGISTERS and only remains its push into stack instruction
         if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
             continue
             '''pushed_list = extract_registers(push_match.group(3), PUSH_OP)
@@ -1308,7 +1308,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
                         newRegs_str = '/'.join(sortedRegs)
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
-def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, checkTargetOperand):
+def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand):
     """
     Search over the remaining lines in lines array starting at i_line+1 for one of next conditions:
     - xN is used as source operand or in any indirection (in both source and target) operand:
@@ -1320,19 +1320,70 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
     - Control flow jmp/bra/jsr is reached or exiting current routine declaration:
       Returns None.
     """
+
+    control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
+    control_visited = set()  # Helps to avoid looping infinitely 
+
     rem_start = i_line + 1
     rem_end = len(lines)
-    for i in range(rem_start, rem_end):
+    i = rem_start
+    while i < rem_end:  # forwards
         line = lines[i]
+        i += 1
         if line[0] == '#':
             continue
 
-        # If jmp/bra/bsr/jsr or exiting the routine declaration
-        if UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line) or FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+        # Exiting the routine declaration?
+        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             return None
 
+        if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            # Jumping into a routine?
+            if match.group(1) in ('jsr', 'bsr', 'jbsr'):
+                # When jumping into a subroutine we must stop the analysis since we don't know 
+                # whether the register xN will be effectively used in that routine
+                return None
+            elif match.group(1) in ('bra', 'jra', 'jmp'):
+                # Get the target label (might be a function name which won't be in control_flow_dict)
+                label = match.group(3)
+                # Is tatget label a special one?
+                if label in backward_number_labels or label in forward_number_labels:
+                    if label[1] == 'b':
+                        # As we are going forwards in lines array it means we have already analyzed the code in previous lines
+                        continue
+                    elif label[1] == 'f':
+                        # Move forwards until we find where the label has been defined
+                        while i < rem_end:
+                            if match_label := LABEL_REGEX.match(lines[i]):
+                                if match_label.group(1) == label:
+                                    break
+                            i += 1
+                # Sometimes the label is a function name and the code comes with a jmp/bra.
+                # Or could be (symbol_name) or (%aN) which are not considered labels.
+                # Hence this element is not in the dictionary.
+                elif label not in control_flow_dict:
+                    # When jumping into a subroutine we must stop the analysis since we don't know 
+                    # whether the register xN will be effectively used in that routine
+                    return None
+                # Target label is in the dictionary AND was not yet visited
+                elif label in control_flow_dict and label not in control_visited:
+                    control_obj = control_flow_dict[label];
+                    # Ensure the correct array is set
+                    if control_obj.pos_in_lines != -1:
+                        control_visited.add(label)  # Mark this label as visited
+                        i = control_obj.pos_in_lines
+                        continue
+                    # We can only iterate over the current array we are iterating at (lines in this case),
+                    # so we must stop here since we don't support iterating over modified_lines array starting
+                    # at control_obj.pos_in_modified_lines
+                    else:
+                        return None
+        # If is a conditional branch jcc/bcc (except dbcc)
+        # elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            # TODO: follow the many paths the code could take
+
         # xN is overwritten/cleared by a move, sub or eor itself, or clr
-        if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+        elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
             instr_move_or_sub_or_eor = match.group(1)  # move or sub or eor, or empty if matched with the clr
             src = match.group(2)  # source operand for move or sub or eor
             instr_clr = match.group(3)
@@ -1352,7 +1403,7 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
                     return None
 
         # xN is used as source operand or in any indirection (in both source and target) operand
-        if match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
+        elif match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
             reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
             if reg_str is not None and xN == reg_str:
                 return line
@@ -1364,22 +1415,24 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
 
     return None
 
-def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines):
+def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines):
 
     # As I don't use a proper graph structure for corrrect flow analysis, it might incurr in errors.
     if not USE_WEAK_FLOW_ANALYSIS:
         return True
 
-    matching_line = get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, checkTargetOperand=False)
+    checkTargetOperand = False
+    matching_line = get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand)
     return matching_line is not None
 
-def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines):
+def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines):
 
     # As I don't use a proper graph structure for corrrect flow analysis, it might incurr in errors.
     if not USE_WEAK_FLOW_ANALYSIS:
         return False
 
-    matching_line = get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, checkTargetOperand=True)
+    checkTargetOperand = True
+    matching_line = get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand)
     if matching_line is None:
         return False
 
@@ -1391,7 +1444,7 @@ def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines):
     match_instr_size = INSTRUCTION_WITH_SIZE_REGEX.match(matching_line)
     s = match_instr_size.group(2)
     if s is not None:
-        return s in ('.b','.w')
+        return s in ('b','w')
     return False
 
 def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines):
@@ -2390,7 +2443,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                             if matchE and aN == matchE.group(1) and dN == matchE.group(2):
                                 matchF = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%a[0-7])', line_F)
                                 if matchF and dN == matchF.group(1) and aN == matchF.group(2):
-                                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                                         optimized_lines = [
                                             f'{matchA.group(1)}moveq {matchA.group(2)}#0,{dN}',
                                             f'{matchA.group(1)}move.b{matchA.group(2)}{src_B},{dN}',
@@ -2598,7 +2651,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                     matchE = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_E)
                     # Do both match with dN and dM?
                     if matchD and matchE and dN == matchD.group(1) and dM == matchE.group(1):
-                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines):
+                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines):
                             label_or_val = ''
                             if matchA.group(3):
                                 label_or_val = matchA.group(3)
@@ -2632,7 +2685,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                     matchE = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_E)
                     # Do both match with dN and dM?
                     if matchC and matchE and dN == matchC.group(1) and dM == matchE.group(1):
-                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines):
+                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines):
                             label_or_val = ''
                             if matchA.group(3):
                                 label_or_val = matchA.group(3)
@@ -2768,7 +2821,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                             if matchE and aN == matchE.group(3):
                                 alu = matchE.group(1)
                                 val = matchE.group(2)
-                                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                                     optimized_lines = [
                                         f'{matchA.group(1)}add.l{matchA.group(3)}{aN},{aN}',
                                         f'{matchA.group(1)}add.l{matchA.group(3)}{aN},{aN}',
@@ -2797,7 +2850,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                             if matchE and aM == matchE.group(3):
                                 alu = matchE.group(1)
                                 val = matchE.group(2)
-                                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                                     optimized_lines = [
                                         f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{aM}',
                                         f'{matchA.group(1)}add.l {matchA.group(3)}{aM},{aM}',
@@ -3561,7 +3614,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                     if matchC and dN == matchC.group(2) and aN == matchC.group(3):
                         matchD = re.match(r'^\s*(add|adda|sub|suba)\.l\s+(%a[0-7]),\s*(%a[0-7])', line_D)
                         if matchD and aN == matchD.group(2) and aN == matchD.group(3):
-                            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                                 alu = matchD.group(1)
                                 optimized_lines = [
                                     f'{matchA.group(1)}{alu}.l{matchA.group(3)}{aN},{aN}'
@@ -3585,7 +3638,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                         if matchD and aN == matchD.group(3):
                             alu = matchD.group(1)
                             val = matchD.group(2)
-                            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                                 optimized_lines = [
                                     f'{matchA.group(1)}add.l{matchA.group(2)}{aN},{aN}',
                                     f'{matchA.group(1)}add.l{matchA.group(2)}{aN},{aN}',
@@ -3995,7 +4048,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                     dN = matchB.group(4)
                     matchC = re.match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*-\(%sp\)', line_C)
                     if matchC and s == matchC.group(1) and dN == matchC.group(2):
-                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines):
+                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
                             optimized_lines = [
                                 f'{matchA.group(1)}{alu}.{s} {matchA.group(4)}{dM},{dN}',
                                 f'{matchA.group(1)}move.{s}{matchA.group(4)}{dN},-(%sp)'
@@ -4316,7 +4369,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # bne    label
                 matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbf{matchA.group(2)}{dN},{label}'
@@ -4326,7 +4379,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # beq    label
                 matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
@@ -4336,7 +4389,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # bpl    label
                 matchB = re.match(r'^\s*[jb]pl(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
@@ -4356,7 +4409,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # bge    label
                 matchB = re.match(r'^\s*[jb]ge(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
@@ -4366,7 +4419,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # blt    label
                 matchB = re.match(r'^\s*[jb]lt(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
@@ -4376,7 +4429,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # bhi    label
                 matchB = re.match(r'^\s*[jb]hi(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbeq{matchA.group(2)}{dN},{label}'
@@ -4386,7 +4439,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 # bls    label
                 matchB = re.match(r'^\s*[jb]ls(\.[sbw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         return (None, 0)  # NOT_WORKING
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
@@ -4746,8 +4799,8 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
                 if matchB and s == matchB.group(1) and dM == matchB.group(2):
                     dP = matchB.group(3)
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines):
-                        return (None, 0)  # NOT_WORKING
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines):
+                        #return (None, 0)  # NOT_WORKING
                         optimized_lines = [
                             f'{matchA.group(1)}add.{s}{matchA.group(3)}{dN},{dP}'
                         ]
@@ -5005,7 +5058,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
             z = '' if matchA.group(7) is None else matchA.group(7)[1:]  # removes the .
             matchB = re.match(r'^\s*(add|adda)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines):
+                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
                     xM = matchB.group(6)
                     optimized_lines = [
                         f'{matchA.group(1)}add.{z}{matchA.group(4)}{dP},{aN}',
@@ -5027,7 +5080,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
             z = '' if matchA.group(7) is None else matchA.group(7)[1:]  # removes the .
             matchB = re.match(r'^\s*(sub|suba)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines):
+                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
                     xM = matchB.group(6)
                     optimized_lines = [
                         f'{matchA.group(1)}sub.{z}{matchA.group(4)}{dP},{aN}',
@@ -6762,7 +6815,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
     if match:
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines):
+        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -6795,7 +6848,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
     if match:
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines):
+        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
