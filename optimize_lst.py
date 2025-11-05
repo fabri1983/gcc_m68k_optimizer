@@ -35,7 +35,7 @@
 # (IMPLEMENTED) https://wiki.neogeodev.org/index.php?title=Optimization
 # (IMPLEMENTED) http://www.ibaug.de/vasm/doc/vasm.pdf
 # (IMPLEMENTED) http://www.csua.berkeley.edu/~muchandr/m68k
-# Custom patterns found from gcc -S outputs
+# Custom patterns found from using gcc -S outputs
 
 # Mnemocis equivalence
 # ------------------
@@ -872,20 +872,23 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
                     control_obj = control_flow_dict[label];
-                    # Ensure the correct array is set
+                    # Which array the destination line points to?
                     if control_obj.pos_in_lines != -1:
                         control_visited.add(label)  # Mark this label as visited
                         i = control_obj.pos_in_lines
                         continue
-                    # We can only iterate over the current array we are iterating at (lines in this case),
-                    # so we must stop here since we don't support iterating over modified_lines array starting
-                    # at control_obj.pos_in_modified_lines
                     else:
+                        # TODO
+                        # We can only iterate over the current array we are iterating at (lines in this case),
+                        # so we must stop here since we don't support iterating over modified_lines array starting
+                        # at control_obj.pos_in_modified_lines
                         candidate_mask = 0  # Mark all candidates as unavailable
                         break
+
         # If is a conditional branch jcc/bcc (except dbcc)
-        # elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+        elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             # TODO: follow the many paths the code could take
+            pass
 
         # First check for overwrites/clears (if not used already)
         elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
@@ -1368,19 +1371,22 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
                     control_obj = control_flow_dict[label];
-                    # Ensure the correct array is set
+                    # Which array the destination line points to?
                     if control_obj.pos_in_lines != -1:
                         control_visited.add(label)  # Mark this label as visited
                         i = control_obj.pos_in_lines
                         continue
-                    # We can only iterate over the current array we are iterating at (lines in this case),
-                    # so we must stop here since we don't support iterating over modified_lines array starting
-                    # at control_obj.pos_in_modified_lines
                     else:
+                        # TODO
+                        # We can only iterate over the current array we are iterating at (lines in this case),
+                        # so we must stop here since we don't support iterating over modified_lines array starting
+                        # at control_obj.pos_in_modified_lines
                         return None
+
         # If is a conditional branch jcc/bcc (except dbcc)
-        # elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+        elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             # TODO: follow the many paths the code could take
+            pass
 
         # xN is overwritten/cleared by a move, sub or eor itself, or clr
         elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
@@ -1741,30 +1747,81 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
                 # Continue searching. It might exist more than one movem/move pop xN
                 continue
 
-def replace_remaining_jsr_aN_calls(aN, i_line, lines, new_line):
+def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
     """
     Search in remaining lines for every "jsr (aN)" and replace by new_line.
     Break condition is: aN is overwritten/cleared or reaching rts/rte.
     """
+    control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
+    control_visited = set()  # Helps to avoid looping infinitely 
+
     rem_start = i_line + 1
     rem_end = len(lines)
-    for i in range(rem_start, rem_end):
+    i = rem_start
+    while i < rem_end:  # forwards
         line = lines[i]
+        i += 1
         if line[0] == '#':
             continue
 
         # If matching the "jsr (aN)" then replace it by new_line
         if match := re.match(r'^\s*jsr\s+\((%a[0-7])\)', line):
             if match.group(1) == aN:
-                lines[i] = new_line
+                lines[i-1] = new_line
                 continue
 
         # End of this routine body?
         if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             break
 
+        if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            # Jumping into a routine?
+            if match.group(1) in ('jsr', 'bsr', 'jbsr'):
+                continue
+            elif match.group(1) in ('bra', 'jra', 'jmp'):
+                # Get the target label (might be a function name which won't be in control_flow_dict)
+                label = match.group(3)
+                # Is tatget label a special one?
+                if label in backward_number_labels or label in forward_number_labels:
+                    if label[1] == 'b':
+                        # As we are going forwards in lines array it means we have already analyzed the code in previous lines
+                        continue
+                    elif label[1] == 'f':
+                        # Move forwards until we find where the label has been defined
+                        while i < rem_end:
+                            if match_label := LABEL_REGEX.match(lines[i]):
+                                if match_label.group(1) == label:
+                                    break
+                            i += 1
+                # Sometimes the label is a function name and the code comes with a jmp/bra.
+                # Or could be (symbol_name) or (%aN) which are not considered labels.
+                # Hence this element is not in the dictionary.
+                elif label not in control_flow_dict:
+                    # When jumping into a subroutine we must stop the analysis since we don't know 
+                    # whether the register xN will be effectively used in that routine
+                    return None
+                # Target label is in the dictionary AND was not yet visited
+                elif label in control_flow_dict and label not in control_visited:
+                    control_obj = control_flow_dict[label];
+                    # Which array the destination line points to?
+                    if control_obj.pos_in_lines != -1:
+                        control_visited.add(label)  # Mark this label as visited
+                        i = control_obj.pos_in_lines
+                        continue
+                    else:
+                        # TODO
+                        # We can only iterate over the current array we are iterating at (lines in this case),
+                        # so we must stop here since we don't support iterating over modified_lines array starting
+                        # at control_obj.pos_in_modified_lines
+                        continue
+
+        # If is a conditional branch jcc/bcc (except dbcc)
+        elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            # TODO: follow the many paths the code could take
+            pass
+
         # aN is overwritten/cleared by a move, sub or eor itself, or clr
-        if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+        elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
             instr_move_or_sub_or_eor = match.group(1)  # move or sub or eor, or empty if matched with the clr
             src = match.group(2)  # source operand for move or sub or eor
             instr_clr = match.group(3)
@@ -3676,33 +3733,35 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                     ]
                     return (optimized_lines, 4)
 
+            # NOT_WORKING
             # Replace many BSR/JSR+BRA/JMP by many PEA+BRA/JMP
             # bsr/jsr subr1     ->    pea next           ; Saves [2,4] cycles?
             # bsr/jsr subr2           pea subr3
             # bsr/jsr subr3           pea subr2
             # bra/jmp next            bra/jmp subr1
-            #matchD = re.match(r'^\s*(bra|jra|jmp)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_D)
-            #if matchD:
-            #    bsr_jsr_routine = r'^\s*(bsr|jbsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)'
-            #    matchB = re.match(bsr_jsr_routine, line_B)
-            #    matchC = re.match(bsr_jsr_routine, line_C)
-            #    if matchB and matchC:
-            #        subr1 = matchA.group(5)
-            #        subr2 = matchB.group(3)
-            #        subr3 = matchC.group(3)
-            #        next = matchD.group(3)
-            #        last_instr = "jmp  "
-            #        if not matchA.group(2) == "jsr":
-            #            last_instr = "bra  "
-            #            if matchA.group(3):
-            #                last_instr = f'bra{matchA.group(3)}'
-            #        optimized_lines = [
-            #            f'{matchA.group(1)}pea  {matchA.group(4)}{next}',
-            #            f'{matchA.group(1)}pea  {matchA.group(4)}{subr3}',
-            #            f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
-            #            f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
-            #        ]
-            #        return (optimized_lines, 4)
+            matchD = re.match(r'^\s*(bra|jra|jmp)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_D)
+            if matchD:
+                bsr_jsr_routine = r'^\s*(bsr|jbsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)'
+                matchB = re.match(bsr_jsr_routine, line_B)
+                matchC = re.match(bsr_jsr_routine, line_C)
+                if matchB and matchC:
+                    return (None, 0)  # NOT_WORKING
+                    subr1 = matchA.group(5)
+                    subr2 = matchB.group(3)
+                    subr3 = matchC.group(3)
+                    next = matchD.group(3)
+                    last_instr = "jmp  "
+                    if not matchA.group(2) == "jsr":
+                        last_instr = "bra  "
+                        if matchA.group(3):
+                            last_instr = f'bra{matchA.group(3)}'
+                    optimized_lines = [
+                        f'{matchA.group(1)}pea  {matchA.group(4)}{next}',
+                        f'{matchA.group(1)}pea  {matchA.group(4)}{subr3}',
+                        f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
+                        f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
+                    ]
+                    return (optimized_lines, 4)
                                         
         if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
@@ -3920,28 +3979,30 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                     ]
                     return (optimized_lines, 3)
 
+            # NOT_WORKING
             # Replace many BSR/JSR+BRA/JMP by many PEA+BRA/JMP
             # bsr/jsr subr1     ->    pea next             ; Saves [0,2] cycles?
             # bsr/jsr subr2           pea subr2
             # bra/jmp next            bra/jmp subr1
-            #matchC = re.match(r'^\s*(bra|jra|jmp)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_C)
-            #if matchC:
-            #    matchB = re.match(r'^\s*(bsr|jbsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
-            #    if matchB:
-            #        subr1 = matchA.group(5)
-            #        subr2 = matchB.group(3)
-            #        next = matchC.group(3)
-            #        last_instr = "jmp  "
-            #        if not matchA.group(2) == "jsr":
-            #            last_instr = "bra  "
-            #            if matchA.group(3):
-            #                last_instr = f'bra{matchA.group(3)}'
-            #        optimized_lines = [
-            #            f'{matchA.group(1)}pea  {matchA.group(4)}{next}',
-            #            f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
-            #            f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
-            #        ]
-            #        return (optimized_lines, 3)
+            matchC = re.match(r'^\s*(bra|jra|jmp)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_C)
+            if matchC:
+                matchB = re.match(r'^\s*(bsr|jbsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
+                if matchB:
+                    return (None, 0)  # NOT_WORKING
+                    subr1 = matchA.group(5)
+                    subr2 = matchB.group(3)
+                    next = matchC.group(3)
+                    last_instr = "jmp  "
+                    if not matchA.group(2) == "jsr":
+                        last_instr = "bra  "
+                        if matchA.group(3):
+                            last_instr = f'bra{matchA.group(3)}'
+                    optimized_lines = [
+                        f'{matchA.group(1)}pea  {matchA.group(4)}{next}',
+                        f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
+                        f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
+                    ]
+                    return (optimized_lines, 3)
 
         if USE_FABRI1983_MOVEM_OPTIMIZATIONS:
 
@@ -4462,26 +4523,29 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
             # Replace BSR+BRA by PEA+BRA
             # bsr subr         ->    pea   next.w       ; Saves 2 cycles
             # bra next               bra   subr
-            #matchB = re.match(r'^\s*(bra|jra)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
-            #if matchB:
-            #    next = matchB.group(3)
-            #    optimized_lines = [
-            #        f'{matchA.group(1)}pea  {matchA.group(3)}{next}.w',
-            #        f'{matchA.group(1)}bra{s_branch}{matchA.group(3)}{subr}'
-            #    ]
-            #    return (optimized_lines, 2)
+            matchB = re.match(r'^\s*(bra|jra)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
+            if matchB:
+                return (None, 0)  # NOT_WORKING
+                next = matchB.group(3)
+                optimized_lines = [
+                    f'{matchA.group(1)}pea  {matchA.group(3)}{next}.w',
+                    f'{matchA.group(1)}bra{s_branch}{matchA.group(3)}{subr}'
+                ]
+                return (optimized_lines, 2)
 
+            # NOT_WORKING
             # Replace BSR+JMP by PEA+BRA
             # bsr subr         ->    pea   next         ; Saves 0 cycles
             # jmp next               bra   subr
-            #matchB = re.match(r'^\s*jmp\s+([0-9a-zA-Z_\.]+)', line_B)
-            #if matchB:
-            #    next = matchB.group(1)
-            #    optimized_lines = [
-            #        f'{matchA.group(1)}pea  {matchA.group(3)}{next}',
-            #        f'{matchA.group(1)}bra{s_branch}{matchA.group(3)}{subr}'
-            #    ]
-            #    return (optimized_lines, 2)
+            matchB = re.match(r'^\s*jmp\s+([0-9a-zA-Z_\.]+)', line_B)
+            if matchB:
+                return (None, 0)  # NOT_WORKING
+                next = matchB.group(1)
+                optimized_lines = [
+                    f'{matchA.group(1)}pea  {matchA.group(3)}{next}',
+                    f'{matchA.group(1)}bra{s_branch}{matchA.group(3)}{subr}'
+                ]
+                return (optimized_lines, 2)
 
         # Tail recursion for JSR or exploiting PEA opportunities
         matchA = re.match(r'^(\s*)jsr(\s+)([0-9a-zA-Z_\.]+)', line_A)
@@ -4499,26 +4563,28 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
             # Replace JSR+BRA by PEA+BRA
             # jsr subr         ->    pea   next.w       ; Saves 2 cycles?
             # bra next               jmp   subr
-            #matchB = re.match(r'^\s*(bra|jra)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
-            #if matchB:
-            #    next = matchB.group(3)
-            #    optimized_lines = [
-            #        f'{matchA.group(1)}pea{matchA.group(2)}{next}.w',
-            #        f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
-            #    ]
-            #    return (optimized_lines, 2)
+            matchB = re.match(r'^\s*(bra|jra)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
+            if matchB:
+                return (None, 0)  # NOT_WORKING
+                next = matchB.group(3)
+                optimized_lines = [
+                    f'{matchA.group(1)}pea{matchA.group(2)}{next}.w',
+                    f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
+                ]
+                return (optimized_lines, 2)
 
             # Replace JSR+JMP by PEA+JMP
             # jsr subr         ->    pea next           ; Saves 0 cycles
             # jmp next               jmp subr
-            #matchB = re.match(r'^\s*jmp\s+([0-9a-zA-Z_\.]+)', line_B)
-            #if matchB:
-            #    next = matchB.group(1)
-            #    optimized_lines = [
-            #        f'{matchA.group(1)}pea{matchA.group(2)}{next}',
-            #        f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
-            #    ]
-            #    return (optimized_lines, 2)
+            matchB = re.match(r'^\s*jmp\s+([0-9a-zA-Z_\.]+)', line_B)
+            if matchB:
+                return (None, 0)  # NOT_WORKING
+                next = matchB.group(1)
+                optimized_lines = [
+                    f'{matchA.group(1)}pea{matchA.group(2)}{next}',
+                    f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
+                ]
+                return (optimized_lines, 2)
 
         # lea     subr,aN    ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused
         # jsr     (aN)
@@ -4532,7 +4598,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
                 ]
-                replace_remaining_jsr_aN_calls(aN, i_line, lines, optimized_lines[0])
+                replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, optimized_lines[0])
                 if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                 return (optimized_lines, 2)
 
@@ -4548,7 +4614,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
                 ]
-                replace_remaining_jsr_aN_calls(aN, i_line, lines, optimized_lines[0])
+                replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, optimized_lines[0])
                 if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                 return (optimized_lines, 2)
 
@@ -4800,7 +4866,6 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 if matchB and s == matchB.group(1) and dM == matchB.group(2):
                     dP = matchB.group(3)
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines):
-                        #return (None, 0)  # NOT_WORKING
                         optimized_lines = [
                             f'{matchA.group(1)}add.{s}{matchA.group(3)}{dN},{dP}'
                         ]
@@ -12206,6 +12271,7 @@ def remove_simple_abi(lines):
     rem_end = len(lines)
     while i < rem_end:  # forwards
         line = lines[i]
+        i += 1
         modified_lines_no_abi.append(line)
 
         # Is calling one of the collected functions?
@@ -12217,8 +12283,8 @@ def remove_simple_abi(lines):
                 func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, modified_lines_no_abi, i-1, 0)
             if func_name in args_pushed_per_function:
                 # Go backwards until we reach the end of arguments range
-                line_end_of_args_range = i-1
-                for k in range(i-1, max(0, i - previous_N_lines_for_args) - 1, -1):  # backwards
+                line_end_of_args_range = (i-1) - 1
+                for k in range((i-1) - 1, max(0, (i-1) - previous_N_lines_for_args) - 1, -1):  # backwards
                     prev_line = modified_lines_no_abi[k]
                     if FUNCTION_DECLARATION_REGEX.match(prev_line) or FUNCTION_EXIT_REGEX.match(prev_line) or CONDITIONAL_CONTROL_FLOW_REGEX.match(prev_line) or UNCONDITIONAL_CONTROL_FLOW_REGEX.match(prev_line):
                         line_end_of_args_range = k + 1
@@ -12296,8 +12362,6 @@ def remove_simple_abi(lines):
                 # or remove it if the poping reg is the same than the argument reg
                 # TODO: see raycasting asm routine DMA_doDmaFast.constprop.0
 
-        i += 1
-
     return modified_lines_no_abi
 
 
@@ -12346,6 +12410,11 @@ if __name__ == "__main__":
     else:
         print(f'[OPT_LOG] TOTAL: {num_updated_lines_found} {lines_label} were updated')
 
+    if not SAVE_OPTIMIZATIONS:
+        print('[OPT_LOG] CHANGES NOT PERSISTED, as per SAVE_OPTIMIZATIONS = False')
+        with open(input_filename, 'r', encoding='utf-8') as infile:
+            modified_lines = infile.readlines()
+        
     output_filename = sys.argv[2]
     with open(output_filename, 'w', encoding='utf-8') as outfile:
         for line in modified_lines:
