@@ -6514,7 +6514,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
         optimized_line = f'{match.group(1)}st.b{match.group(2)}{dN}'
         return ([optimized_line], True)
 
-    # move.b #-1,<ea>  ->    st <ea>           ; Saves 0 to 4 cycles. Status flags wrong
+    # move.b   #-1,<ea>    ->    st <ea>           ; Saves 0 to 4 cycles. Status flags wrong
     # <ea>: effective address valid for ST instruction:
     #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l
     # Where s in xN.s is: b,w,l
@@ -6556,18 +6556,17 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
 
     # Push memory address into sp
     # move.l   #mem_addr,-(sp)   ->   pea   mem_addr   ; Saves 8 cycles
-    # Where mem_addr: #-520158600[.bwl][+-*N], #0xFFFFFFFF[.bwl][+-*N], #symbolName[.bwl][+-*N]
-    # gcc might add +-*N[.bwl]. Ie: ammoInventory+2
-    # NOTE: #symbols are not matched, don't know why. However next reg expr pattern does it.
+    # Egs for mem_addr: #-520158600[.bwl][+-*N], #0xFFFFFFFF[.bwl][+-*N], #symbolName[.bwl][+-*N]
+    # NOTE: #symbolName is not being matched, don't know why. However, next reg expr pattern does it.
     match = re.match(r'^(\s*)move\.l(\s+)#([a-zA-Z_]\w*|-?\d+|(?:0[xX]|\$)[0-9a-fA-F]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
     if match:
         return ([], False)  # NOT_WORKING
-        mem_address = ''.join(match.group(i) for i in range(3, 7) if match.group(i) is not None)
+        mem_address = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
         optimized_line = f'{match.group(1)}pea{match.group(2)}{mem_address}'
         return ([optimized_line], True)
 
     # Push <ea> into sp.
-    # move.l   <ea>,-(sp)   ->   pea      <ea>        ; Saves [6,12] cycles
+    # move.l   <ea>,-(sp)   ->   pea   <ea>      ; Saves [6,12] cycles
     # <ea>: effective address valid for pea instruction:
     #   (aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l   d(PC)   d(PC,xN.s)
     # Note that gcc might put the displacement like next: (d,aN)   (d,aN,xN.s)   (d,pc)   (d,pc,xN.s)
@@ -6689,7 +6688,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
         if match:
             val = parseConstantUnsigned(match.group(3))
             if val == 7:
-                mem_address = ''.join(match.group(i) for i in range(4, 8) if match.group(i) is not None)
+                mem_address = ''.join(match.group(i) for i in range(4, 8) if match.group(i))
                 optimized_line = f'{match.group(1)}tas{match.group(2)}{mem_address}'
                 return ([optimized_line], True)
 
@@ -6788,7 +6787,6 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
         # clr.l   -(sp)     ->    pea     0.w       ; Saves 6 cycles. Status flags wrong.
         match = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line)
         if match:
-            return ([], False)  # NOT_WORKING
             optimized_line = f'{match.group(1)}pea{match.group(2)}0.w'
             return ([optimized_line], True)
 
@@ -11716,7 +11714,7 @@ def optimize_asm(lines, num_pass):
         elif stripped.startswith("#NO_APP"):
             if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
                 if print_end_asm_block:
-                    print(f'[OPT_LOG]   End inline asm block')
+                    print(f'[OPT_LOG] <-- End inline asm block')
             print_start_asm_block = False
             print_end_asm_block = False
             inside_inline_asm_block = False
@@ -11780,7 +11778,7 @@ def optimize_asm(lines, num_pass):
                     if PRINT_OPTIMIZATION_LOG:
                         # Print starting or ending an inline asm block
                         if print_start_asm_block:
-                            print(f'[OPT_LOG]   Start inline asm block')
+                            print(f'[OPT_LOG] --> Start inline asm block')
                             print_start_asm_block = False
                             print_end_asm_block = True
                         # Print optimization log
@@ -11812,7 +11810,7 @@ def optimize_asm(lines, num_pass):
             elif line.startswith("#NO_APP"):
                 if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
                     if print_end_asm_block:
-                        print(f'[OPT_LOG]   End inline asm block')
+                        print(f'[OPT_LOG] <-- End inline asm block')
                 print_start_asm_block = False
                 print_end_asm_block = False
                 inside_inline_asm_block = False
@@ -11841,7 +11839,7 @@ def optimize_asm(lines, num_pass):
                     original_line_num = line_number_map.get(i_line, i_line)
                     # Print starting or ending an inline asm block
                     if print_start_asm_block:
-                        print(f'[OPT_LOG]   Start inline asm block')
+                        print(f'[OPT_LOG] --> Start inline asm block')
                         print_start_asm_block = False
                         print_end_asm_block = True
                     # Print optimization log
@@ -12128,7 +12126,6 @@ def remove_simple_abi(lines):
         if match := FUNCTION_DECLARATION_REGEX.match(line):
             declared_functions_set.add(match.group(1))
 
-
     # Phase 2:
     # For each call to a function we create a list of the arguments (reg or memory or symbol) being pushed into 
     # the stack, including its size. Every time we found that a function is already in the map we must ensure 
@@ -12205,7 +12202,7 @@ def remove_simple_abi(lines):
 
     # TODO: remove this after testing
     for key, value in args_pushed_per_function.items():
-        print(key, 'total_sp_adjustment:', value.total_sp_adjustment, 'args:', value.args, '\n')
+        print(key, 'total_sp_adjustment:', value.total_sp_adjustment, ', args:', value.args)
     return lines
 
     # Phase 3: for those functions in args_pushed_per_function map:
@@ -12213,7 +12210,9 @@ def remove_simple_abi(lines):
     # - when at the function declaration: replace the pop from stack by the assigment of the argument, or
     #   remove it if the poping reg is the same than the argument reg. Apply adjustments over subsequent uses of sp.
     modified_lines_no_abi = []
-    for i in range(0, len(lines)):  # forwards
+    i = 0
+    rem_end = len(lines)
+    while i < rem_end:  # forwards
         line = lines[i]
         modified_lines_no_abi.append(line)
 
@@ -12231,7 +12230,7 @@ def remove_simple_abi(lines):
                     prev_line = modified_lines_no_abi[k]
                     if FUNCTION_DECLARATION_REGEX.match(prev_line) or FUNCTION_EXIT_REGEX.match(prev_line) or CONDITIONAL_CONTROL_FLOW_REGEX.match(prev_line) or UNCONDITIONAL_CONTROL_FLOW_REGEX.match(prev_line):
                         line_end_of_args_range = k + 1
-                # Remove the push into sp instructions by going forward
+                # Remove the push into sp instructions while going forward up to the call of the function
                 accum_sp_adjustment = 0
                 for k in range(line_end_of_args_range, i):  # forwards
                     next_line = modified_lines_no_abi[k]
@@ -12305,6 +12304,8 @@ def remove_simple_abi(lines):
                 # or remove it if the poping reg is the same than the argument reg
                 # TODO: see raycasting asm routine DMA_doDmaFast.constprop.0
 
+        i += 1
+
     return modified_lines_no_abi
 
 
@@ -12334,7 +12335,7 @@ if __name__ == "__main__":
     modified_lines, num_updated_lines_found, num_patterns_found = optimize_asm(modified_lines, 1)
 
     # 2nd pass: catch new opportunities and optimize branches
-    print(f'[OPT_LOG] SECOND pass (opt line numbers point to first pass and not to original file):')
+    print(f'[OPT_LOG] SECOND pass: (opt line numbers will point to result from first pass and not to original lines):')
     modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
     num_updated_lines_found += num_updated_lines_found_2nd_pass
     num_patterns_found += num_patterns_found_2nd_pass
