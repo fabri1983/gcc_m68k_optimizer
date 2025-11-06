@@ -35,7 +35,7 @@
 # (IMPLEMENTED) https://wiki.neogeodev.org/index.php?title=Optimization
 # (IMPLEMENTED) http://www.ibaug.de/vasm/doc/vasm.pdf
 # (IMPLEMENTED) http://www.csua.berkeley.edu/~muchandr/m68k
-# Custom patterns found from using gcc -S outputs
+# Custom patterns found from gcc -S outputs
 
 # Mnemocis equivalence
 # ------------------
