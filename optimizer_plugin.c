@@ -111,7 +111,7 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 		fclose(fp_copy);
 	}
 
-    // Execute python program named optimize_lst.py with arguments filename and filename_optimized
+    // Execute python program named optimize_lst.py with its arguments
     char command[512];
     snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" 1>&2", filename, filename_optimized);
 
@@ -169,12 +169,13 @@ static void callback(void *gcc_data, void *user_data) {
 // Plugin entry point
 int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version *version) {
 
+	// Version mismatch?
     if (!plugin_default_version_check(version, &gcc_version)) {
         PRINT_ERROR("Version mismatch in plugin_init()\n");
-        return 1;  // Version mismatch
+        return 1;
     }
 
-	// Allocate space for user params struct
+	// Allocate space for user params data struct
 	my_callback_params_t *my_params = (my_callback_params_t *) xmalloc(sizeof(my_callback_params_t));
 	my_params->keep_files = false;
 

@@ -23,7 +23,7 @@ Add the toolchain into your PATH so SGDK can see it, as well the next step.
 
 Then, compile the gcc plugin `optimizer_plugin.c` responsible to execute the python script over the 
 gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
-(or [build_plugin_w64.sh](build_plugin_w64.sh "build_plugin_w64.sh")).  
+(or [build_plugin_mingw32.sh](build_plugin_mingw32.sh "build_plugin_mingw32.sh")).  
 This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder, along 
 with the `optimize_lst.py` file.
 

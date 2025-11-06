@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # First convert Windows EOL (CRLF) to Linux EOL (LF)
-#   sed -i 's/\r$//' build_plugin_w64.sh
-# chmod +x build_plugin_w64.sh
-# ./build_plugin_w64.sh
+#   sed -i 's/\r$//' build_plugin_mingw32.sh
+# chmod +x build_plugin_mingw32.sh
+# ./build_plugin_mingw32.sh
 
 HOST_GCC_VERSION=$(x86_64-w64-mingw32-gcc -dumpversion)
 echo "Host GCC version: $HOST_GCC_VERSION"
