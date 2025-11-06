@@ -7,11 +7,11 @@
 
 HOST_GCC_VERSION=$(x86_64-w64-mingw32-gcc -dumpversion)
 echo "Host GCC version: $HOST_GCC_VERSION"
-TARGET_GCC_VERSION=$(m68k-elf-gcc -dumpversion)
+TARGET_GCC_VERSION=$(m68k-elf-gcc.exe -dumpversion)
 echo "Target GCC version: $TARGET_GCC_VERSION"
 
 # Get the plugin directory from target GCC
-PLUGIN_DIR=$(m68k-elf-gcc -print-file-name=plugin)
+PLUGIN_DIR=$(m68k-elf-gcc.exe -print-file-name=plugin)
 PLUGIN_INCLUDE="$PLUGIN_DIR/include"
 echo "Plugin include target GCC: $PLUGIN_INCLUDE"
 

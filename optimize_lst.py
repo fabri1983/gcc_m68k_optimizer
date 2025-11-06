@@ -528,7 +528,7 @@ REG_AS_TARGET_ALONE_REGEX = re.compile(
 CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
     r'^\s*(bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bvc|bvs|jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jvc|jvs)\s+([0-9a-zA-Z_\.]+)(\.[bwl])?;?$'
 )
-# Unconditional instructions. Considers cases like: any_label, (any_label_or_mem), (%aN). With optional .s
+# Unconditional instructions. Considers cases like: any_label, symbolName or mem, (%aN). With optional .s
 UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
     r'^\s*(jmp|bra|jra|bsr|jbsr|jsr)\s+'
     r'(\()?'   # Optional '('
@@ -4511,7 +4511,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
                 ]
-                return (None, 0)  # NOT_WORKING: one of the next functions are introducing a bug
+                return (None, 0)  # NOT_WORKING: one of the next functions is introducing a bug
                 replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, optimized_lines[0])
                 if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                 return (optimized_lines, 2)
@@ -4527,7 +4527,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
                 ]
-                return (None, 0)  # NOT_WORKING: one of the next functions are introducing a bug
+                return (None, 0)  # NOT_WORKING: one of the next functions is introducing a bug
                 replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, optimized_lines[0])
                 if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                 return (optimized_lines, 2)
@@ -11923,7 +11923,23 @@ def convert_gcc_movem_encoded_regs(line):
 
     return line
 
+symbolName_or_imm_dereference_pattern = re.compile(
+    r'\('                            # Matches '('
+    r'(?!%[ad][0-7]|%sp|%pc)'        # Negative lookahead: avoid dN, aN, sp, pc
+    r'([0-9a-zA-Z_\.]+(?:\.[wl])?)'  # symbolName[.wl]
+    r'\)'                            # Matches ')'
+)
+
+def remove_dereference_symbolName_or_immediate(line):
+    """
+    Remove chars '(' and ')' containing a symbolName or an immediate value.
+    """
+    return symbolName_or_imm_dereference_pattern.sub(r'\1', line)
+
 def applyGccConversions(lines):
+    """
+    Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading.
+    """
     modified_lines = []
     for i_line in range(0, len(lines)):
         line = lines[i_line]
@@ -11947,6 +11963,8 @@ def applyGccConversions(lines):
         line = change_gcc_dn_long_indirection_by_word(line)
         # Replace gcc encoded list of regs by a human readable format
         line = convert_gcc_movem_encoded_regs(line)
+        # Remove dereference over symbol names, like: lea (PAL_setPalette.constprop.0),%a3
+        line = remove_dereference_symbolName_or_immediate(line)
 
         modified_lines.append(line)
 
@@ -11954,21 +11972,15 @@ def applyGccConversions(lines):
 
 # move.l symbolName[.wl],aN
 # move.l #symbolName[.wl],aN
-# move.l (symbolName[.wl]),aN
 move_symbolName_into_an_pattern = re.compile(
     r'^\s*move\.l\s+'
-    r'(#|\()?'
-    r'([0-9a-zA-Z_\.]+)(\.[wl])?'
-    r'(\))?'
+    r'#?([0-9a-zA-Z_\.]+)(\.[wl])?'
     r',\s*(%a[0-7]);?$'
 )
 # lea symbolName[.wl],aN
-# lea (symbolName[.wl]),aN
 lea_symbolName_into_an_pattern = re.compile(
     r'^\s*lea\s+'
-    r'(\()?'
     r'([0-9a-zA-Z_\.]+)(\.[wl])?'
-    r'(\))?'
     r',\s*(%a[0-7]);?$'
 )
 
@@ -11981,8 +11993,8 @@ def search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i_start, i_en
             break
         # Is moving a symbolName name into aN?
         if match := move_symbolName_into_an_pattern.match(prev_line) or lea_symbolName_into_an_pattern.match(prev_line):
-            if aN == match.group(5):
-                return match.group(2)
+            if aN == match.group(3):
+                return match.group(1)
     return ''
 
 move_into_SGDK_table_vector_pattern = re.compile(
@@ -12294,7 +12306,7 @@ if __name__ == "__main__":
     with open(input_filename, 'r', encoding='utf-8') as infile:
         lines = infile.readlines()
 
-    # Convert some gcc idioms, indirections, and regs encodings for easy reading
+    # Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading
     modified_lines = applyGccConversions(lines)
 
     # Print non used functions
