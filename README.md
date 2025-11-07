@@ -28,6 +28,10 @@ gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plug
 This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder, along 
 with the `optimize_lst.py` file.
 
+Optionally, build SGDK. You can use script [build_sgdk.sh](build_sgdk.sh "build_sgdk.sh").  
+This step is optional if you have your SGDK already built/installed. Then you can rely SGDK `makefile.gen` will take on 
+the new *m68k-elf-* added to the PATH in previous step.
+
 ### Execution
 - Open SGDK's `makefile.gen`:
   - Add next line after the inclusion of **common.mk**:  
