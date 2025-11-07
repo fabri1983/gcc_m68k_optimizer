@@ -29,8 +29,8 @@ This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it
 with the `optimize_lst.py` file.
 
 Optionally, build SGDK. You can use script [build_sgdk.sh](build_sgdk.sh "build_sgdk.sh").  
-This step is optional if you have your SGDK already built/installed. Then you can rely SGDK `makefile.gen` will take on 
-the new *m68k-elf-* added to the PATH in previous step.
+This step is optional if you have your SGDK already built/installed. Then you can rely SGDK's `makefile.gen` will take 
+the new *m68k-elf-* binaries added to the PATH in previous step.
 
 ### Execution
 - Open SGDK's `makefile.gen`:
