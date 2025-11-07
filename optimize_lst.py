@@ -56,7 +56,6 @@
 # jpl      |   bpl
 # jvs      |   bvs
 # jvc      |   bvc
-# jbsr     |   bsr   (I think jbsr doesn't exist)
 # jra      |   bra
 # -----------------
 
@@ -528,9 +527,9 @@ REG_AS_TARGET_ALONE_REGEX = re.compile(
 CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
     r'^\s*(bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bvc|bvs|jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jvc|jvs)\s+([0-9a-zA-Z_\.]+)(\.[bwl])?;?$'
 )
-# Unconditional instructions. Considers cases like: any_label, symbolName or mem, (%aN). With optional .s
+# Unconditional instructions. Considers cases like: label, symbolName, mem, (%aN). With optional .s
 UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
-    r'^\s*(jmp|bra|jra|bsr|jbsr|jsr)\s+'
+    r'^\s*(jmp|bra|jra|bsr|jsr)\s+'
     r'(\()?'   # Optional '('
     r'(%?[0-9a-zA-Z_\.]+)(\.[bwl])?'
     r'(\))?'   # Optional ')'
@@ -841,7 +840,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
         # If is an unconditional branch jmp/bra/bsr/jsr
         if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             # Jumping into a routine?
-            if match.group(1) in ('jsr', 'bsr', 'jbsr'):
+            if match.group(1) in ('jsr', 'bsr'):
                 # When jumping into a subroutine we must stop the analysis since we don't know 
                 # whether the candidates will be effectively used in that routine
                 candidate_mask = 0  # Mark all candidates as unavailable
@@ -1342,7 +1341,7 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
 
         if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             # Jumping into a routine?
-            if match.group(1) in ('jsr', 'bsr', 'jbsr'):
+            if match.group(1) in ('jsr', 'bsr'):
                 # When jumping into a subroutine we must stop the analysis since we don't know 
                 # whether the register xN will be effectively used in that routine
                 return None
@@ -1776,7 +1775,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
 
         if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             # Jumping into a routine?
-            if match.group(1) in ('jsr', 'bsr', 'jbsr'):
+            if match.group(1) in ('jsr', 'bsr'):
                 continue
             elif match.group(1) in ('bra', 'jra', 'jmp'):
                 # Get the target label (might be a function name which won't be in control_flow_dict)
@@ -1947,13 +1946,13 @@ def are_regs_sorted(regs):
     # Check if each group is in strictly increasing order                            
     return is_increasing(data_regs, '%d') and is_increasing(addr_regs, '%a')
 
-# Simple table: opcode base sizes in words
+# Table for opcode base sizes in words
 BASE_SIZES_IN_WORDS = {
     'abcd': 1, 'adda': 1, 'add': 1, 'addi': 1, 'addq': 1, 'addx': 1, 'and': 1, 'andi': 1, 'asl': 1, 'asr': 1, 'bcc': 1, 'bcs': 1, 
     'beq': 1, 'bge': 1, 'bgt': 1, 'bhi': 1, 'bhs': 1, 'ble': 1, 'blo': 1, 'bls': 1, 'blt': 1, 'bmi': 1, 'bne': 1, 'bpl': 1, 
     'bra': 1, 'bset': 1, 'bsr': 1, 'btst': 1, 'bvc': 1, 'bvs': 1, 'chk': 1, 'clr': 1, 'cmpa': 1, 'cmp': 1, 'cmpi': 1, 'cmpm': 1, 'dbcc': 1,
     'dbcs': 1, 'dbeq': 1, 'dbf': 1, 'dbra': 1, 'dbge': 1, 'dbgt': 1, 'dbhi': 1, 'dble': 1, 'dbls': 1, 'dblt': 1, 'dbmi': 1, 'dbne': 1,
-    'dbpl': 1, 'dbra': 1, 'dbt': 1, 'dbvc': 1, 'dbvs': 1, 'divs': 1, 'divu': 1, 'eor': 1, 'eori': 1, 'exg': 1, 'ext': 1, 'jbsr': 1, 'jcc': 1, 
+    'dbpl': 1, 'dbra': 1, 'dbt': 1, 'dbvc': 1, 'dbvs': 1, 'divs': 1, 'divu': 1, 'eor': 1, 'eori': 1, 'exg': 1, 'ext': 1, 'jcc': 1, 
     'jcs': 1, 'jeq': 1, 'jge': 1, 'jgt': 1, 'jhi': 1, 'jhs': 1, 'jle': 1, 'jlo': 1, 'jls': 1, 'jlt': 1, 'jmi': 1, 'jmp': 1, 'jne': 1, 
     'jpl': 1, 'jra': 1, 'jsr': 1, 'jvc': 1, 'jvs': 1, 'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 
     'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 'nbcd': 1, 'neg': 1, 'negx': 1, 'not': 1, 'or': 1, 'ori': 1, 'pea': 1, 'rol': 1, 'ror': 1, 
@@ -2012,7 +2011,7 @@ bcc_or_jcc_instructions = {
     'jcc','jcs','jeq','jge','jgt','jhi','jhs','jle','jlo','jls','jlt','jmi','jne','jpl','jvc','jvs'
 }
 
-bra_or_jra_or_bsr_or_jbsr_instructions = {'bra','bsr','jbsr','jra'}
+unconditional_short_instructions = {'bra','jra','bsr'}
 
 def classify_operand(op, op_base, op_size):
     """
@@ -2059,7 +2058,7 @@ def classify_operand(op, op_base, op_size):
     if RE_label_function_symbol.match(op):
         if op_size == 's':
             return 'encoded'  # The label is encoded inside the op_base so is free
-        elif op_base.startswith('db') or op_base in bcc_or_jcc_instructions or op_base in bra_or_jra_or_bsr_or_jbsr_instructions:
+        elif op_base.startswith('db') or op_base in bcc_or_jcc_instructions or op_base in unconditional_short_instructions:
             return 'ABS.w'
         return 'ABS.l'
     # Symbol with starting #. gcc might add +N[.l] or -N[.l]. Ie:  #ammoInventory[.bwl][+-N][.l]
@@ -3704,7 +3703,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                                 return (optimized_lines, 4)
 
         # Tail recursion for BSR/JSR or exploiting PEA opportunities
-        matchA = re.match(r'^(\s*)(bsr|jbsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)', line_A)
+        matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)', line_A)
         if matchA:
 
             # Tail recursion. Replace many BSR/JSR+RTS by many PEA+BRA/JMP
@@ -3714,7 +3713,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
             # rts
             matchD = re.match(r'^\s*rts\b', line_D)
             if matchD:
-                bsr_jsr_routine = r'^\s*(bsr|jbsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)'
+                bsr_jsr_routine = r'^\s*(bsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)'
                 matchB = re.match(bsr_jsr_routine, line_B)
                 matchC = re.match(bsr_jsr_routine, line_C)
                 if matchB and matchC:
@@ -3937,7 +3936,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                             return (optimized_lines, 3)
 
         # Tail recursion for BSR/JSR or exploiting PEA opportunities
-        matchA = re.match(r'^(\s*)(bsr|jbsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)', line_A)
+        matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)', line_A)
         if matchA:
 
             # Tail recursion. Replace many BSR/JSR+RTS by many PEA+BRA/JMP
@@ -3946,7 +3945,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
             # rts
             matchC = re.match(r'^\s*rts\b', line_C)
             if matchC:
-                matchB = re.match(r'^\s*(bsr|jbsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
+                matchB = re.match(r'^\s*(bsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_B)
                 if matchB:
                     subr1 = matchA.group(5)
                     subr2 = matchB.group(3)
@@ -11610,15 +11609,15 @@ def optimizeSingleLine_MovemWithSingleRegister(line, i_line, lines, modified_lin
     return ([], False)
 
 # Adding (?![^;#\n]*[-+]) at the end which is a negative lookahead that ensures the target label is 
-# not followed by any characters (except ; # newlines) that contain - or +.
+# not followed by any characters (except ';', '#', 'newlines') containing - or +.
 shorten_branches_pattern = re.compile(
-    r'^(\s*)(bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bra|bsr|bvc|bvs|jbsr|jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jra|jvc|jvs)(\.[sbw])?'
+    r'^(\s*)(bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bra|bsr|bvc|bvs|jsr|jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jra|jvc|jvs)(\.[sbw])?'
     r'(\s+)([0-9a-zA-Z_\.]+)(?![^;#\n]*[-+])'
 )
 
 def optimizeSingleLine_ShortenBranches(line, i_line, lines, modified_lines):
     """
-    Optimize a the branch instructions by using short branch suffix ".s" if the target label is in the range of [-126,128] bytes.
+    Optimize branch instructions by using short branch suffix ".s" if the target label is in the range of [-126,128] bytes.
     Returns a tuple of (optimized_lines, was_optimized) where:
     - optimized_lines is a list of new lines optimized lines (empty list if not).
     - was_optimized is a boolean indicating if optimization occurred.
@@ -11641,8 +11640,8 @@ def optimizeSingleLine_ShortenBranches(line, i_line, lines, modified_lines):
         if branch_s is None or branch_s == '.w':
             label = match.group(5)
             if is_label_within_8_bytes_range(label, i_line, lines, modified_lines):
-                # Normalize the instruction to the M68000 set
-                if branch_instr == 'jbsr':
+                # Replace jsr by bsr
+                if branch_instr == 'jsr':
                     branch_instr = 'bsr'
                 # Normalize the instruction to the M68000 set
                 elif branch_instr[0] == 'j':
@@ -11879,7 +11878,7 @@ gcc_indirection_with_long_dn_access_pattern = re.compile(
     r')'
 )
 
-def change_gcc_dn_long_indirection_by_word(line):
+def replace_gcc_dn_long_indirection_by_word(line):
     """
     Replaces dN.l by dN.w in patterns: (aN/sp/pc,%dN.l) or disp(aN/sp/pc,%dN.l) or (disp,aN/sp/pc,%dN.l)
     """
@@ -11930,7 +11929,7 @@ symbolName_or_imm_dereference_pattern = re.compile(
     r'\)'                            # Matches ')'
 )
 
-def remove_dereference_symbolName_or_immediate(line):
+def remove_gcc_dereference_symbolName_or_immediate(line):
     """
     Remove chars '(' and ')' containing a symbolName or an immediate value.
     """
@@ -11960,11 +11959,11 @@ def applyGccConversions(lines):
         # Replace %fp by %a6
         line = convert_from_gcc_fp_style(line)
         # Replace dN.l by dN.w in indirection accesses
-        line = change_gcc_dn_long_indirection_by_word(line)
+        line = replace_gcc_dn_long_indirection_by_word(line)
         # Replace gcc encoded list of regs by a human readable format
         line = convert_gcc_movem_encoded_regs(line)
         # Remove dereference over symbol names, like: lea (PAL_setPalette.constprop.0),%a3
-        line = remove_dereference_symbolName_or_immediate(line)
+        line = remove_gcc_dereference_symbolName_or_immediate(line)
 
         modified_lines.append(line)
 
@@ -12102,7 +12101,7 @@ def remove_simple_abi(lines):
     """
 
     # How many lines to re trace to search for arguments
-    previous_N_lines_for_args = 10
+    previous_N_lines_for_args = 12
 
     # Phase 1:
     # Get all the routines declared by FUNCTION_DECLARATION_REGEX

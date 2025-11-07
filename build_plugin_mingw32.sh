@@ -13,17 +13,20 @@ echo "Target GCC version: $TARGET_GCC_VERSION"
 # Get the plugin directory from target GCC
 PLUGIN_DIR=$(m68k-elf-gcc.exe -print-file-name=plugin)
 PLUGIN_INCLUDE="$PLUGIN_DIR/include"
-echo "Plugin include target GCC: $PLUGIN_INCLUDE"
+echo "Plugin include from target GCC: $PLUGIN_INCLUDE"
 
 # Host GCC paths
-GCC_INC="/usr/include"
+#GCC_INC="/usr/include"
+#GCC_INC_HOST="/usr/include/x86_64-linux-gnu"
+GCC_INC_MINGW32="/usr/x86_64-w64-mingw32/include"
+GCC_INC_CPP_MINGW32="/usr/lib/gcc/x86_64-w64-mingw32/13-win32/include/c++/parallel"
 
 echo "Building plugin for target GCC ..."
 
 # Build the plugin
 # Note: when you use gcc to call plugin, you should link plugin with libcc1.a, and if you use g++ to call plugin, 
 # you should link plugin with libcc1plus.a. You can't mix linking, or you will get segment fault.
-x86_64-w64-mingw32-g++ -I"$PLUGIN_INCLUDE" -I"$GCC_INC" -DIN_GCC \
+x86_64-w64-mingw32-g++ -I"$PLUGIN_INCLUDE" -I"$GCC_INC_MINGW32" -I"$GCC_INC_CPP_MINGW32" -DIN_GCC \
     -shared -fPIC -fno-rtti -fpermissive -Wno-pointer-arith -Wno-unused-result \
 	-Wl,--export-all-symbols \
     optimizer_plugin.c -o optimizer_plugin.so cc1.exe.a

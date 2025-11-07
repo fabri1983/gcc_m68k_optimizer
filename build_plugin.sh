@@ -13,7 +13,7 @@ echo "Target GCC version: $TARGET_GCC_VERSION"
 # Get the plugin directory from target GCC
 PLUGIN_DIR=$(m68k-elf-gcc -print-file-name=plugin)
 PLUGIN_INCLUDE="$PLUGIN_DIR/include"
-echo "Plugin include target GCC: $PLUGIN_INCLUDE"
+echo "Plugin include from target GCC: $PLUGIN_INCLUDE"
 
 # Host GCC paths
 GCC_INC="/usr/include"
