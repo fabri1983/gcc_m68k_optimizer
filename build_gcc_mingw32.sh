@@ -5,15 +5,15 @@
 #   wsl --list
 # if Ubuntu distro then:
 #   wsl --install
-# Then I set:
-#   Create a default Unix user account: c
+# Then set user and pass:
+#   Create a default Unix user account: <user_name>
 #   pass: <your pass>
-# Then you can launh it with:
+# Then you can launh it by opening a console windows and type:
 #   wsl -d Ubuntu
 # Initial location is to /mnt/c/Users/<user_name>
 # So move to $HOME
 #   cd $HOME
-# Open a Explorer windows and locate into \\wsl.localhost\Ubuntu\home\c
+# Open a Explorer windows and locate into \\wsl.localhost\Ubuntu\home\<user_name>
 # Copy the script build_gcc_mingw32.sh here
 
 # Convert Windows EOL (CRLF) to Linux EOL (LF)
