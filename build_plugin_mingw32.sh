@@ -29,7 +29,7 @@ echo "Building plugin for target GCC ..."
 x86_64-w64-mingw32-g++ -I"$PLUGIN_INCLUDE" -I"$GCC_INC_MINGW32" -I"$GCC_INC_CPP_MINGW32" -DIN_GCC \
     -shared -fPIC -fno-rtti -fpermissive -Wno-pointer-arith -Wno-unused-result \
 	-Wl,--export-all-symbols \
-    optimizer_plugin.c -o optimizer_plugin.so cc1.exe.a
+    optimizer_plugin.c -o optimizer_plugin.so "$PLUGIN_DIR/cc1.exe.a"
 
 if [ $? -eq 0 ]; then
     echo "Plugin built successfully: optimizer_plugin.dll"
