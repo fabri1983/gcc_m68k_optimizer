@@ -19,12 +19,12 @@ the optimizer provides.
 
 First, build gcc m68k toolchain with plugin support enabled. This is straight forward on Linux systems, 
 even on WSL (Windows Subsytem for Linux), but impossible on Windows systems (I couldn't build it yet).  
-Use script [build_gcc.sh](build_gcc.sh "build_gcc.sh")
+Use script [build_gcc.sh](build_gcc.sh "build_gcc.sh") (or [build_gcc_mingw32.sh](build_gcc_mingw32.sh "build_gcc_mingw32.sh") **WIP**).  
 Add the toolchain into your PATH so SGDK can see it, as well for the next step to build the plugin.
 
 Then, compile the gcc plugin `optimizer_plugin.c` responsible to execute the python script over the 
 gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
-(or [build_plugin_mingw32.sh](build_plugin_mingw32.sh "build_plugin_mingw32.sh")).  
+(or [build_plugin_mingw32.sh](build_plugin_mingw32.sh "build_plugin_mingw32.sh") **WIP**).  
 This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder, along 
 with the `optimize_lst.py` file.
 
