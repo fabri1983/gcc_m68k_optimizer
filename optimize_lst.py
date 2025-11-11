@@ -161,6 +161,14 @@ USE_AGGRESSIVE_CLR_SP_OPTIMIZATION = False
 USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 
 MULTIPLE_LINES_OPTIMIZATION_LIMIT = 6
+
+problematic_replacement_counter = 0
+def inc_problematic_replacement_counter():
+    global problematic_replacement_counter
+    problematic_replacement_counter += 1
+
+def get_problematic_replacement_counter():
+    return problematic_replacement_counter
     
 def print_optimized_diff(original_lines, i_line, optimized_lines):
     """
@@ -861,10 +869,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                 # Sometimes the label is a function name and the code comes with a jmp/bra.
                 # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
-                    # When changing the flow code we must stop the analysis since we don't know 
-                    # whether the candidates will be effectively used in that routine
-                    candidate_mask = 0  # Mark all candidates as unavailable
-                    break
+                    continue
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
                     control_obj = control_flow_dict[label];
@@ -1346,9 +1351,7 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
                 # Sometimes the label is a function name and the code comes with a jmp/bra.
                 # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
-                    # When changing the flow code we must stop the analysis since we don't know 
-                    # whether the register xN will be effectively used in that routine
-                    return None
+                    continue
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
                     control_obj = control_flow_dict[label];
@@ -1555,10 +1558,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
             For modified_lines: idem.
     """
 
-    # As I don't use a proper graph structure for corrrect flow analysis, it might incurr in errors.
-    if not USE_WEAK_FLOW_ANALYSIS:
-        return
-
+    # TODO: add use of control_flow_dict
     # TODO: adjust usage of sp on instructions affected by the removal of a reg from the push into stack 
     return
 
@@ -1724,8 +1724,12 @@ jsr_an_pattern = re.compile(r'^\s*jsr\s+\((%a[0-7])\)')
 def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
     """
     Search forwards in lines array for every "jsr (aN)" and replace by new_line, until aN is overwritten or cleared.
-    TODO: Search backwards in modified_lines array in case flow code has a branch to already processed lines.
+    Search backwards in modified_lines array in case flow code has a branch to already processed lines.
     """
+
+    # TODO: implement the TODOs on this method
+    return
+
     control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
     control_visited = set()  # Helps to avoid looping infinitely 
 
@@ -1768,9 +1772,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
                 # Sometimes the label is a function name and the code comes with a jmp/bra.
                 # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
-                    # When changing the flow code we must stop the analysis since we don't know 
-                    # whether the register xN will be effectively used in that routine
-                    break
+                    continue
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
                     control_obj = control_flow_dict[label];
@@ -2447,6 +2449,36 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 return (None, 0)
 
         if USE_FABRI1983_OPTIMIZATIONS:
+
+            # Pushing word memory values into stack with word adjustments for ABI long args compliance
+            # move.w  symbol[+/-N],-(sp)   ->   move.w    symbol[+/-N],-(sp)     ; Saves 4 cycles
+            # sub*.s  #2,sp                     subq.s    #2,sp
+            # move.w  symbol[+/-M],-(sp)        move.w    symbol[+/-M],-(sp)
+            # sub*.s  #2,sp                     move.w    symbol[+/-L],-8(sp)
+            # move.w  symbol[+/-L],-(sp)        subq.s    #6,sp
+            # sub*.s  #2,sp
+            matchA = re.match(r'^(\s*)move\.w(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
+            if matchA:
+                matchB = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_B)
+                if matchB:
+                    matchC = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
+                    if matchC:
+                        matchD = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_D)
+                        if matchD:
+                            matchE = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_E)
+                            if matchE:
+                                matchF = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_F)
+                                if matchF:
+                                    s_sub = matchB.group(2)
+                                    optimized_lines = [
+                                        line_A,
+                                        f'{matchA.group(1)}subq.{s_sub}{matchA.group(2)}#2,%sp',
+                                        line_C,
+                                        line_E.replace('-(%sp)', '-4(%sp)', 1),
+                                        f'{matchA.group(1)}subq.{s_sub}{matchA.group(2)}#6,%sp'
+                                    ]
+                                    print("--------")
+                                    return (optimized_lines, 6)
 
             # This pattern comes up after applying optimization for lsr.w #8,dN
             # But may apply for other similar situation.
@@ -3544,6 +3576,27 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
 
         if USE_FABRI1983_OPTIMIZATIONS:
 
+            # Pushing word memory values into stack with word adjustments for ABI long args compliance
+            # move.w  symbol[+/-N],-(sp)   ->   move.w    symbol[+/-N],-(sp)     ; Saves 4 cycles
+            # sub*.s  #2,sp                     move.w    symbol[+/-M],-4(sp)
+            # move.w  symbol[+/-M],-(sp)        subq.s    #6,sp
+            # sub*.s  #2,sp
+            matchA = re.match(r'^(\s*)move\.w(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
+            if matchA:
+                matchB = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_B)
+                if matchB:
+                    matchC = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
+                    if matchC:
+                        matchD = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_D)
+                        if matchD:
+                            s_sub = matchB.group(2)
+                            optimized_lines = [
+                                line_A,
+                                line_C.replace('-(%sp)', '-4(%sp)', 1),
+                                f'{matchA.group(1)}subq.{s_sub}{matchA.group(2)}#6,%sp'
+                            ]
+                            return (optimized_lines, 4)
+
             # Calculates offset indexes for accessing arrays.
             # and.l      #65535,dN       ->    add/sub.w  dN,dN            ; Saves 20 cycles (16 cycles saved from removed and.l)
             # add/sub.l  dN,dN                 lea        symbolName1,aN
@@ -3873,13 +3926,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
         matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
         if matchA:
             aN = matchA.group(4)
-            matchB = re.match(r'^(\s*)(move|movea)\.l(\s+)%sp,\s*(%a[0-7])', line_B)
-            if matchB and aN == matchB.group(4):
-                matchC = re.match(r'^(\s*)(add|adda|addq)\.w(\s+)#(-?\d+|(?:0[xX])[0-9a-fA-F]+),\s*%sp', line_C)
+            matchB = re.match(r'^\s*(move|movea)\.l\s+%sp,\s*(%a[0-7])', line_B)
+            if matchB and aN == matchB.group(2):
+                matchC = re.match(r'^\s*(add|adda|addq)\.([bwl])\s+#(-?\d+|(?:0[xX])[0-9a-fA-F]+),\s*%sp', line_C)
                 if matchC:
-                    val = parseConstantSigned(matchC.group(4), 16)
+                    val = parseConstantSigned(matchC.group(3), 16)
                     if -32767 <= val <= 32767:
-                        optimized_line = f'{matchC.group(1)}link{matchC.group(3)}{aN},#{val}'
+                        optimized_line = f'{matchA.group(1)}link{matchA.group(3)}{aN},#{val}'
                         return ([optimized_line], 3)
 
         # Testing for null (or 0)
@@ -3889,12 +3942,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
         # Needs a free dM register
         matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
         if matchA:
-            matchB = re.match(r'^(\s*)(add|adda|addq)(?:\.[bwl])?(\s+)#4,\s*%sp', line_B)
+            matchB = re.match(r'^\s*(add|adda|addq)(\.[bwl])?\s+#4,\s*%sp', line_B)
             if matchB:
-                matchC = re.match(r'^(\s*)(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_C)
+                matchC = re.match(r'^\s*(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_C)
                 if matchC:
                     aN = matchA.group(4)
-                    label = matchC.group(4)
+                    label = matchC.group(3)
                     s_branch = '' if matchC.group(3) is None else matchC.group(3)
                     dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
                     if dM is None:
@@ -4482,7 +4535,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
                 ]
-                return (None, 0)  # NOT_WORKING: replace_remaining_jsr_aN_calls() is introducing a bug
+                return (None, 0)  # NOT_WORKING: both next functions are not completed
                 replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, optimized_lines[0])
                 if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                 return (optimized_lines, 2)
@@ -4498,7 +4551,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
                 ]
-                return (None, 0)  # NOT_WORKING: replace_remaining_jsr_aN_calls() is introducing a bug
+                return (None, 0)  # NOT_WORKING: both next functions are not completed
                 replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, optimized_lines[0])
                 if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                 return (optimized_lines, 2)
@@ -12056,7 +12109,7 @@ def non_used_functions(lines):
     # If the result is not empty then we can remove the code of those declared functions
     unused_funcs = declared_functions_set - calling_functions_set  # set_a - set_b = Elements in set_a but not in set_b
     unused_funcs = unused_funcs - global_functions_set
-    print('[OPT_LOG] Non used functions:', sorted(unused_funcs))
+    print('[OPT_LOG] Non used functions (experimental):', sorted(unused_funcs))
     
     # TODO: replace non used functions lines by empty line
 
