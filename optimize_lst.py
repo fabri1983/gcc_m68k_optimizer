@@ -596,7 +596,7 @@ PUSH_OTHER_INTO_STACK_REGEX = re.compile(
 )
 
 # Labels: 1:, .L37:, _loc1:, abcABC:, xlt_all.0:
-LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):$')
+LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):\b')
 
 backward_number_labels = {'0b','1b','2b','3b','4b','5b','6b','7b','8b','9b'}
 forward_number_labels = {'0f','1f','2f','3f','4f','5f','6f','7f','8f','9f'}
@@ -890,7 +890,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                                     break
                             i += 1
                 # Sometimes the label is a function name and the instruction is jmp/bra.
-                # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
+                # Also might be a (aN) or disp(pc,xN.s) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
                     if label in declared_functions_set:
                         # Same behavior than when instruction is in ('jsr','bsr')
@@ -1391,12 +1391,8 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
                                 if match_label.group(1) == label:
                                     break
                             i += 1
-                # Sometimes the label is a function name and the code comes with a jmp/bra.
-                # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
-                elif label not in control_flow_dict:
-                    continue
                 # Sometimes the label is a function name and the instruction is jmp/bra.
-                # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
+                # Also might be a (aN) or disp(pc,xN.s) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
                     if label in declared_functions_set:
                         # Same behavior than when instruction is in ('jsr','bsr')
@@ -1827,7 +1823,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
                                     break
                             i += 1
                 # Sometimes the label is a function name and the instruction is jmp/bra.
-                # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
+                # Also might be a (aN) or disp(pc,xN.s) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
                     if label in declared_functions_set:
                         # Same behavior than when instruction is in ('jsr','bsr')
