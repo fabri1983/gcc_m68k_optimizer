@@ -28,13 +28,13 @@
 # --------------------------------------------------------------------
 
 # Sources:
-# (IMPLEMENTED) https://gist.github.com/flamewing/ad17bf22875be36ad4ae26f159a94f8b
-# (IMPLEMENTED) http://www.easy68k.com/paulrsm/doc/asp68k6.txt
-# (IMPLEMENTED) http://preserve.mactech.com/articles/mactech/Vol.08/08.02/Efficient68000/index.html
-# (IMPLEMENTED) http://www.easy68k.com/paulrsm/doc/trick68k.htm
-# (IMPLEMENTED) https://wiki.neogeodev.org/index.php?title=Optimization
-# (IMPLEMENTED) http://www.ibaug.de/vasm/doc/vasm.pdf
-# (IMPLEMENTED) http://www.csua.berkeley.edu/~muchandr/m68k
+# https://gist.github.com/flamewing/ad17bf22875be36ad4ae26f159a94f8b
+# http://www.easy68k.com/paulrsm/doc/asp68k6.txt
+# http://preserve.mactech.com/articles/mactech/Vol.08/08.02/Efficient68000/index.html
+# http://www.easy68k.com/paulrsm/doc/trick68k.htm
+# https://wiki.neogeodev.org/index.php?title=Optimization
+# http://www.ibaug.de/vasm/doc/vasm.pdf
+# http://www.csua.berkeley.edu/~muchandr/m68k
 # Custom patterns found from gcc -S outputs
 
 # Mnemocis equivalence
@@ -63,7 +63,6 @@ import sys
 import operator
 import re
 from dataclasses import dataclass, field
-from typing import List
 try:
     from colorama import Fore, Back, Style, init
     # Initialize colorama (auto-detects Windows and enables ANSI).
@@ -160,16 +159,9 @@ USE_AGGRESSIVE_CLR_SP_OPTIMIZATION = False
 # WARNING: in certain code scenarios this produce glitches. Test thoroughly.
 USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 
+# By lowering the value you can skip patterns requiring bigger number of lines.
 MULTIPLE_LINES_OPTIMIZATION_LIMIT = 6
 
-problematic_replacement_counter = 0
-def inc_problematic_replacement_counter():
-    global problematic_replacement_counter
-    problematic_replacement_counter += 1
-
-def get_problematic_replacement_counter():
-    return problematic_replacement_counter
-    
 def print_optimized_diff(original_lines, i_line, optimized_lines):
     """
     Prints the original and optimized lines in two columns fashion or in one single line.
@@ -579,6 +571,20 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'(%[ad][0-7])\b'                 # Register being overwritten
 )
 
+declared_functions_set = set()
+
+def collect_declared_functions():
+    """
+    Get all the declared functions in this assembly unit declared by FUNCTION_DECLARATION_REGEX
+    """
+    global declared_functions_set
+    
+    for i_line in range(0, len(lines)):
+        line = lines[i_line]
+        # Is a function declaration?
+        if match := FUNCTION_DECLARATION_REGEX.match(line):
+            declared_functions_set.add(match.group(1))
+
 # pea <value|symbolName>[.wl][+-*N][.bwl]
 PEA_REGEX = re.compile(
     r'^\s*pea\s+(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?'
@@ -603,9 +609,9 @@ class ControlFlowPosInArray:
     """ Position in modified_lines where the label is defined"""
     pos_in_modified_lines: int = -1
     """ Ordered list of lines positions where a label is called from"""
-    inverted_for_lines: List[int] = field(default_factory=list)
+    inverted_for_lines: list[int] = field(default_factory=list)
     """ Ordered list of modified_lines positions where a label is called from"""
-    inverted_for_modified_lines: List[int] = field(default_factory=list)
+    inverted_for_modified_lines: list[int] = field(default_factory=list)
 
     def add_inverted_for_lines(self, value: int):
         if value not in self.inverted_for_lines:
@@ -619,17 +625,19 @@ class ControlFlowPosInArray:
 
 def build_control_flow_map(i_line, lines, modified_lines):
     """
-    Builds a dictionary:
+    Allows tracking of code flow from any jump/branch instruction.
+    Special number labels (eg: 0f, 2f) are not saved in the dictionary but handled externally.
+    Builds dictionary:
         {
             key: label,
             value: {
                 pos_in_lines: int,
                 pos_in_modified_lines: int,
-                inverted_for_lines: List[int],
-                inverted_for_modified_lines: List[int]
+                inverted_for_lines: list[int],
+                inverted_for_modified_lines: list[int]
             }
         }
-    to allow tracking of code flow from any jum/branh instruction.
+    
     Returns: control_flow_dict to be accessed as:
         control_obj = control_flow_dict[label]
         control_obj.pos_in_lines
@@ -642,10 +650,10 @@ def build_control_flow_map(i_line, lines, modified_lines):
 
     # Phase 1: collect all the labels and their line position
 
-    # Scan backwards
+    # Scan backwards in modified_lines array
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
         line = modified_lines[i]
 
         # Break condition
@@ -657,16 +665,16 @@ def build_control_flow_map(i_line, lines, modified_lines):
             label = match.group(1)
             # If it's a special label then treat it differently
             if label in number_labels:
-                # This type of labels are not processed here but better in the method that needs flow control
+                # This type of labels are not processed here but better in the method that makes use of the flow control
                 pass
             else:
                 control_obj = ControlFlowPosInArray(pos_in_lines=-1, pos_in_modified_lines=i)
                 control_flow_dict[label] = control_obj
 
-    # Scan forwards
+    # Scan forwards in lines array
     rem_start = i_line + 1
     rem_end = len(lines)
-    for i in range(rem_start, rem_end):
+    for i in range(rem_start, rem_end):  # forwards
         line = lines[i]
 
         # Break condition
@@ -686,10 +694,10 @@ def build_control_flow_map(i_line, lines, modified_lines):
 
     # Phase 2: create inverted indexes for every label used in bra/jra/jmp/bcc/jcc
 
-    # Scan backwards
+    # Scan backwards in modified_lines array
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
         line = modified_lines[i]
 
         # Break condition
@@ -708,10 +716,10 @@ def build_control_flow_map(i_line, lines, modified_lines):
                 control_obj = control_flow_dict[label]
                 control_obj.add_inverted_for_modified_lines(i)
 
-    # Scan forwards
+    # Scan forwards in lines array
     rem_start = i_line + 1
     rem_end = len(lines)
-    for i in range(rem_start, rem_end):
+    for i in range(rem_start, rem_end):  # forwards
         line = lines[i]
 
         # Break condition
@@ -731,6 +739,20 @@ def build_control_flow_map(i_line, lines, modified_lines):
                 control_obj.add_inverted_for_lines(i)
 
     return control_flow_dict
+
+@dataclass
+class ControlFlowReturnFrame:
+    """ Position in target list from where code flow will continue"""
+    pos: int
+    """ Continuation list: whether is lines[] or modified_lines[]"""
+    continuation_list: list[str]
+
+def pop_flow_return_frame_data(flow_return_frames):
+    frame = flow_return_frames.pop()
+    i = frame.pos
+    target_array = frame.continuation_list
+    rem_end = len(target_array)
+    return i, target_array, rem_end
 
 def in_an_interrupt_routine(i_line, lines, modified_lines):
     """
@@ -781,6 +803,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
         ["%xM","%xP",...] or [None]
         Excluding %a7
     """
+    global declared_functions_set
 
     # As I don't use a proper graph structure for corrrect flow analysis, it might incurr in errors.
     if not USE_WEAK_FLOW_ANALYSIS or not USE_FIND_FREE_AFTER_USE_REG_FUNCTION:
@@ -852,7 +875,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                 candidate_mask = 0  # Mark all candidates as unavailable
                 break
             elif match.group(1) in ('bra', 'jra', 'jmp'):
-                # Get the target label (might be a function name which won't be in control_flow_dict)
+                # Get the target label
                 label = match.group(3)
                 # Is target label a special one? Eg: 0b or 0f
                 if label in backward_number_labels or label in forward_number_labels:
@@ -866,17 +889,27 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                                 if match_label.group(1) == label:
                                     break
                             i += 1
-                # Sometimes the label is a function name and the code comes with a jmp/bra.
+                # Sometimes the label is a function name and the instruction is jmp/bra.
                 # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
-                    continue
+                    if label in declared_functions_set:
+                        # Same behavior than when instruction is in ('jsr','bsr')
+                        candidate_mask = 0  # Mark all candidates as unavailable
+                        break 
+                    else:
+                        # We actually can't calculate the destination: 
+                        # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                        continue
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
-                    control_obj = control_flow_dict[label];
+                    # Mark this label as visited
+                    control_visited.add(label)
                     # Which array the destination line points to?
+                    control_obj = control_flow_dict[label];
                     if control_obj.pos_in_lines != -1:
-                        control_visited.add(label)  # Mark this label as visited
                         i = control_obj.pos_in_lines
+                        #target_array = lines
+                        #rem_end = len(target_array)
                         continue
                     else:
                         # TODO
@@ -1057,63 +1090,65 @@ def in_a_SGDK_sound_related_routine(modified_lines):
 
 def get_routine_first_instruction_pos(modified_lines):
     """
-    Search for the first instruction in the routine. The one next to the label with same routine name.
+    Search for the first instruction in the routine. Is the next one to the func_name as label.
+    Eg:
+        .type	Z80_getAndRequestBus.constprop.0, @function
+    Z80_getAndRequestBus.constprop.0:
+        move.l #10555648,%a0   <-- First instruction
     """
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    func_name = ""
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
         line = modified_lines[i]
 
         # Break conditions
         if match_func := FUNCTION_DECLARATION_REGEX.match(line):
-            label = match_func.group(1)
-            # Move forwards until we find where the label is defined
-            k = i + 1
-            k_end = len(modified_lines)
-            while k < k_end:
-                if match_label := LABEL_REGEX.match(modified_lines[k]):
-                    if match_label.group(1) == label:
+            func_name = match_func.group(1)
+            # Move forwards until we find where the func_name is defined
+            for k in range(i+1, len(modified_lines)):  # forwards
+                next_line = modified_lines[k]
+                if match_label := LABEL_REGEX.match(next_line):
+                    if match_label.group(1) == func_name:
                         # First instruction is at next position
-                        return k + 1
-                k += 1
+                        return k+1
 
-    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} Couldn't find first instruction in routine")
+    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} Couldn't find first instruction in routine {func_name}")
     return (2**31) - 1
+
+# Pattern: <any_instr> *,sp
+# Adding (?![^;#\n]*) at the end which is a negative lookahead that ensures sp is 
+# not followed by any characters except ';', '#', or 'newline'.
+sp_modified_by_any_instruction_pattern = re.compile(
+    r'^\s*\w+(\.[bwl])?\s+[\d\w#\-\+\(\)%\.,]+,\s*%sp(?![^;#\n]*)'
+)
 
 def add_line_with_push_regs_into_stack(regs, modified_lines, inAnInterruptRoutine, routine_first_instruction_pos):
     """
-    Starting at routine_first_instruction_pos, keep track of the last line where sp is used, 
+    Starting at routine_first_instruction_pos, keep track of the last line where (sp) is used, 
     but not a modification of where it points to, so stop searching at one of next patterns:
        -(sp) or (sp)+
-       add*/sub* #disp,sp
-       lea disp(sp),sp
-       move* *,sp
+       <any_instr> *,sp
     """
 
     last_sp_usage_line = routine_first_instruction_pos
+
     # Forwards scan in modified_lines
-    for k in range(routine_first_instruction_pos, len(modified_lines)):
+    for k in range(routine_first_instruction_pos, len(modified_lines)):  # forwards
         line = modified_lines[k]
 
         # Break conditions
-        if FUNCTION_DECLARATION_REGEX.match(line) or FUNCTION_EXIT_REGEX.match():
+        if FUNCTION_DECLARATION_REGEX.match(line):
             break
 
         # Check for next sp usage patterns:
         #   -(sp) or (sp)+
-        #   add*/sub* #disp,sp
-        #   lea disp(sp),sp
-        #   move* *,sp
-        # TODO: revisit the patterns
-        if (
-            re.search(r"-\(%sp\)", line) or re.search(r"\(%sp\)\+", line) or re.search(r"#.*%sp", line)
-            or re.match(r"^\s*lea\s+(-?\d+\(%sp\)|\(-?\d+,%sp\)),\s*%sp", line)
-            or re.match(r'^\s*move\S*\s+.*%sp')
-        ):
+        #   <any_instr> *,sp
+        if re.search(r"-\(%sp\)", line) or re.search(r"\(%sp\)\+", line) or sp_modified_by_any_instruction_pattern.match(line):
             break
 
-        # Check for any other sp usage like: move.l reg,(sp) or move.w 4(sp),reg
-        if re.search(r'%sp', line):
+        # Check for (sp) usage like: move.l reg,(sp) or move.w 4(sp),reg
+        if re.search(r'\(%sp\)', line):
             # sp is used in a way that interferes with the push, so next line should be fine
             last_sp_usage_line = k+1
 
@@ -1141,7 +1176,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
        indices of lines who satisfy next:
        - xN is used as source operand or in any indirection (in both source and target) operand.
        - xN is in the list (or range) of a pop from stack operation.
-       Break condition is met when a rts/rte/bra/jbra/jmp is reached, or xN is overwritten/cleared 
+       Break condition is met when a rts/rte/bra/jra/jmp is reached, or xN is overwritten/cleared 
        by a move/lea/sub/eor itself, or clr.
     2. Visit lines pointed by the indices collected before, and replace xN by xM.
        If the visited line pops registers from the stack then ensure xM is in the list or range, 
@@ -1167,6 +1202,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
         # If only specific unconditional flow is met then stop
         if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             if match.group(1) in ('bra','jra','jmp'):
+                # TODO: use control_flow_dict
                 break
 
         # If xN was overwritten or cleared then process only lines that movem/move pops xN (if any)
@@ -1318,6 +1354,7 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
     - Control flow jmp/bra/jsr is reached or exiting current routine declaration:
       Returns None.
     """
+    global declared_functions_set
 
     control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
     control_visited = set()  # Helps to avoid looping infinitely 
@@ -1358,13 +1395,26 @@ def get_line_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN
                 # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
                     continue
+                # Sometimes the label is a function name and the instruction is jmp/bra.
+                # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
+                elif label not in control_flow_dict:
+                    if label in declared_functions_set:
+                        # Same behavior than when instruction is in ('jsr','bsr')
+                        return None 
+                    else:
+                        # We actually can't calculate the destination: 
+                        # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                        continue
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
-                    control_obj = control_flow_dict[label];
+                    # Mark this label as visited
+                    control_visited.add(label)
                     # Which array the destination line points to?
+                    control_obj = control_flow_dict[label];
                     if control_obj.pos_in_lines != -1:
-                        control_visited.add(label)  # Mark this label as visited
                         i = control_obj.pos_in_lines
+                        #target_array = lines
+                        #rem_end = len(target_array)
                         continue
                     else:
                         # TODO
@@ -1732,6 +1782,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
     Search forwards in lines array for every "jsr (aN)" and replace by new_line, until aN is overwritten or cleared.
     Search backwards in modified_lines array in case flow code has a branch to already processed lines.
     """
+    global declared_functions_set
 
     # TODO: implement the TODOs on this method
     return
@@ -1775,17 +1826,26 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, new_line):
                                 if match_label.group(1) == label:
                                     break
                             i += 1
-                # Sometimes the label is a function name and the code comes with a jmp/bra.
+                # Sometimes the label is a function name and the instruction is jmp/bra.
                 # Or could be a (%aN) which is not considered a label, hence it won't be in the dictionary.
                 elif label not in control_flow_dict:
-                    continue
+                    if label in declared_functions_set:
+                        # Same behavior than when instruction is in ('jsr','bsr')
+                        continue 
+                    else:
+                        # We actually can't calculate the destination: 
+                        # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                        continue
                 # Target label is in the dictionary AND was not yet visited
                 elif label in control_flow_dict and label not in control_visited:
-                    control_obj = control_flow_dict[label];
+                    # Mark this label as visited
+                    control_visited.add(label)
                     # Which array the destination line points to?
+                    control_obj = control_flow_dict[label];
                     if control_obj.pos_in_lines != -1:
-                        control_visited.add(label)  # Mark this label as visited
                         i = control_obj.pos_in_lines
+                        #target_array = lines
+                        #rem_end = len(target_array)
                         continue
                     else:
                         # TODO
@@ -2407,7 +2467,7 @@ lea_label_or_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
 move_ea_into_dN_pattern = re.compile(
     r'^(\s*)move\.([bwl])(\s+)'
     r'(?:'
-    r'(%d[0-7]|-?\(%a[0-7]|%sp\)\+?)'  # dN or (aN) or -(aN) or (aN)+
+    r'(%d[0-7]|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN or (aN) or -(aN) or (aN)+
     r'|'
     r'(#?[0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label or symbol[.s] or #symbol[.s].
     r'|'
@@ -12071,16 +12131,11 @@ global_routine_pattern = re.compile(
 def non_used_functions(lines):
 
     # Phase 1:
-    # Get all the routines declared by FUNCTION_DECLARATION_REGEX
-    declared_functions_set = set()
-    for i_line in range(0, len(lines)):
-        line = lines[i_line]
-        # Is a function declaration?
-        if match := FUNCTION_DECLARATION_REGEX.match(line):
-            declared_functions_set.add(match.group(1))
+    # Collect all the declared functions in this  assembly unit.
+    # This was done previously by calling collect_declared_functions()
 
     # Phase 2:
-    # Get all the routines declared as global that are also declared functions
+    # Get all the routines declared as global, meaning they are outside this assembly unit
     global_functions_set = set()
     for i_line in range(0, len(lines)):
         line = lines[i_line]
@@ -12156,18 +12211,15 @@ def remove_simple_abi(lines):
     - Avoid saving args into stack now that they are not trashed but directly used from the caller context.
     - Avoid restoring args from stack.
     """
+    global declared_functions_set
 
     # How many lines to re trace to search for arguments
     previous_N_lines_for_args = 12
 
     # Phase 1:
-    # Get all the routines declared by FUNCTION_DECLARATION_REGEX
-    declared_functions_set = set()
-    for i_line in range(0, len(lines)):  # forwards
-        line = lines[i_line]
-        # Is a function declaration?
-        if match := FUNCTION_DECLARATION_REGEX.match(line):
-            declared_functions_set.add(match.group(1))
+    # Get all the routines in this assembly unit declared by FUNCTION_DECLARATION_REGEX
+    # As this was previously calculated, we just copy it
+    declared_functions = declared_functions_set.copy()
 
     # Phase 2:
     # For each call to a function we create a list of the arguments (reg or memory or symbol) being pushed into 
@@ -12185,7 +12237,7 @@ def remove_simple_abi(lines):
             if func_name.startswith('%a'):
                 aN = func_name
                 func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i-1, 0)
-            if func_name in declared_functions_set:
+            if func_name in declared_functions:
                 # Collect the arguments being pushed into the stack along with the total sp adjustment.
                 # Visit up to N previous lines going backwards.
                 args = []
@@ -12235,9 +12287,9 @@ def remove_simple_abi(lines):
                 if func_called is None:
                     args_pushed_per_function[func_name] = ABIFunctionData(args, total_sp_adjustment)
                 else:
-                    # If not exact match then remove func_name from declared_functions_set, and the entry in the dictionary too
+                    # If not exact match then remove func_name from declared_functions, and the entry in the dictionary too
                     if not (args == func_called):
-                        declared_functions_set.discard(func_name)
+                        declared_functions.discard(func_name)
                         del args_pushed_per_function[func_name]
 
     # Remove functions without pushed arguments (empty list in the 'args' field)
@@ -12364,6 +12416,9 @@ if __name__ == "__main__":
 
     # Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading
     modified_lines = applyGccConversions(lines)
+
+    # Collect all the functions declared in this assembly unit
+    collect_declared_functions()
 
     # Print non used functions
     non_used_functions(modified_lines)
