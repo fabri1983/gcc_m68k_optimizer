@@ -30,6 +30,7 @@
 # Sources:
 # https://gist.github.com/flamewing/ad17bf22875be36ad4ae26f159a94f8b
 # http://www.easy68k.com/paulrsm/doc/asp68k6.txt
+# https://mikro.naprvyraz.sk/docs/Optimize/68OPT.TXT
 # http://preserve.mactech.com/articles/mactech/Vol.08/08.02/Efficient68000/index.html
 # http://www.easy68k.com/paulrsm/doc/trick68k.htm
 # https://wiki.neogeodev.org/index.php?title=Optimization
@@ -127,13 +128,19 @@ OPTIMIZE_DIVISION_HIGH_WORD_NOT_IMPORTANT = False
 
 # Set to True if you want to replace tst+bcc by dbcc.
 # Used in conjunction with a method that checks if the affected data register is not needed aftwewards.
-# NOT_WORKING: the replacement is not working. So leave this switch off.
+# NOT_WORKING: The replacement is not working. So leave this switch off.
 USE_REPLACE_TST_BCC_BY_DBCC_OPTIMIZATION = False
 
 # Set to True only if you know before hand the upper word won't be affected, 
 # which is true for loops (TODO: but I don't check if inside a loop, yet).
 # Note: VASM compiler seems to do this optimization by default (as per documentation).
 USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION = True
+
+# Instead of loading the subroutine address into an address register aN to later use jsr (aN), we can
+# discard the loading and replace every jsr (aN) by jsr subroutine. There is a tradeoff of upto 3 direct
+# calls and the optimization accounts for that.
+# WARNING: Enabling this flag may cause unexpected side effects on some compplex control flows. Test thoroughly.
+USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY = False
 
 # This optimizaton removes the clearing of a register before it is loaded with a word value.
 # WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
@@ -149,7 +156,7 @@ USE_AGGRESSIVE_CLR_SP_OPTIMIZATION = False
 
 # This is not an optimization per sé. It replaces dN.l by dN.w on indirect addressing.
 # It might help some optimizations (currently not implemented) to change instruction size .l by .w, thus saving 4 cycles.
-# WARNING: in certain code scenarios this produce glitches. Test thoroughly.
+# WARNING: In certain code scenarios this produce glitches. Test thoroughly.
 USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 
 # By lowering the value you can skip patterns requiring bigger number of lines.
@@ -523,7 +530,7 @@ CONDITIONAL_DBCC_FLOW_REGEX = re.compile(
     r'djcc|djcs|djeq|djf|djra|djge|djgt|djhi|djhs|djle|djlo|djls|djlt|djmi|djne|djpl|djt|djvc|djvs'
     r')\s+'
     r'(?:%d[0-7]),\s*'
-    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?;?$'
+    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?\b'
 )
 # Conditional instructions except those dbCC.
 CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
@@ -531,7 +538,7 @@ CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
     r'bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bvc|bvs|'
     r'jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jvc|jvs'
     r')(?:\.[bsw])?\s+'
-    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?;?$'
+    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?\b'
 )
 # Unconditional instructions.
 UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
@@ -543,20 +550,30 @@ UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
         r'|'
         r'(?:[0-9a-zA-Z_\.]+\(%pc,%[ad][0-7](?:\.[bwl])?\))'  # label_or_disp(pc,xN[.s])
     r')'
-    r';?$'
+    r'\b'
 )
+# Use next pattern with .findall()
 REG_AS_SOURCE_OR_INDIRECT_USE_REGEX = re.compile(
-    r'\s+(%[ad][0-7]),'              # Source operand as " %xN,"
-    r'|'  
-    r'(%[ad][0-7])\.[bwl]\)'         # Indirect addressing register as "%xN.s)"
-    r'|'  
-    r'(%[ad][0-7])\)'                # Indirect addressing register as "%xN)"
+    r'-?\((%a[0-7])\)\+?'              # Indirect decrement/increment addressing register as "[-](aN)[+]"    
+    r'|'
+    r'(?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?)\((%[ad][0-7])\)'  # Addressing register as "label_or_disp(xN)"
+    r'|'
+    r'\((?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?),(%[ad][0-7])\)'  # Addressing register as "(label_or_disp,xN)"
+    r'|'
+    r'[,\(]%pc,(%[ad][0-7])\.[bwl]\)'  # Indirect addressing register as "[,(]pc,xN.s)"
+    r'|'
+    r'[,\(]%sp,(%[ad][0-7])\.[bwl]\)'  # Indirect addressing register as "[,(]sp,xN.s)"
+    r'|'
+    r'[,\(](%a[0-7]),(%[ad][0-7])\.[bwl]\)'  # Indirect addressing registers as "[,(]%aN,%xN.s)" (both captured)
+    r'|'
+    r'\s+(%[ad][0-7]),'                # Source operand as "%xN,<anything>"
     # Note that gcc might put the displacement like next: (d,aN/pc)   (d,aN/pc,xN.s)
+    # That's why we use optional comma at the beginning in certain patterns
 )
 REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'^\s*'                           # Optional leading whitespace
     r'(?:'                            # Non-capturing group for alternatives
-        r'(move\S*|lea|sub\S*|eor\S*)\s+' # Capture overwrite instructions
+        r'(move|moveq|movea|movep|lea|sub|suba|eor)(?:\.[bwl])?\s+'  # Capture overwrite instructions
         r'('
             r'(?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
             r'|'
@@ -603,7 +620,7 @@ PUSH_OTHER_INTO_STACK_REGEX = re.compile(
 )
 
 # Labels: 1:, .L37:, _loc1:, abcABC:, xlt_all.0:
-LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):;?$')
+LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):$')
 
 backward_number_labels = {'0b','1b','2b','3b','4b','5b','6b','7b','8b','9b'}
 forward_number_labels = {'0f','1f','2f','3f','4f','5f','6f','7f','8f','9f'}
@@ -860,7 +877,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
     )
 
-    # Phase 1: Scan recent instructions for all candidate registers (backwards scan)
+    # Phase 1: Scan recent instructions for all used registers (backwards scan)
     start_idx = len(modified_lines) - 1
     end_idx = 0
     for i in range(start_idx, end_idx - 1, -1):  # backwards
@@ -870,13 +887,32 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
         if FUNCTION_DECLARATION_REGEX.match(line):
             break
 
+        # If pushing into stack then extract the registers
+        if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+            pushed_list = extract_registers(push_match.group(3), PUSH_OP)
+            for item in pushed_list:
+                if item.startswith(reg_type):
+                    N = int(item[2])  # Extract the digit after '%x'
+                    reg_index = int(N)
+                    if reg_index not in exclude_indexes:
+                        candidate_mask |= (1 << reg_index)  # Mark candidate as available
+        # If poping from stack then extract the registers
+        elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+            poped_list = extract_registers(pop_match.group(3), POP_OP)
+            for item in poped_list:
+                if item.startswith(reg_type):
+                    N = int(item[2])  # Extract the digit after '%x'
+                    reg_index = int(N)
+                    if reg_index not in exclude_indexes:
+                        candidate_mask |= (1 << reg_index)  # Mark candidate as available
         # It's a source or indirect operand?
-        if match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
-            reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-            if reg_str is not None and reg_str.startswith(reg_type):
-                reg_index = int(reg_str[2])  # Extract digit after '%x'
-                if reg_index not in exclude_indexes:
-                    candidate_mask |= 1 << reg_index  # Mark candidate as available
+        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract digit after '%x'
+                    if reg_index not in exclude_indexes:
+                        candidate_mask |= 1 << reg_index  # Mark candidate as available
         # It's a target operand?
         elif match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
             if match.group(1).startswith(reg_type):
@@ -891,26 +927,58 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
     # Proceed only if there are candidates
     if candidate_mask:
 
-        control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
-        control_visited = set()  # Helps to avoid looping infinitely 
-
         # Phase 2: Scan remaining lines and keep those candidate registers satisfying the rules (forwards scan)
         overwritten_or_cleared_mask = 0;
         used_before_overwritten_or_cleared_mask = 0;
+
+        control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
+        control_visited = set()  # Helps to avoid looping infinitely 
+        flow_return_frames = []
+        
+        # Start with lines array
+        target_array = lines
         rem_start = i_line + 1
-        rem_end = len(lines)
+        rem_end = len(target_array)
+
         i = rem_start
         while i < rem_end:  # forwards
-            line = lines[i]
+            line = target_array[i]
             i += 1
 
-            # Break condition
-            # If exiting the routine declaration
+            # End of this routine body?
             if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-                break
+                # If there is any return frame then continue from that location
+                if len(flow_return_frames) > 0:
+                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+                    continue
+                break  # Stop the analysis
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                # If there is any return frame then continue from that location
+                if len(flow_return_frames) > 0:
+                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+                    continue
+                break  # Stop the analysis
+
+            # Is a label?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                if label in control_visited:
+                    # If there is any return frame then continue from that location
+                    if len(flow_return_frames) > 0:
+                        i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+                        continue
+                    else:
+                        # Label was already visited and there is no backtrack location.
+                        break  # Stop the analysis
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
 
             # If is an unconditional branch jmp/bra/bsr/jsr
-            if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
                 # Jumping into a routine?
                 if match.group(1) in ('jsr', 'bsr'):
                     # When jumping into a subroutine we must stop the analysis since we don't know 
@@ -941,21 +1009,38 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                         control_obj = control_flow_dict[label];
                         if control_obj.pos_in_lines != -1:
                             i = control_obj.pos_in_lines
-                            #target_array = lines
-                            #rem_end = len(target_array)
+                            target_array = lines
+                            rem_end = len(target_array)
                             continue
-                        else:
-                            # TODO
-                            # We can only iterate over the current array we are iterating at (lines in this case),
-                            # so we must stop here since we don't support iterating over modified_lines array starting
-                            # at control_obj.pos_in_modified_lines
-                            candidate_mask = 0  # Mark all candidates as unavailable
-                            break
+                        elif control_obj.pos_in_modified_lines != -1:
+                            i = control_obj.pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                            continue
 
             # If is a conditional branch jcc/bcc (except dbCC)
             elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line):
-                # TODO: follow the many paths the code could take
-                pass
+                # Get the target label
+                label = match.group(2)
+                # Target label is in the dictionary AND was not yet visited
+                if label in control_flow_dict and label not in control_visited:
+                    # Add a return frame so we can backtrack and continue from this point
+                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                    flow_return_frames.append(frame)
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    # Which array the destination line points to?
+                    control_obj = control_flow_dict[label];
+                    if control_obj.pos_in_lines != -1:
+                        i = control_obj.pos_in_lines
+                        target_array = lines
+                        rem_end = len(target_array)
+                        continue
+                    elif control_obj.pos_in_modified_lines != -1:
+                        i = control_obj.pos_in_modified_lines
+                        target_array = modified_lines
+                        rem_end = len(target_array)
+                        continue
 
             # First check for overwrites/clears (if not used already)
             elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
@@ -969,7 +1054,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                     if (reg_index not in exclude_indexes) and not (used_before_overwritten_or_cleared_mask & (1 << reg_index)):
                         # if matching sub or eor
                         if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                            # sub or eor itslef?
+                            # sub or eor it self?
                             if dest in src:
                                 overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                         # if matching move
@@ -982,14 +1067,15 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                             # Instruction not considered?
                             print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} Instruction not considered: {line}")
             # Then check for register usage (if not overwritten/cleared already)
-            elif match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
-                reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-                if reg_str is not None and reg_str.startswith(reg_type):
-                    reg_index = int(reg_str[2])  # Extract digit after '%x'
-                    # Check reg is not one of the excluded and if not already overwritten/cleared
-                    if (reg_index not in exclude_indexes) and not (overwritten_or_cleared_mask & (1 << reg_index)):
-                        used_before_overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as used before overwritten/cleared
-                        candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+            elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+                regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+                for reg_str in regs_list:
+                    if reg_str.startswith(reg_type):
+                        reg_index = int(reg_str[2])  # Extract digit after '%x'
+                        # Check reg is not one of the excluded and if not already overwritten/cleared
+                        if (reg_index not in exclude_indexes) and not (overwritten_or_cleared_mask & (1 << reg_index)):
+                            used_before_overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as used before overwritten/cleared
+                            candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
 
             # All candidates exhausted? Then exit loop
             if candidate_mask == 0:
@@ -1006,7 +1092,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
             candidate_mask &= candidate_mask - 1  # Clear the least significant set bit
 
     # No candidates?
-    #if candidate[0] is None:
+    #if candidates[0] is None:
     #    print(f"{Fore.YELLOW}[NO FREE AFTER USE REG FOUND]{Style.RESET_ALL} for:  {lines[i_line].lstrip()}")
     #else:
     #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} {candidates}")
@@ -1182,13 +1268,14 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
                         if not (used_as_source_or_indirect_or_target_mask & (1 << reg_index)):
                             candidate_mask |= (1 << reg_index)  # Mark candidate as available"""
         # It's a source or indirect operand?
-        elif match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
-            reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-            if reg_str is not None and reg_str.startswith(reg_type):
-                reg_index = int(reg_str[2])  # Extract digit after '%x'
-                if reg_index not in exclude_indexes:
-                    used_as_source_or_indirect_or_target_mask |= 1 << reg_index  # Mark candidate as used
-                    candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract digit after '%x'
+                    if reg_index not in exclude_indexes:
+                        used_as_source_or_indirect_or_target_mask |= 1 << reg_index  # Mark candidate as used
+                        candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
         # It's a target operand?
         elif match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
             if match.group(1).startswith(reg_type):
@@ -1208,7 +1295,7 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
             candidate_mask &= candidate_mask - 1  # Clear the least significant set bit
 
     # No candidates?
-    #if candidate[0] is None:
+    #if candidates[0] is None:
     #    print(f"{Fore.YELLOW}[NO FREE REG FOUND]{Style.RESET_ALL} for:  {lines[i_line].lstrip()}")
     #else:
     #    print(f"{Fore.CYAN}[FREE REG FOUND]{Style.RESET_ALL} {candidates}")
@@ -1367,7 +1454,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
                 if dest:
                     # if matching sub or eor
                     if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                        # sub or eor itslef?
+                        # sub or eor it self?
                         if dest in src and xN == dest:
                             xN_overwritten_or_cleared = True
                             # We have to continue visiting lines until a movem/move pops the xN register
@@ -1385,10 +1472,12 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
                         continue
 
             # Check for register usage and collect the line index
-            if match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
-                reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-                if reg_str is not None and xN == reg_str:
-                    collected_indices.append(i)
+            if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+                regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+                for reg_str in regs_list:
+                    if xN == reg_str:
+                        collected_indices.append(i)
+                        break
             # Is it a movem/move pop for xN?
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 if xN in extract_registers(pop_match.group(3), POP_OP):
@@ -1621,7 +1710,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
             if dest:
                 # if matching sub or eor
                 if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                    # sub or eor itslef?
+                    # sub or eor it self?
                     if dest in src and xN == dest:
                         break  # Stop the analysis
                 # if matching move
@@ -1633,9 +1722,9 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                     break  # Stop the analysis
 
         # xN is used as source operand or in any indirection (in both source and target) operand
-        elif match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
-            reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-            if reg_str is not None and xN == reg_str:
+        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+            if xN in regs_list:
                 collected_lines.append(line)
                 # If there is any return frame then continue from that location
                 if len(flow_return_frames) > 0:
@@ -1841,9 +1930,9 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
             continue
 
         # xN is used as source operand or in any indirection (in both source and target) operand
-        if match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
-            reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-            if reg_str is not None and xN == reg_str:
+        if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+            if xN in regs_list:
                 xN_used_backwards = True
                 break
         # It's a target operand?
@@ -1870,9 +1959,9 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
             continue
 
         # xN is used as source operand or in any indirection (in both source and target) operand
-        if match := REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.match(line):
-            reg_str = next((g for g in (match.group(1), match.group(2), match.group(3)) if g), None)
-            if reg_str is not None and xN == reg_str:
+        if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+            if xN in regs_list:
                 xN_used_forwards = True
                 break
         # It's a target operand?
@@ -2131,7 +2220,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_
             if dest and dest.startswith("%a"):
                 # if matching sub or eor
                 if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                    # sub or eor itslef?
+                    # sub or eor it self?
                     if dest in src and aN == dest:
                         # If there is any return frame then continue from that location
                         if len(flow_return_frames) > 0:
@@ -2270,16 +2359,19 @@ def are_regs_sorted(regs):
 BASE_SIZES_IN_WORDS = {
     'abcd': 1, 'adda': 1, 'add': 1, 'addi': 1, 'addq': 1, 'addx': 1, 'and': 1, 'andi': 1, 'asl': 1, 'asr': 1, 'bcc': 1, 'bcs': 1, 
     'beq': 1, 'bge': 1, 'bgt': 1, 'bhi': 1, 'bhs': 1, 'ble': 1, 'blo': 1, 'bls': 1, 'blt': 1, 'bmi': 1, 'bne': 1, 'bpl': 1, 
-    'bra': 1, 'bset': 1, 'bsr': 1, 'btst': 1, 'bvc': 1, 'bvs': 1, 'chk': 1, 'clr': 1, 'cmpa': 1, 'cmp': 1, 'cmpi': 1, 'cmpm': 1, 'dbcc': 1,
-    'dbcs': 1, 'dbeq': 1, 'dbf': 1, 'dbra': 1, 'dbge': 1, 'dbgt': 1, 'dbhi': 1, 'dble': 1, 'dbls': 1, 'dblt': 1, 'dbmi': 1, 'dbne': 1,
-    'dbpl': 1, 'dbra': 1, 'dbt': 1, 'dbvc': 1, 'dbvs': 1, 'divs': 1, 'divu': 1, 'eor': 1, 'eori': 1, 'exg': 1, 'ext': 1, 'jcc': 1, 
-    'jcs': 1, 'jeq': 1, 'jge': 1, 'jgt': 1, 'jhi': 1, 'jhs': 1, 'jle': 1, 'jlo': 1, 'jls': 1, 'jlt': 1, 'jmi': 1, 'jmp': 1, 'jne': 1, 
-    'jpl': 1, 'jra': 1, 'jsr': 1, 'jvc': 1, 'jvs': 1, 'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 
-    'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 'nbcd': 1, 'neg': 1, 'negx': 1, 'not': 1, 'or': 1, 'ori': 1, 'pea': 1, 'rol': 1, 'ror': 1, 
-    'roxl': 1, 'roxr': 1, 'sbcd': 1, 'scc': 1, 'scs': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'sle': 1, 'sls': 1, 'slt': 1, 
-    'smi': 1, 'sne': 1, 'spl': 1, 'st': 1, 'suba': 1, 'sub': 1, 'subi': 1, 'subq': 1, 'subx': 1, 'svc': 1, 'swap': 1, 'tas': 1, 
-    'tst': 1, 'unlk': 1,
-    'nop': 1, 'rte': 1, 'rts': 1
+    'bra': 1, 'bset': 1, 'bsr': 1, 'btst': 1, 'bvc': 1, 'bvs': 1, 'chk': 1, 'clr': 1, 'cmpa': 1, 'cmp': 1, 'cmpi': 1, 'cmpm': 1, 
+    'dbcc': 1, 'dbcs': 1, 'dbeq': 1, 'dbf': 1, 'dbra': 1, 'dbge': 1, 'dbgt': 1, 'dbhi': 1, 'dbhs': 1, 'dble': 1, 'dblo': 1, 
+    'dbls': 1, 'dblt': 1, 'dbmi': 1, 'dbne': 1, 'dbpl': 1, 'dbt': 1, 'dbvc': 1, 'dbvs': 1, 
+    'djcc': 1, 'djcs': 1, 'djeq': 1, 'djf': 1, 'djra': 1, 'djge': 1, 'djgt': 1, 'djhi': 1, 'djhs': 1, 'djle': 1, 'djlo': 1, 
+    'djls': 1, 'djlt': 1, 'djmi': 1, 'djne': 1, 'djpl': 1, 'djt': 1, 'djvc': 1, 'djvs': 1, 
+    'divs': 1, 'divu': 1, 'eor': 1, 'eori': 1, 'exg': 1, 'ext': 1,     
+    'jcc': 1, 'jcs': 1, 'jeq': 1, 'jge': 1, 'jgt': 1, 'jhi': 1, 'jhs': 1, 'jle': 1, 'jlo': 1, 'jls': 1, 'jlt': 1, 'jmi': 1, 'jmp': 1, 
+    'jne': 1, 'jpl': 1, 'jra': 1, 'jsr': 1, 'jvc': 1, 'jvs': 1, 
+    'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 
+    'nbcd': 1, 'neg': 1, 'negx': 1, 'not': 1, 'or': 1, 'ori': 1, 'pea': 1, 'rol': 1, 'ror': 1, 'roxl': 1, 'roxr': 1, 
+    'sbcd': 1, 'scc': 1, 'scs': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'sle': 1, 'sls': 1, 'slt': 1, 'smi': 1, 'sne': 1, 'spl': 1, 
+    'st': 1, 'suba': 1, 'sub': 1, 'subi': 1, 'subq': 1, 'subx': 1, 'svc': 1, 'swap': 1, 
+    'tas': 1, 'tst': 1, 'unlk': 1, 'nop': 1, 'rte': 1, 'rts': 1
 }
     
 # Addressing mode extra words (per operand)
@@ -2788,7 +2880,7 @@ move_ea_into_dN_pattern = re.compile(
     r'|'
     r'(\((?:[0-9a-zA-Z_\.]+|-?\d+(?:[\-\+\*]\d+)?),(?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (label_or_disp[+-*N],aN/PC,xN.s)
     r')'
-    r',\s*(%d[0-7]);?$'
+    r',\s*(%d[0-7])\b'
 )
 
 def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
@@ -4886,45 +4978,45 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                 optimized_line = f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
                 return ([optimized_line], 2)
 
-        # lea     subr,aN    ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused
-        # jsr     (aN)
-        # Optimization pays off only up to 3 replacements. More than 3 is better to keep using jsr (aN).
-        matchA = re.match(r'^(\s*)lea(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
-        if matchA:
-            subr = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
-            aN = matchA.group(7)
-            matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\);?$', line_B)
-            if matchB and aN == matchB.group(1):
-                optimized_lines = [
-                    f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
-                ]
-                return (None, 0)  # NOT_WORKING: both of next functions are not completed
-                count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
-                count_replacements += 1  # First replacement is the one we made in optimized_lines[]
-                if count_replacements <= 3:
-                    replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
-                    return (optimized_lines, 2)
+        if USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY:
 
-        # move.l  #subr,aN   ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused
-        # jsr     (aN)
-        # Optimization pays off only up to 3 replacements. More than 3 is better to keep using jsr (aN).
-        matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)#([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
-        if matchA:
-            subr = ''.join(matchA.group(i) for i in range(4, 8) if matchA.group(i))
-            aN = matchA.group(8)
-            matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\);?$', line_B)
-            if matchB and aN == matchB.group(1):
-                optimized_lines = [
-                    f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
-                ]
-                return (None, 0)  # NOT_WORKING: both of next functions are not completed
-                count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
-                count_replacements += 1  # First replacement is the one we made in optimized_lines[]
-                if count_replacements <= 3:
-                    replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
-                    return (optimized_lines, 2)
+            # lea     subr,aN    ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused
+            # jsr     (aN)
+            # Optimization pays off only up to 3 replacements. More than 3 is better to keep using jsr (aN).
+            matchA = re.match(r'^(\s*)lea(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
+            if matchA:
+                subr = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
+                aN = matchA.group(7)
+                matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\);?$', line_B)
+                if matchB and aN == matchB.group(1):
+                    optimized_lines = [
+                        f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
+                    ]
+                    count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
+                    count_replacements += 1  # First replacement is the one we made in optimized_lines[]
+                    if count_replacements <= 3:
+                        replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
+                        return (optimized_lines, 2)
+
+            # move.l  #subr,aN   ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused
+            # jsr     (aN)
+            # Optimization pays off only up to 3 replacements. More than 3 is better to keep using jsr (aN).
+            matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)#([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
+            if matchA:
+                subr = ''.join(matchA.group(i) for i in range(4, 8) if matchA.group(i))
+                aN = matchA.group(8)
+                matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\);?$', line_B)
+                if matchB and aN == matchB.group(1):
+                    optimized_lines = [
+                        f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
+                    ]
+                    count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
+                    count_replacements += 1  # First replacement is the one we made in optimized_lines[]
+                    if count_replacements <= 3:
+                        replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
+                        return (optimized_lines, 2)
 
         # move.l  val(aN),aM   ->   jmp  val(aN)     ; Saves 14 cycles. Leaves aM unused
         # jmp     (aM)
@@ -7219,7 +7311,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
         return ([optimized_line], True)
 
     # If -32768 <= val <= 32767.
-    # add*.l   #val,dN    ->   add.w   #val,dN    ; Saves 8 cycles
+    # add*.l   #val,dN    ->   add*/sub*.[wl]   #val,dN    ; Saves [8,12] cycles
     match = re.match(r'^(\s*)(add|addi|addq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
@@ -7234,6 +7326,32 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
             if -32768 <= val <= 32767:
                 optimized_line = f'{match.group(1)}addi.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
+        else:
+            if 1 <= val <= 8:
+                optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{val},{dN}'
+                return ([optimized_line], True)
+            if -8 <= val <= -1:
+                optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{-val},{dN}'
+                return ([optimized_line], True)
+
+    # If -128 <= val <= 127.
+    # add*.l   #val,dN    ->   moveq.l   #val,dM    ; Saves 4 cycles
+    #                          add.l     dM,dN
+    # Needs a free register dM
+    match = re.match(r'^(\s*)(add|addi|addq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    if match:
+        dN = match.group(5)
+        val = parseConstantSigned(match.group(4), 16)
+        if -128 <= val <= 127:
+            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}add.l  {match.group(3)}{dM},{dN}'
+                ]
+                return (optimized_lines, True)
 
     # Add immediate word to dN.
     # If 1 <= val <= 8:
@@ -7252,7 +7370,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
             return ([optimized_line], True)
 
     # If -32767 <= val <= 32767.
-    # sub*.l  #val,dN     ->   sub.w   #val,dN    ; Saves 8 cycles
+    # sub*.l  #val,dN     ->   sub*/add*.[wl]   #val,dN    ; Saves [8,12] cycles
     match = re.match(r'^(\s*)(sub|subi|subq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
@@ -7267,6 +7385,32 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
             if -32767 <= val <= 32767:
                 optimized_line = f'{match.group(1)}subi.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
+        else:
+            if 1 <= val <= 8:
+                optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{val},{dN}'
+                return ([optimized_line], True)
+            if -8 <= val <= -1:
+                optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{-val},{dN}'
+                return ([optimized_line], True)
+
+    # If -128 <= val <= 127.
+    # sub*.l   #val,dN    ->   moveq.l   #val,dM    ; Saves 4 cycles
+    #                          sub.l     dM,dN
+    # Needs a free register dM
+    match = re.match(r'^(\s*)(sub|subi|subq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    if match:
+        dN = match.group(5)
+        val = parseConstantSigned(match.group(4), 16)
+        if -128 <= val <= 127:
+            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}sub.l  {match.group(3)}{dM},{dN}'
+                ]
+                return (optimized_lines, True)
 
     # Sub immediate word to dN.
     # If 1 <= val <= 8:
@@ -7306,20 +7450,47 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
             return ([optimized_line], True)
 
     # If -32767 <= val <= 32767.
-    # adda.l  #val,An     ->   adda.w   #val,An    ; Saves 4 cycles
+    # adda.l  #val,An     ->   adda.w   #val,An    ; Saves [4,8] cycles
     match = re.match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if 1 <= val <= 8:
-            optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{aN}'
-            return ([optimized_line], True)
-        if -8 <= val <= -1:
-            optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{-val},{aN}'
-            return ([optimized_line], True)
-        if -32768 <= val <= 32767:
-            optimized_line = f'{match.group(1)}adda.w{match.group(3)}#{val},{aN}'
-            return ([optimized_line], True)
+        if is_reg_used_as_word_or_byte_afterwards(aN, i_line, lines, modified_lines):
+            if 1 <= val <= 8:
+                optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{aN}'
+                return ([optimized_line], True)
+            if -8 <= val <= -1:
+                optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{-val},{aN}'
+                return ([optimized_line], True)
+            if -32768 <= val <= 32767:
+                optimized_line = f'{match.group(1)}adda.w{match.group(3)}#{val},{aN}'
+                return ([optimized_line], True)
+        else:
+            if 1 <= val <= 8:
+                optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{val},{aN}'
+                return ([optimized_line], True)
+            if -8 <= val <= -1:
+                optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{-val},{aN}'
+                return ([optimized_line], True)
+
+    # If -128 <= val <= 127.
+    # adda.l   #val,aN    ->   moveq.l   #val,dM    ; Saves 4 cycles
+    #                          adda.l    dM,aN
+    # Needs a free register dM
+    match = re.match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
+    if match:
+        aN = match.group(5)
+        val = parseConstantSigned(match.group(4), 16)
+        if -128 <= val <= 127:
+            dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}adda.l {match.group(3)}{dM},{aN}'
+                ]
+                return (optimized_lines, True)
 
     # Add immediate word to An.
     # If when 1 <= val <= 8:
@@ -7341,6 +7512,49 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
         if (-32768 <= val <= -9) or (9 <= val <= 32767):
             optimized_line = f'{match.group(1)}lea{match.group(3)}{val}({aN}),{aN}'
             return ([optimized_line], True)
+
+    # If -32767 <= val <= 32767.
+    # suba.l  #val,An     ->   suba.w   #val,An    ; Saves [4,8] cycles
+    match = re.match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
+    if match:
+        aN = match.group(5)
+        val = parseConstantSigned(match.group(4), 16)
+        if is_reg_used_as_word_or_byte_afterwards(aN, i_line, lines, modified_lines):
+            if 1 <= val <= 8:
+                optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{aN}'
+                return ([optimized_line], True)
+            if -8 <= val <= -1:
+                optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{-val},{aN}'
+                return ([optimized_line], True)
+            if -32768 <= val <= 32767:
+                optimized_line = f'{match.group(1)}suba.w{match.group(3)}#{val},{aN}'
+                return ([optimized_line], True)
+        else:
+            if 1 <= val <= 8:
+                optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{val},{aN}'
+                return ([optimized_line], True)
+            if -8 <= val <= -1:
+                optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{-val},{aN}'
+                return ([optimized_line], True)
+
+    # If -128 <= val <= 127.
+    # suba.l   #val,aN    ->   moveq.l   #val,dM    ; Saves 4 cycles
+    #                          suba.l    dM,aN
+    # Needs a free register dM
+    match = re.match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
+    if match:
+        aN = match.group(5)
+        val = parseConstantSigned(match.group(4), 16)
+        if -128 <= val <= 127:
+            dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}suba.l {match.group(3)}{dM},{aN}'
+                ]
+                return (optimized_lines, True)
 
     # Sub immediate word to An.
     # If 1 <= val <= 8:
@@ -12002,9 +12216,9 @@ def optimizeSingleLine_MovemWithSingleRegister(line, i_line, lines, modified_lin
 
     # movem.l (sp)+,<2 regs>  ->   move.l  (sp)+,<reg1>     ; Saves 4 cycles
     #                              move.l  (sp)+,<reg2>
-    match = re.match(r'^(\s*)movem\.l(\s+)\(%sp\)\+,\s*(%[ad][0-7])([\-/])(%[ad][0-7]);?$', line)
+    match = re.match(r'^(\s*)movem\.l(\s+)\(%sp\)\+,\s*(%[ad][0-7])/(%[ad][0-7]);?$', line)
     if match:
-        _, _, reg1, sep, reg2, = match.groups()
+        _, _, reg1, reg2, = match.groups()
         optimized_lines = [
             f'{match.group(1)}move.l{match.group(2)}(%sp)+,{reg1}',
             f'{match.group(1)}move.l{match.group(2)}(%sp)+,{reg2}'
@@ -12363,11 +12577,13 @@ def convert_gcc_movem_encoded_regs(line):
 
     return line
 
+# (symbolName[.s])[.s]
 symbolName_or_imm_dereference_pattern = re.compile(
     r'\('                            # Matches '('
     r'(?!%[ad][0-7]|%sp|%pc)'        # Negative lookahead: avoid dN, aN, sp, pc
     r'([0-9a-zA-Z_\.]+(?:\.[wl])?)'  # symbolName[.wl]
     r'\)'                            # Matches ')'
+    r'(?:\.[wl])?'                   # [.wl]
 )
 
 def remove_gcc_dereference_symbolName_and_immediate(line):
@@ -12413,11 +12629,10 @@ def applyGccConversions(lines):
 
     return modified_lines
 
-# move.l symbolName[.wl],aN
 # move.l #symbolName[.wl],aN
 move_symbolName_into_an_pattern = re.compile(
     r'^\s*move\.l\s+'
-    r'#?([0-9a-zA-Z_\.]+)(\.[wl])?'
+    r'#([0-9a-zA-Z_\.]+)(\.[wl])?'
     r',\s*(%a[0-7]);?$'
 )
 # lea symbolName[.wl],aN
@@ -12429,7 +12644,7 @@ lea_symbolName_into_an_pattern = re.compile(
 
 def search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i_start, i_end):
     """
-    Search for lea symbolName,aN or move.l #?symbolName,aN and assign symbolName to func_name
+    Search for lea symbolName,aN or move.l #symbolName,aN and assign symbolName to func_name
     """
     # TODO: add use of control_flow_dict
 
@@ -12441,14 +12656,16 @@ def search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i_start, i_en
         # Is moving a symbolName name into aN?
         if match := move_symbolName_into_an_pattern.match(prev_line) or lea_symbolName_into_an_pattern.match(prev_line):
             if aN == match.group(3):
-                return match.group(1)
+                symbolName = match.group(1)
+                return symbolName
 
     return ''
 
 move_into_SGDK_table_vector_pattern = re.compile(
     r'^\s*move\.[wl]\s+'
-    r'#([0-9a-zA-Z_\.]+)(\.[wl])?'
-    r',\s*(vintCB|hintCaller|eintCB|intCB|vblankCB|busErrorCB|addressErrorCB|illegalInstCB|zeroDivideCB|chkInstCB|trapvInstCB|privilegeViolationCB|traceCB|line1x1xCB|errorExceptionCB)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'#([0-9a-zA-Z_\.]+)(\.[wl])?,\s*'
+    r'(vintCB|hintCaller|eintCB|intCB|vblankCB|busErrorCB|addressErrorCB|illegalInstCB|zeroDivideCB|chkInstCB|trapvInstCB|privilegeViolationCB|traceCB|line1x1xCB|errorExceptionCB)'
+    r'(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
 )
 
 global_routine_pattern = re.compile(
@@ -12457,7 +12674,7 @@ global_routine_pattern = re.compile(
     r'('                   # Start capturing group for function name
     r'[a-zA-Z_]'           # First character must be a letter or underscore
     r'[0-9a-zA-Z_\.]+'     # Anything left
-    r')'
+    r')$'
 )
 
 def non_used_functions(lines):
@@ -12487,7 +12704,7 @@ def non_used_functions(lines):
         # Is calling one of the declared functions?
         if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
-            # Consider cases like jsr/jmp (%a5)
+            # Consider cases like jsr/jmp (aN)
             if func_name.startswith('%a'):
                 aN = func_name
                 func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i-1, 0)

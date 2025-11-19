@@ -15,9 +15,9 @@ The optimization depends heavily on the project you run it over. On some, it sav
 See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all peepholes and switches 
 the optimizer provides.
 
-These are three of my projects in which I use the optimizer. The picture shows how many patterns were applied.
+These are four of my projects in which I use the optimizer. The picture outlines how many patterns were applied.
 
-![stats.jpg](stats.jpg?raw=true "stats.jpg")
+![stats.jpg](stats.png?raw=true "stats.png")
 
 ### Build gcc and the plugin
 
