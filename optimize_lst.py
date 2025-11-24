@@ -96,17 +96,17 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 
 # Analyzes the context of the routine to detect free regs that were actually used but are free to use at 
 # the line the analyzer is looking at.
-USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False
+USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False  # TODO: review the logic
 
-# This refers to the function that search for a new free reg not used at all in the context of a routine and 
-# tye current program flow in that routine.
-# WARNING: This may add overhead on push/pop from stack instructions that kills any gain given by the optimized line/s.
-# But it depends on how many cycles have been optimized in the routine.
-USE_FIND_FREE_REG_FUNCTION = True
+# This refers to the function that searches for any register not used at the current location of the code in the 
+# context of the current routine and the current program flow in that routine.
+# WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
+# any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
+USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic
 
 # By default if a routine is NOT an interrupt then scratch pad regs naturally don't need to be push/pop in/from stack.
 # In any other case we must add them, and that's where this flag enables/disables this functionality.
-USE_INCLUDE_REGS_INTO_PUSH_POP_FUNCTION = False  # TODO: glitches appear in Blastem
+USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION = True
 
 # Custom optimizations found from the analyzis of gcc -S listings.
 USE_FABRI1983_MOVEM_OPTIMIZATIONS = True
@@ -449,7 +449,7 @@ def extract_registers(regs_encoded, operation_type):
     const_match = re.match(r'#(-?\d+)', regs_encoded)
     if const_match:
         value = parseConstantUnsigned(const_match.group(1))
-        # Remember that regs are read from x7 to x0 when pushing into stack.
+        # Remember that regs are read from x7 to x0 when pushed into stack.
         # That's why GCC reverses the bits of the encoded value.
         if operation_type == PUSH_OP:
             # Extract the i-th bit and place it at the (15-i)-th position
@@ -504,16 +504,17 @@ FUNCTION_EXIT_REGEX = re.compile(
     r'^\s*(rts|rte)\b'
 )
 INSTRUCTION_WITH_SIZE_REGEX = re.compile(
-    r'^\s*(\w+)\.?([bwl])?\s+(?:.+)\b'  # Only capture instruction mnemonic and size .s
+    r'^\s*(\w+)(\.[bwl])?\s+(?:.+)\b'  # Only capture instruction mnemonic and size .s
 )
 REG_AS_TARGET_REGEX = re.compile(
     r'^\s*'                          # Optional leading whitespace
     r'(?:'                           # Non-capturing group for target-writing instructions
     r'(?:abcd|add|and|asl|asr|bchg|bclr|bset|btst|cmp|div|eor|exg|lea|lsl|lsr|move|mul|nbcd|or|rol|ror|roxl|roxr|sbcd|sub)\S*'
     r')\s+'                          # Whitespace
-    r'[^,]*'                         # Everything up to a comma (source operands)
+    r'[^,]+?'                        # Non-greedy match for source operand (may contain comma in parentheses)
+    r'(?:\([^)]+\)[^,]*)*'           # Handle nested structures with commas inside parentheses
     r',\s*'                          # Comma and optional whitespace before destination
-    r'(%[ad][0-7])\b'                # Target register
+    r'(%[ad][0-7]);?$'               # Target register
 )
 REG_AS_TARGET_ALONE_REGEX = re.compile(
     r'^\s*'                          # Optional leading whitespace
@@ -620,7 +621,7 @@ PUSH_OTHER_INTO_STACK_REGEX = re.compile(
 )
 
 # Labels: 1:, .L37:, _loc1:, abcABC:, xlt_all.0:
-LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):$')
+LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):;?$')
 
 backward_number_labels = {'0b','1b','2b','3b','4b','5b','6b','7b','8b','9b'}
 forward_number_labels = {'0f','1f','2f','3f','4f','5f','6f','7f','8f','9f'}
@@ -734,6 +735,7 @@ def build_control_flow_map(i_line, lines, modified_lines):
         # Is a label definition?
         if match := LABEL_REGEX.match(line):
             label = match.group(1)
+            # Save the line position of the label
             control_obj = ControlFlowPosInArray(pos_in_lines=-1, pos_in_modified_lines=i)
             control_flow_dict[label] = control_obj
 
@@ -750,6 +752,7 @@ def build_control_flow_map(i_line, lines, modified_lines):
         # Is a label definition?
         if match := LABEL_REGEX.match(line):
             label = match.group(1)
+            # Save the line position of the label
             control_obj = ControlFlowPosInArray(pos_in_lines=i, pos_in_modified_lines=-1)
             control_flow_dict[label] = control_obj
 
@@ -771,6 +774,7 @@ def build_control_flow_map(i_line, lines, modified_lines):
                 label = match.group(2)
                 if label in control_flow_dict:
                     control_obj = control_flow_dict[label]
+                    # Save the line position of the instruction that branches to that label
                     control_obj.add_inverted_for_modified_lines(i)
 
     # Scan forwards in lines array
@@ -789,6 +793,7 @@ def build_control_flow_map(i_line, lines, modified_lines):
                 label = match.group(2)
                 if label in control_flow_dict:
                     control_obj = control_flow_dict[label]
+                    # Save the line position of the instruction that branches to that label
                     control_obj.add_inverted_for_lines(i)
 
     return control_flow_dict
@@ -871,14 +876,40 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     # Bitmask tracking (7-0 = x7-x0)
-    candidate_mask = 0
+    # Initially we set all them as available
+    candidate_mask = 0xFF
     exclude_indexes = (
         {} if not excludes  # Handle empty list
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
     )
 
-    # Phase 1: Scan recent instructions for all used registers (backwards scan)
+    # Set excluded indexes as not available candidates
+    for reg_index in exclude_indexes:
+        candidate_mask &= ~(1 << reg_index)  # Set reg_index as unavailable
+
+    # Search for the first instruction in the routine
+    routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
+
+    # Get this routine name
     start_idx = len(modified_lines) - 1
+    end_idx = 0
+    func_name = ""
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
+        line = modified_lines[i]
+        # Break conditions
+        if match_func := FUNCTION_DECLARATION_REGEX.match(line):
+            func_name = match_func.group(1)
+            break
+
+    # Bitmask tracking (7-0 = x7-x0)
+    """candidate_mask = 0
+    exclude_indexes = (
+        {} if not excludes  # Handle empty list
+        else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
+    )"""
+
+    # Phase 1: Scan recent instructions for all used registers (backwards scan)
+    """start_idx = len(modified_lines) - 1
     end_idx = 0
     for i in range(start_idx, end_idx - 1, -1):  # backwards
         line = modified_lines[i]
@@ -889,20 +920,18 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
 
         # If pushing into stack then extract the registers
         if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
-            pushed_list = extract_registers(push_match.group(3), PUSH_OP)
-            for item in pushed_list:
-                if item.startswith(reg_type):
-                    N = int(item[2])  # Extract the digit after '%x'
-                    reg_index = int(N)
+            regs_list = extract_registers(push_match.group(3), PUSH_OP)
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract the digit after '%x'
                     if reg_index not in exclude_indexes:
                         candidate_mask |= (1 << reg_index)  # Mark candidate as available
         # If poping from stack then extract the registers
         elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
-            poped_list = extract_registers(pop_match.group(3), POP_OP)
-            for item in poped_list:
-                if item.startswith(reg_type):
-                    N = int(item[2])  # Extract the digit after '%x'
-                    reg_index = int(N)
+            regs_list = extract_registers(pop_match.group(3), POP_OP)
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract the digit after '%x'
                     if reg_index not in exclude_indexes:
                         candidate_mask |= (1 << reg_index)  # Mark candidate as available
         # It's a source or indirect operand?
@@ -914,7 +943,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                     if reg_index not in exclude_indexes:
                         candidate_mask |= 1 << reg_index  # Mark candidate as available
         # It's a target operand?
-        elif match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
+        elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
             if match.group(1).startswith(reg_type):
                 reg_index = int(match.group(1)[2])  # Extract digit after '%x'
                 if reg_index not in exclude_indexes:
@@ -922,56 +951,46 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
 
         # All registers available? Then no need to keep scanning
         if candidate_mask == 0xFF:
-            break
+            break"""
 
-    # Proceed only if there are candidates
-    if candidate_mask:
+    # Phase 2: Scan remaining lines and keep those candidate registers satisfying the rules (forwards scan)
+    overwritten_or_cleared_mask = 0;
+    used_before_overwritten_or_cleared_mask = 0;
 
-        # Phase 2: Scan remaining lines and keep those candidate registers satisfying the rules (forwards scan)
-        overwritten_or_cleared_mask = 0;
-        used_before_overwritten_or_cleared_mask = 0;
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
+    control_visited = set()  # Helps to avoid looping infinitely 
+    flow_return_frames = []
+    
+    # Start with lines array
+    target_array = lines
+    rem_start = i_line + 1
+    rem_end = len(target_array)
+    i = rem_start
 
-        control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
-        control_visited = set()  # Helps to avoid looping infinitely 
-        flow_return_frames = []
-        
-        # Start with lines array
-        target_array = lines
-        rem_start = i_line + 1
-        rem_end = len(target_array)
+    # Master control flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
 
-        i = rem_start
         while i < rem_end:  # forwards
             line = target_array[i]
             i += 1
 
+            # No more available candidates?
+            if candidate_mask == 0:
+                break  # Stop the analysis
+
             # End of this routine body?
             if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-                # If there is any return frame then continue from that location
-                if len(flow_return_frames) > 0:
-                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                    continue
                 break  # Stop the analysis
 
             # Reaching rts/rte?
             elif FUNCTION_EXIT_REGEX.match(line):
-                # If there is any return frame then continue from that location
-                if len(flow_return_frames) > 0:
-                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                    continue
                 break  # Stop the analysis
 
             # Is a label?
             elif match_label := LABEL_REGEX.match(line):
                 label = match_label.group(1)
                 if label in control_visited:
-                    # If there is any return frame then continue from that location
-                    if len(flow_return_frames) > 0:
-                        i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                        continue
-                    else:
-                        # Label was already visited and there is no backtrack location.
-                        break  # Stop the analysis
+                    break  # Stop the analysis
                 else:
                     # Mark this label as visited
                     control_visited.add(label)
@@ -981,10 +1000,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
             elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
                 # Jumping into a routine?
                 if match.group(1) in ('jsr', 'bsr'):
-                    # When jumping into a subroutine we must stop the analysis since we don't know 
-                    # whether the candidates will be effectively used in that routine
-                    candidate_mask = 0  # Mark all candidates as unavailable
-                    break
+                    continue
                 elif match.group(1) in ('bra', 'jra', 'jmp'):
                     # Get the target label
                     label = match.group(2)
@@ -993,12 +1009,11 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                     if label not in control_flow_dict:
                         if label in declared_functions_set:
                             # Same behavior than when instruction is in ('jsr','bsr')
-                            candidate_mask = 0  # Mark all candidates as unavailable
-                            break 
+                            continue
                         else:
                             # We actually can't calculate the destination: 
                             # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                            # TODO: if label is of the form label_or_disp(pc,xN.s) then got to the table and collect all 
+                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
                             # the target labels and visit them one by one
                             continue
                     # Target label is in the dictionary AND was not yet visited
@@ -1019,7 +1034,7 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                             continue
 
             # If is a conditional branch jcc/bcc (except dbCC)
-            elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line):
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
                 # Target label is in the dictionary AND was not yet visited
@@ -1042,10 +1057,31 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                         rem_end = len(target_array)
                         continue
 
+            # If pushing into stack then consider the regs as used
+            elif push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+                regs_list = extract_registers(push_match.group(3), PUSH_OP)
+                for reg_str in regs_list:
+                    if reg_str.startswith(reg_type):
+                        reg_index = int(reg_str[2])  # Extract digit after '%x'
+                        # Check reg is not one of the excluded and if not already overwritten/cleared
+                        if (reg_index not in exclude_indexes) and not (overwritten_or_cleared_mask & (1 << reg_index)):
+                            used_before_overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as used before overwritten/cleared
+                            candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+
+            # If poping from stack then consider the regs as overwritten
+            elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+                regs_list = extract_registers(pop_match.group(3), POP_OP)
+                for reg_str in regs_list:
+                    if reg_str.startswith(reg_type):
+                        reg_index = int(reg_str[2])  # Extract digit after '%x'
+                        # Check reg is not one of the excluded and not used earlier
+                        if (reg_index not in exclude_indexes) and not (used_before_overwritten_or_cleared_mask & (1 << reg_index)):
+                            overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
+
             # First check for overwrites/clears (if not used already)
-            elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+            if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
                 instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
-                src = match.group(2)  # source operand for move/lea/sub/eor
+                src_complex = match.group(2)  # source operand for move/lea/sub/eor
                 instr_clr = match.group(3)
                 dest = match.group(4)  # reg being overwritten or cleared
                 if dest and dest.startswith(reg_type):
@@ -1055,19 +1091,21 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                         # if matching sub or eor
                         if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
                             # sub or eor it self?
-                            if dest in src:
+                            if dest in src_complex:
                                 overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                        # if matching move
+                        # if matching move or lea
                         elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                            overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
+                            if dest not in src_complex:
+                                overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                         # just matching the clr instruction
                         elif instr_clr:
                             overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                         else:
                             # Instruction not considered?
-                            print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} Instruction not considered: {line}")
+                            print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} At {func_name}: instruction not considered: {line}")
+
             # Then check for register usage (if not overwritten/cleared already)
-            elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
                 regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
                 for reg_str in regs_list:
                     if reg_str.startswith(reg_type):
@@ -1077,9 +1115,16 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
                             used_before_overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as used before overwritten/cleared
                             candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
 
-            # All candidates exhausted? Then exit loop
-            if candidate_mask == 0:
-                break
+        # No more available candidates?
+        if candidate_mask == 0:
+            break  # Stop the analysis
+
+        # If there is any return frame then continue from that location
+        if len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
 
     candidates = [None]
 
@@ -1093,9 +1138,9 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
 
     # No candidates?
     #if candidates[0] is None:
-    #    print(f"{Fore.YELLOW}[NO FREE AFTER USE REG FOUND]{Style.RESET_ALL} for:  {lines[i_line].lstrip()}")
+    #    print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
     #else:
-    #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} {candidates}")
+    #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -1111,23 +1156,22 @@ def find_unused_address_register(excludes, i_line, lines, modified_lines, ignore
 
 def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, ignore_N_previous_lines):
     """
-    Search for a free register:
-    Starting at the beginning of the current routine, search for a registers, different than 
-    any reg in excludes array, that is not used as source operand nor in any indirection (in both 
-    source and target) operand nor as a target operand.
-    Stop searching when reaching position i_line at lines array or the end of modified_lines
+    Search for unused registers before i_line:
+    Starting at the beginning of the current routine, search for registers different than any reg 
+    in excludes array, that is not used as target operand (means the reg will be used later on).
+    Stop searching when reaching position i_line at lines array or the end of modified_lines.
     Returns:
         ['%xM','%xP', ...] or [None]
     """
     global declared_functions_set
 
-    if not USE_FIND_FREE_REG_FUNCTION:
+    if not USE_FIND_NOT_USED_REG_FUNCTION:
         return [None]
 
     # Make them not to interfere with the analysis
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
-    control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited = set()  # Helps to avoid looping infinitely 
     flow_return_frames = []
 
@@ -1143,79 +1187,100 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
     for reg_index in exclude_indexes:
         candidate_mask &= ~(1 << reg_index)  # Set reg_index as unavailable
 
-    used_as_source_or_indirect_or_target_mask = 0;
+    # Search for the first instruction in the routine
+    routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
+
+    # Get this routine name
+    start_idx = len(modified_lines) - 1
+    end_idx = 0
+    func_name = ""
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
+        line = modified_lines[i]
+        # Break conditions
+        if match_func := FUNCTION_DECLARATION_REGEX.match(line):
+            func_name = match_func.group(1)
+            break
 
     # Start with modified_lines array
     target_array = modified_lines
-    rem_start = get_routine_first_instruction_pos(modified_lines)
+    rem_start = routine_first_instruction_pos
     rem_end = len(target_array)
-
     i = rem_start
-    while i < rem_end:  # forwards
-        line = target_array[i]
-        i += 1
 
-        # End of this routine body?
-        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+    # Master control flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
 
-        # Reaching rts/rte?
-        elif FUNCTION_EXIT_REGEX.match(line):
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+        while i < rem_end:  # forwards
+            line = target_array[i]
+            i += 1
 
-        # Is a label?
-        elif match_label := LABEL_REGEX.match(line):
-            label = match_label.group(1)
-            if label in control_visited:
-                # If there is any return frame then continue from that location
-                if len(flow_return_frames) > 0:
-                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                    continue
-                else:
-                    # Label was already visited and there is no backtrack location.
+            # No more available candidates?
+            if candidate_mask == 0:
+                break  # Stop the analysis
+
+            # End of this routine body?
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break  # Stop the analysis
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                break  # Stop the analysis
+
+            # Is a label?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                if label in control_visited:
                     break  # Stop the analysis
-            else:
-                # Mark this label as visited
-                control_visited.add(label)
-                continue
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
 
-        # If navigating lines array and reaching i_line position then stop analysis
-        elif target_array is lines and i == i_line:
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                # Jumping into a routine?
+                if match.group(1) in ('jsr', 'bsr'):
+                    continue
+                elif match.group(1) in ('bra', 'jra', 'jmp'):
+                    # Get the target label (might be a function name which won't be in control_flow_dict)
+                    label = match.group(2)
+                    # Sometimes the label is a function name and the instruction is jmp/bra.
+                    # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
+                    if label not in control_flow_dict:
+                        if label in declared_functions_set:
+                            # Same behavior than when instruction is in ('jsr','bsr')
+                            continue 
+                        else:
+                            # We actually can't calculate the destination: 
+                            # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # the target labels and visit them one by one
+                            continue
+                    # Target label is in the dictionary AND was not yet visited
+                    elif label in control_flow_dict and label not in control_visited:
+                        # Mark this label as visited
+                        control_visited.add(label)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label];
+                        if control_obj.pos_in_lines != -1:
+                            i = control_obj.pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                            continue
+                        elif control_obj.pos_in_modified_lines != -1:
+                            i = control_obj.pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                            continue
 
-        elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-            # Jumping into a routine?
-            if match.group(1) in ('jsr', 'bsr'):
-                continue
-            elif match.group(1) in ('bra', 'jra', 'jmp'):
-                # Get the target label (might be a function name which won't be in control_flow_dict)
+            # If is a conditional branch jcc/bcc (except dbCC)
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
+                # Get the target label
                 label = match.group(2)
-                # Sometimes the label is a function name and the instruction is jmp/bra.
-                # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
-                if label not in control_flow_dict:
-                    if label in declared_functions_set:
-                        # Same behavior than when instruction is in ('jsr','bsr')
-                        continue 
-                    else:
-                        # We actually can't calculate the destination: 
-                        # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                        # TODO: if label is of the form label_or_disp(pc,xN.s) then got to the table and collect all 
-                        # the target labels and visit them one by one
-                        continue
                 # Target label is in the dictionary AND was not yet visited
-                elif label in control_flow_dict and label not in control_visited:
+                if label in control_flow_dict and label not in control_visited:
+                    # Add a return frame so we can backtrack and continue from this point
+                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                    flow_return_frames.append(frame)
                     # Mark this label as visited
                     control_visited.add(label)
                     # Which array the destination line points to?
@@ -1231,58 +1296,32 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
                         rem_end = len(target_array)
                         continue
 
-        # If is a conditional branch jcc/bcc (except dbCC)
-        elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line):
-            # Get the target label
-            label = match.group(2)
-            # Target label is in the dictionary AND was not yet visited
-            if label in control_flow_dict and label not in control_visited:
-                # Add a return frame so we can backtrack and continue from this point
-                frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                flow_return_frames.append(frame)
-                # Mark this label as visited
-                control_visited.add(label)
-                # Which array the destination line points to?
-                control_obj = control_flow_dict[label];
-                if control_obj.pos_in_lines != -1:
-                    i = control_obj.pos_in_lines
-                    target_array = lines
-                    rem_end = len(target_array)
-                    continue
-                elif control_obj.pos_in_modified_lines != -1:
-                    i = control_obj.pos_in_modified_lines
-                    target_array = modified_lines
-                    rem_end = len(target_array)
-                    continue
-
-        # If reaching to a movem/move pushing into stack then continue with the loop.
-        # THIS BEHAVIOR SEEMS USEFUL IN CASES WHERE THERE ARE ORPHAN REGISTERS and only remains its push into stack instruction
-        elif push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
-            pass
-            """pushed_list = extract_registers(push_match.group(3), PUSH_OP)
-            for item in pushed_list:
-                if item.startswith(reg_type):
-                    N = int(item[2])  # Extract the digit after '%x'
-                    reg_index = int(N)
+            # It's movem/move push into stack?
+            elif PUSH_REGS_INTO_STACK_REGEX.match(line):
+                pass
+            # It's movem/move pop from stack?
+            elif POP_REGS_FROM_STACK_REGEX.match(line):
+                pass
+            # It's a source or indirect operand?
+            elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+                pass
+            # It's a target operand?
+            elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+                if match.group(1).startswith(reg_type):
+                    reg_index = int(match.group(1)[2])  # Extract digit after '%x'
                     if reg_index not in exclude_indexes:
-                        if not (used_as_source_or_indirect_or_target_mask & (1 << reg_index)):
-                            candidate_mask |= (1 << reg_index)  # Mark candidate as available"""
-        # It's a source or indirect operand?
-        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
-            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
-            for reg_str in regs_list:
-                if reg_str.startswith(reg_type):
-                    reg_index = int(reg_str[2])  # Extract digit after '%x'
-                    if reg_index not in exclude_indexes:
-                        used_as_source_or_indirect_or_target_mask |= 1 << reg_index  # Mark candidate as used
                         candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
-        # It's a target operand?
-        elif match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
-            if match.group(1).startswith(reg_type):
-                reg_index = int(match.group(1)[2])  # Extract digit after '%x'
-                if reg_index not in exclude_indexes:
-                    used_as_source_or_indirect_or_target_mask |= 1 << reg_index  # Mark candidate as used
-                    candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+
+        # No more available candidates?
+        if candidate_mask == 0:
+            break  # Stop the analysis
+
+        # If there is any return frame then continue from that location
+        if len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
 
     candidates = [None]
 
@@ -1296,9 +1335,9 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
 
     # No candidates?
     #if candidates[0] is None:
-    #    print(f"{Fore.YELLOW}[NO FREE REG FOUND]{Style.RESET_ALL} for:  {lines[i_line].lstrip()}")
+    #    print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
     #else:
-    #    print(f"{Fore.CYAN}[FREE REG FOUND]{Style.RESET_ALL} {candidates}")
+    #    print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -1356,50 +1395,62 @@ sp_modified_by_any_instruction_pattern = re.compile(
     r'^\s*\w+(\.[bwl])?\s+[\d\w#\-\+\(\)%\.,]+,\s*%sp(?![^;#\n]*)'
 )
 
-def add_line_with_push_regs_into_stack(regs, modified_lines, inAnInterruptRoutine, routine_first_instruction_pos):
+def add_line_with_push_regs_into_stack(regs, target_lines, insert_at):
     """
-    Starting at routine_first_instruction_pos, keep track of the last line where (sp) is used, 
-    but not a modification of where it points to, so stop searching at one of next patterns:
-       -(sp) or (sp)+
-       <any_instr> *,sp
+    Insert at insert_at a movem/move push into stack instruction.
     """
-
-    last_sp_usage_line = routine_first_instruction_pos
-
-    # Forwards scan in modified_lines
-    for k in range(routine_first_instruction_pos, len(modified_lines)):  # forwards
-        line = modified_lines[k]
-
-        # Break conditions
-        if FUNCTION_DECLARATION_REGEX.match(line):
-            break
-
-        # Check for next sp usage patterns:
-        #   -(sp) or (sp)+
-        #   <any_instr> *,sp
-        if re.search(r"-\(%sp\)", line) or re.search(r"\(%sp\)\+", line) or sp_modified_by_any_instruction_pattern.match(line):
-            break
-
-        # Check for (sp) usage like: move.l reg,(sp) or move.w 4(sp),reg
-        if re.search(r'\(%sp\)', line):
-            # sp is used in a way that interferes with the push, so next line should be fine
-            last_sp_usage_line = k+1
-
-    # If sp wasn't used we can add the new line/s just at i+2.
-    # If sp was used, then add the new line/s after that last line it was used.
-    # If len(regs) < 3 then use move instructions. Otherwise movem.
     new_lines = []
-    sortedRegs = sort_regs(regs)
+
+    # If len(regs) < 3 then use move instructions. Otherwise movem.
     if len(regs) < 3:
-        new_lines.extend(f'\tmove.l {reg},-(%sp)' for reg in sortedRegs)
+        new_lines.extend(f'\tmove.l {reg},-(%sp)' for reg in regs)
     else:
+        # Reverse the list of regs as per push into stack nomenclature
+        sortedRegs_inverted = sort_regs(regs)[::-1]
         # Rebuild register list using '/' as separator
-        newRegs_str = '/'.join(sortedRegs)
+        newRegs_str = '/'.join(sortedRegs_inverted)
         new_lines.append(f'\tmovem.l {newRegs_str},-(%sp)')
 
-    # Insert elements in reverse order to maintain correct order
+    # Reverse the order of the new lines so the insertion keeps the intended order
     for elem in reversed(new_lines):
-        modified_lines.insert(last_sp_usage_line, elem)
+        target_lines.insert(insert_at, elem)
+
+def add_lines_with_pop_regs_from_stack(regs, target_lines, starting_at):
+    """
+    Insert a movem/move pop from stack instruction before any rts/rte
+    """
+    i = starting_at
+    rem_end = len(target_lines)
+    while i < rem_end:  # forwards
+        line = target_lines[i]
+        i += 1
+
+        # If reaching the end of the routine
+        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+            break
+
+        elif match := FUNCTION_EXIT_REGEX.match(line):
+            new_lines = []
+
+            # If len(regs) < 3 then use move instructions. Otherwise movem.
+            if len(regs) < 3:
+                new_lines.extend(f'\tmove.l (%sp)+,{reg}' for reg in regs)
+            else:
+                sortedRegs = sort_regs(regs)
+                # Rebuild register list using '/' as separator
+                newRegs_str = '/'.join(sortedRegs)
+                new_lines.append(f'\tmovem.l (%sp)+,{newRegs_str}')
+
+            # Reverse the order of the new lines so the insertion keeps the intended order
+            insert_at = i-2
+            for elem in reversed(new_lines):
+                target_lines.insert(insert_at, elem)
+                i += 1
+
+            # Update the limit
+            rem_end = len(target_lines)
+
+    return
 
 def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
     """
@@ -1418,6 +1469,8 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
        add xM reg if not already in push list, and replace xN by xM in pop list.
     """
 
+    # TODO: use control_flow_dict
+
     # Detect if we are in an interrupt routine
     inAnInterruptRoutine = in_an_interrupt_routine(i_line, lines, modified_lines)
 
@@ -1432,36 +1485,37 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
         # End this routine body?
         if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             break
+
         # If only specific unconditional flow is met then stop
         if match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             if match.group(1) in ('bra','jra','jmp'):
-                # TODO: use control_flow_dict
                 break
 
         # If xN was overwritten or cleared then process only lines that movem/move pops xN (if any)
         if xN_overwritten_or_cleared:
             pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-            if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
+            is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
+            if pop_match and xN in extract_registers(pop_match.group(3), POP_OP) and is_before_rts_rte:
                 collected_indices.append(i)
             continue
         else:
             # Check for overwrites/clears (if not used already)
             if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
                 instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
-                src = match.group(2)  # source operand for move/lea/sub/eor
+                src_complex = match.group(2)  # source operand for move/lea/sub/eor
                 instr_clr = match.group(3)
                 dest = match.group(4)  # reg being overwritten or cleared
                 if dest:
                     # if matching sub or eor
                     if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
                         # sub or eor it self?
-                        if dest in src and xN == dest:
+                        if dest in src_complex and xN == dest:
                             xN_overwritten_or_cleared = True
                             # We have to continue visiting lines until a movem/move pops the xN register
                             continue
-                    # if matching move
+                    # if matching move or lea
                     elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                        if xN == dest:
+                        if dest not in src_complex and xN == dest:
                             xN_overwritten_or_cleared = True
                             # We have to continue visiting lines until a movem/move pops the xN register
                             continue
@@ -1474,14 +1528,18 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
             # Check for register usage and collect the line index
             if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
                 regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
-                for reg_str in regs_list:
-                    if xN == reg_str:
-                        collected_indices.append(i)
-                        break
-            # Is it a movem/move pop for xN?
-            elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
-                if xN in extract_registers(pop_match.group(3), POP_OP):
+                if xN in regs_list:
                     collected_indices.append(i)
+
+            # Is it a movem/move pop for xN?
+            if pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+                is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
+                if xN in extract_registers(pop_match.group(3), POP_OP) and is_before_rts_rte:
+                    collected_indices.append(i)
+
+    # Remove duplicates just in case. Preserving the order.
+    seen = set()
+    collected_indices = [item for item in collected_indices if item not in seen and not seen.add(item)]
 
     # Phase 2: Apply replacements
     was_xM_added_into_movem_or_move_pop = False
@@ -1492,8 +1550,9 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
         if pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
             # move
             if pop_match.group(1) == 'move':
+                is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
                 # If xM is not scratch pad, unless in an interrupt routine: then add it
-                if inAnInterruptRoutine or (xM not in scratch_pad):
+                if (inAnInterruptRoutine or (xM not in scratch_pad)) and is_before_rts_rte:
                     was_xM_added_into_movem_or_move_pop = True
                     # Simple text replacement of register name
                     lines[i] = re.sub(rf'\b{re.escape(xN)}\b', xM, line)
@@ -1531,7 +1590,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
         if FUNCTION_DECLARATION_REGEX.match(line):
             # Reaching here means xM was not added in an existing movem push, so we have to manually add it.
             if was_xM_added_into_movem_or_move_pop:
-                add_line_with_push_regs_into_stack([xM], modified_lines, inAnInterruptRoutine, routine_first_instruction_pos)
+                add_line_with_push_regs_into_stack([xM], modified_lines, routine_first_instruction_pos)
                 # IMPORTANT: once we've added the new line into modified_lines we can't continue iterating over it
                 # TODO: if we continue then we need to rebuild the control_flow_dict
             break
@@ -1558,8 +1617,9 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
             if xN in extract_registers(pop_match.group(3), POP_OP):
                 # move
                 if pop_match.group(1) == 'move':
+                    is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(modified_lines[i+1]) else False
                     # If xM is not scratch pad, unless in an interrupt routine: then add it
-                    if inAnInterruptRoutine or (xM not in scratch_pad):
+                    if (inAnInterruptRoutine or (xM not in scratch_pad)) and is_before_rts_rte:
                         was_xM_added_into_movem_or_move_pop = True
                         # Simple text replacement of register name
                         modified_lines[i] = re.sub(rf'\b{re.escape(xN)}\b', xM, line)
@@ -1591,7 +1651,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     """
     global declared_functions_set
 
-    control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited = set()  # Helps to avoid looping infinitely 
     flow_return_frames = []
 
@@ -1603,65 +1663,78 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     target_array = lines
     rem_start = i_line + 1
     rem_end = len(target_array)
-
     i = rem_start
-    while i < rem_end:  # forwards
-        line = target_array[i]
-        i += 1
 
-        # Exiting the routine declaration?
-        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+    # Master control flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
 
-        # Reaching rts/rte?
-        elif FUNCTION_EXIT_REGEX.match(line):
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+        while i < rem_end:  # forwards
+            line = target_array[i]
+            i += 1
 
-        # Is a label?
-        elif match_label := LABEL_REGEX.match(line):
-            label = match_label.group(1)
-            if label in control_visited:
-                # If there is any return frame then continue from that location
-                if len(flow_return_frames) > 0:
-                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                    continue
-                else:
-                    # Label was already visited and there is no backtrack location.
+            # Exiting the routine declaration?
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break  # Stop the analysis
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                break  # Stop the analysis
+
+            # Is a label?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                if label in control_visited:
                     break  # Stop the analysis
-            else:
-                # Mark this label as visited
-                control_visited.add(label)
-                continue
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
 
-        elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-            # Jumping into a routine?
-            if match.group(1) in ('jsr', 'bsr'):
-                continue
-            elif match.group(1) in ('bra', 'jra', 'jmp'):
-                # Get the target label (might be a function name which won't be in control_flow_dict)
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                # Jumping into a routine?
+                if match.group(1) in ('jsr', 'bsr'):
+                    continue
+                elif match.group(1) in ('bra', 'jra', 'jmp'):
+                    # Get the target label (might be a function name which won't be in control_flow_dict)
+                    label = match.group(2)
+                    # Sometimes the label is a function name and the instruction is jmp/bra.
+                    # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
+                    if label not in control_flow_dict:
+                        if label in declared_functions_set:
+                            # Same behavior than when instruction is in ('jsr','bsr')
+                            continue
+                        else:
+                            # We actually can't calculate the destination: 
+                            # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # the target labels and visit them one by one
+                            continue
+                    # Target label is in the dictionary AND was not yet visited
+                    elif label in control_flow_dict and label not in control_visited:
+                        # Mark this label as visited
+                        control_visited.add(label)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label];
+                        if control_obj.pos_in_lines != -1:
+                            i = control_obj.pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                            continue
+                        elif control_obj.pos_in_modified_lines != -1:
+                            i = control_obj.pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                            continue
+
+            # If is a conditional branch jcc/bcc (except dbCC)
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
+                # Get the target label
                 label = match.group(2)
-                # Sometimes the label is a function name and the instruction is jmp/bra.
-                # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
-                if label not in control_flow_dict:
-                    if label in declared_functions_set:
-                        # Same behavior than when instruction is in ('jsr','bsr')
-                        continue
-                    else:
-                        # We actually can't calculate the destination: 
-                        # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                        # TODO: if label is of the form label_or_disp(pc,xN.s) then got to the table and collect all 
-                        # the target labels and visit them one by one
-                        continue
                 # Target label is in the dictionary AND was not yet visited
-                elif label in control_flow_dict and label not in control_visited:
+                if label in control_flow_dict and label not in control_visited:
+                    # Add a return frame so we can backtrack and continue from this point
+                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                    flow_return_frames.append(frame)
                     # Mark this label as visited
                     control_visited.add(label)
                     # Which array the destination line points to?
@@ -1677,69 +1750,50 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                         rem_end = len(target_array)
                         continue
 
-        # If is a conditional branch jcc/bcc (except dbCC)
-        elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line):
-            # Get the target label
-            label = match.group(2)
-            # Target label is in the dictionary AND was not yet visited
-            if label in control_flow_dict and label not in control_visited:
-                # Add a return frame so we can backtrack and continue from this point
-                frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                flow_return_frames.append(frame)
-                # Mark this label as visited
-                control_visited.add(label)
-                # Which array the destination line points to?
-                control_obj = control_flow_dict[label];
-                if control_obj.pos_in_lines != -1:
-                    i = control_obj.pos_in_lines
-                    target_array = lines
-                    rem_end = len(target_array)
-                    continue
-                elif control_obj.pos_in_modified_lines != -1:
-                    i = control_obj.pos_in_modified_lines
-                    target_array = modified_lines
-                    rem_end = len(target_array)
-                    continue
+            # xN is overwritten/cleared by a move, sub or eor itself, or clr
+            if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+                instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
+                src_complex = match.group(2)  # source operand for move/lea/sub/eor
+                instr_clr = match.group(3)
+                dest = match.group(4)  # reg being overwritten or cleared
+                if dest:
+                    # if matching sub or eor
+                    if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
+                        # sub or eor it self?
+                        if dest in src_complex and xN == dest:
+                            break  # Stop the analysis
+                    # if matching move
+                    elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
+                        if dest not in src_complex and xN == dest:
+                            break  # Stop the analysis
+                    # just matching the clr instruction
+                    elif instr_clr and xN == dest:
+                        break  # Stop the analysis
 
-        # xN is overwritten/cleared by a move, sub or eor itself, or clr
-        elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
-            instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
-            src = match.group(2)  # source operand for move/lea/sub/eor
-            instr_clr = match.group(3)
-            dest = match.group(4)  # reg being overwritten or cleared
-            if dest:
-                # if matching sub or eor
-                if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                    # sub or eor it self?
-                    if dest in src and xN == dest:
-                        break  # Stop the analysis
-                # if matching move
-                elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                    if xN == dest:
-                        break  # Stop the analysis
-                # just matching the clr instruction
-                elif instr_clr and xN == dest:
+            # xN is used as source operand or in any indirection (in both source and target) operand
+            if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+                regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+                if xN in regs_list:
+                    collected_lines.append(line)
                     break  # Stop the analysis
 
-        # xN is used as source operand or in any indirection (in both source and target) operand
-        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
-            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
-            if xN in regs_list:
-                collected_lines.append(line)
-                # If there is any return frame then continue from that location
-                if len(flow_return_frames) > 0:
-                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                    continue
-                break
-        # xN it's a target operand?
-        elif checkTargetOperand:
-            if match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
-                if xN == match.group(1):
-                    collected_lines.append(line)
-                    # If there is any return frame then continue from that location
-                    if len(flow_return_frames) > 0:
-                        i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                        continue
+            # xN it's a target operand?
+            if checkTargetOperand:
+                if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+                    if xN == match.group(1):
+                        collected_lines.append(line)
+                        break  # Stop the analysis
+
+        # If there is any return frame then continue from that location
+        if len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
+
+    # Remove duplicates just in case. Preserving the order.
+    seen = set()
+    collected_lines = [item for item in collected_lines if item not in seen and not seen.add(item)]
 
     return collected_lines
 
@@ -1756,7 +1810,7 @@ def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines):
     if len(matching_lines) == 0:
         return False
 
-    # The moment both conditions are not met for at least line then the criteria is not met
+    # The moment both conditions are not met for at least one line then the criteria is not met
     for matching_line in matching_lines:
         # Let's check if the register is used in any indirection: 'xN.s)'
         if f'{xN}.b)' in matching_line or f'{xN}.w)' in matching_line:
@@ -1766,6 +1820,7 @@ def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines):
         match_instr_size = INSTRUCTION_WITH_SIZE_REGEX.match(matching_line)
         if match_instr_size:
             s = match_instr_size.group(2)
+            s = s[1:] if s else ''
             if s and s in ('b','w'):
                 continue  # This line meets the condition, check next line
 
@@ -1775,108 +1830,249 @@ def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines):
     # All lines met at least one of the conditions
     return True
 
+# <any_instr> disp(sp,xN.s)  where "disp" is optional and ",xN.s" is optional
+sp_indexing_pattern_1 = re.compile(
+    r'^(\s*)(\w+)(\.[bwl])?(\s+)'   # Instruction with optional size
+    r'(.*?)'                        # Non-greedy match: Any characters (operands before the SP reference)
+    r'(?<!-)'                       # Negative lookbehind: not preceded by '-'
+    r'(-?\d+)?'                     # Optional displacement
+    r'\('                           # Literal opening parenthesis
+    r'%sp(,%[ad][0-7](?:\.[bwl])?)?'  # sp, optional xN.s
+    r'\)'                           # Literal closing parenthesis
+    r'(?!\+)'                       # Negative lookahead: not followed by '+'
+    r'(.+)?'                        # Any characters
+)
+
+# <any_instr> (disp,sp,xN.s)  where "disp," is optional and ",xN.s" is optional
+sp_indexing_pattern_2 = re.compile(
+    r'^(\s*)(\w+)(\.[bwl])?(\s+)'   # Instruction with optional size
+    r'(.*?)'                        # Non-greedy match: Any characters (operands before the SP reference)
+    r'(?<!-)'                       # Negative lookbehind: not preceded by '-'
+    r'\('                           # Literal opening parenthesis
+    r'(-?\d+,)?%sp(,%[ad][0-7](?:\.[bwl])?)?'  # Optional displacement, sp, optional xN.s
+    r'\)'                           # Literal closing parenthesis
+    r'(?!\+)'                       # Negative lookahead: not followed by '+'
+    r'(.+)?'                        # Any characters
+)
+
+# <any_instr> (sp)
+sp_indexing_pattern_3 = re.compile(
+    r'^(\s*)(\w+)(\.[bwl])?(\s+)'  # Instruction with optional size
+    r'(.*?)'                       # Non-greedy match: Any characters
+    r'(?<!-)'                      # Negative lookbehind: not preceded by '-'
+    r'\(%sp\)'                     # Literal (sp)
+    r'(?!\+)'                      # Negative lookahead: not followed by '+'
+    r'(.+)?'                       # Any characters
+)
+
 def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines):
     """
-    Add regs into movem/move push/pop. Ignore scratch regs if not in an interrupt routine.
+    Add regs into movem/move push/pop. Ignore scratch pad regs if not in an interrupt routine.
     """
+
     if len(regs) == 0:
-        return False
+        return True  # Nothing to add means no need to modify the stack
 
     # Detect if we are in an interrupt routine
     inAnInterruptRoutine = in_an_interrupt_routine(i_line, lines, modified_lines)
 
-    # If we are not in an interrupt routine AND all the regs are scratch pad, 
-    # then no need to add them into push/pop in/from stack
-    if not inAnInterruptRoutine and all(reg in scratch_pad for reg in regs):
-        return True
-
-    if not USE_INCLUDE_REGS_INTO_PUSH_POP_FUNCTION:
-        return False
-
-    # TODO: add use of control_flow_dict
-    # TODO: adjust usage of sp on instructions affected by the removal of a reg from the push into stack 
-
-    # Forwards scan
-    regs_were_added_into_movem_pop = False
-    rem_start = i_line + 1
-    rem_end = len(lines)
-    for i in range(rem_start, rem_end):
-        line = lines[i]
-
-        # If reaching the end of the routine
-        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-            if not regs_were_added_into_movem_pop:
-                # Reaching here means regs were not added in an existing movem pop, so we have to manually add it.
-                # TODO: add a new line in lines[i-1] with the movem pop of regs. BUT WE CAN'T EXPAND lines ARRAY.
-                # THIS CONDITION IS ONLY USEFUL FOR PRINTING THE WARNING MESSAGE
-                if inAnInterruptRoutine or not any(reg in scratch_pad for reg in regs):
-                    print(f"{Fore.YELLOW}[WARNING at {(i_line+1):5d}]{Style.RESET_ALL} Can't add movem/move pop regs in lines array yet")
-            break
-
-        # Is a movem/move pop instruction?
-        pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-        if pop_match and 'movem' == pop_match.group(1):
-            regs_str = pop_match.group(3)
-            regs_list = extract_registers(regs_str, POP_OP)
-            # Add only missing regs
-            # Also, if the reg is scratch pad then discard it, unless we are in an interrupt routine
-            regs_list.extend([reg for reg in regs if reg not in regs_list and (inAnInterruptRoutine or (reg not in scratch_pad))])
-            sortedRegs = sort_regs(regs_list)
-            # Rebuild register list using '/' as separator
-            newRegs_str = '/'.join(sortedRegs)
-            lines[i] = line.replace(regs_str, newRegs_str)
-            regs_were_added_into_movem_pop = True
-            # Continue searching for another movem pop since there could be more than one
-            continue
+    # If we are not in an interrupt routine then we can remove the scratch pad registers from regs
+    if not inAnInterruptRoutine:
+        regs = [r for r in regs if r not in scratch_pad]
+        if len(regs) == 0:
+            return True  # Nothing to add means no need to modify the stack
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
 
-    # Backwards scan
+    # Get this routine name
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    func_name = ""
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
+        line = modified_lines[i]
+        # Break conditions
+        if match_func := FUNCTION_DECLARATION_REGEX.match(line):
+            func_name = match_func.group(1)
+            break
+
+    # Track operations for current phase
+    regs_were_added_into_movem_push = False
+    regs_were_added_into_movem_pop = False
+
+    # Track how many regs were added into the stack
+    regs_added_count = 0
+    # Initially we assume a movem.l instruction
+    movem_push_size = 4
+
+    # Starts at the beginning  of the routine
+    start_idx = routine_first_instruction_pos
+    end_idx = len(modified_lines)
+    for i in range(start_idx, end_idx):  # forwards
         line = modified_lines[i]
 
-        # Break conditions
-        if FUNCTION_DECLARATION_REGEX.match(line):
-            # Reaching here means regs were not added in an existing movem push, so we have to manually add it.
-            if regs_were_added_into_movem_pop:
-                add_line_with_push_regs_into_stack(regs, modified_lines, inAnInterruptRoutine, routine_first_instruction_pos)
-                # IMPORTANT: once we've added the new line into modified_lines we can't continue iterating over it
+        # Just in case this routine has no movem/move push into stack
+        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             break
 
-        # If it's a movem push near the function declaration then add the missing regs into the list
-        push_match = PUSH_REGS_INTO_STACK_REGEX.match(line)
-        if push_match and 'movem' == push_match.group(1) and abs(i - routine_first_instruction_pos) < 2:
-            if regs_were_added_into_movem_pop:
-                regs_str = push_match.group(3)
-                regs_list = extract_registers(regs_str, PUSH_OP)
-                # Add only missing regs
-                # Also, if the reg is scratch pad then discard it, unless we are in an interrupt routine
-                regs_list.extend([reg for reg in regs if reg not in regs_list and (inAnInterruptRoutine or (reg not in scratch_pad))])
-                sortedRegs = sort_regs(regs_list)
-                # Rebuild register list using '/' as separator
-                newRegs_str = '/'.join(sortedRegs[::-1])  # reverse the list of regs
-                modified_lines[i] = line.replace(regs_str, newRegs_str)
-            # There is only one movem push at the beginning of the routine
-            break
+        # If it's a movem push then add the missing regs into the list
+        if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+            if push_match.group(1) == 'movem':
+                if not regs_were_added_into_movem_push:
+                    regs_str = push_match.group(3)
+                    regs_list = extract_registers(regs_str, PUSH_OP)
+                    orig_count = len(regs_list)
+                    # Add only missing regs
+                    regs_list.extend([r for r in regs if r not in regs_list])
+                    regs_added_count += len(regs_list) - orig_count  # It can be 0 if regs weare already in the pushed list
+                    movem_push_size = 2 if push_match.group(1) == 'w' else 4
+                    sortedRegs = sort_regs(regs_list)
+                    # Rebuild register list using '/' as separator
+                    newRegs_str = '/'.join(sortedRegs[::-1])  # reverse the list of regs
+                    modified_lines[i] = line.replace(regs_str, newRegs_str, 1)
+                    # There is only one movem push at the beginning of the routine
+                    regs_were_added_into_movem_push = True
+                else:
+                    print(f"{Fore.YELLOW}[WARNING at {func_name}]{Style.RESET_ALL} There is more than one movem push into stack")
 
         # Is a movem/move pop instruction?
-        pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-        if pop_match and 'movem' == pop_match.group(1):
-            regs_str = pop_match.group(3)
-            regs_list = extract_registers(regs_str, POP_OP)
-            # Add only missing regs
-            # Also, if the reg is scratch pad then discard it, unless we are in an interrupt routine
-            regs_list.extend([reg for reg in regs if reg not in regs_list and (inAnInterruptRoutine or (reg not in scratch_pad))])
-            sortedRegs = sort_regs(regs_list)
-            # Rebuild register list using '/' as separator
-            newRegs_str = '/'.join(sortedRegs)
-            modified_lines[i] = line.replace(regs_str, newRegs_str)
-            regs_were_added_into_movem_pop = True
-            # Continue searching for another movem pop since there could be more than one
-            continue
+        elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+            is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(modified_lines[i+1]) else False
+            if pop_match.group(1) == 'movem' and regs_were_added_into_movem_push and is_before_rts_rte:
+                regs_str = pop_match.group(3)
+                regs_list = extract_registers(regs_str, POP_OP)
+                # Add only missing regs
+                regs_list.extend([r for r in regs if r not in regs_list])
+                sortedRegs = sort_regs(regs_list)
+                # Rebuild register list using '/' as separator
+                newRegs_str = '/'.join(sortedRegs)
+                modified_lines[i] = line.replace(regs_str, newRegs_str)
+                regs_were_added_into_movem_pop = True
+                # Continue searching for another movem pop since there could be more than one
+
+        elif regs_added_count > 0:
+            if match := (sp_indexing_pattern_1.match(line) or sp_indexing_pattern_2.match(line)):
+                blank1, instr, s, blank2, anything1, disp, xN_with_comma, anything2 = match.groups()
+                blank1 = blank1 if blank1 else ''
+                s = s if s else ''
+                anything1 = anything1 if anything1 else ''
+                disp = disp if disp else ''
+                disp = disp[:-1] if disp.endswith(',') else disp
+                xN_with_comma = xN_with_comma if xN_with_comma else ''
+                anything2 = anything2 if anything2 else ''
+                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
+                disp_val = int(disp) + (regs_added_count * movem_push_size) if disp else 0
+                disp = str(disp_val) if disp_val != 0 else ''
+                # Create the new line
+                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
+                modified_lines[i] = new_line
+            elif match := sp_indexing_pattern_3.match(line):
+                blank1, instr, s, blank2, anything1, anything2 = match.groups()
+                blank1 = blank1 if blank1 else ''
+                s = s if s else ''
+                anything1 = anything1 if anything1 else ''
+                anything2 = anything2 if anything2 else ''
+                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
+                disp = str(regs_added_count * movem_push_size)
+                # Create the new line
+                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
+                modified_lines[i] = new_line
+
+    # If regs were already in the movem push into stack then we are done since they already exist in the movem pop from stack
+    if regs_were_added_into_movem_push and regs_added_count == 0:
+        return True
+
+    # Only if regs weren't added and the flag is False we abort the process
+    if not regs_were_added_into_movem_push and not USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION:
+        return False  # Stack stay untouched
+
+    # If regs weren't added to a movem push into stack then we have to manually add the instruction
+    if not regs_were_added_into_movem_push:
+        add_line_with_push_regs_into_stack(regs, modified_lines, routine_first_instruction_pos)
+        regs_added_count = len(regs)  # Here we know all the regs has been added into a movem/move push into stack
+        push_match = PUSH_REGS_INTO_STACK_REGEX.match(modified_lines[routine_first_instruction_pos])
+        movem_push_size = 2 if push_match.group(1) == 'w' else 4
+
+        # And now iterate over again to adjust sp indexing
+        start_idx = routine_first_instruction_pos
+        end_idx = len(modified_lines)
+        for i in range(start_idx, end_idx):  # forwards
+            line = modified_lines[i]
+
+            # Exiting current function. Just in case.
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break
+
+            # Push into stack was treated in previous phase
+            elif PUSH_REGS_INTO_STACK_REGEX.match(line):
+                continue
+            # Pop from stack will be trated after this loop 
+            elif POP_REGS_FROM_STACK_REGEX.match(line):
+                continue
+
+            elif match := (sp_indexing_pattern_1.match(line) or sp_indexing_pattern_2.match(line)):
+                blank1, instr, s, blank2, anything1, disp, xN_with_comma, anything2 = match.groups()
+                blank1 = blank1 if blank1 else ''
+                s = s if s else ''
+                anything1 = anything1 if anything1 else ''
+                disp = disp if disp else ''
+                disp = disp[:-1] if disp.endswith(',') else disp
+                xN_with_comma = xN_with_comma if xN_with_comma else ''
+                anything2 = anything2 if anything2 else ''
+                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
+                disp_val = int(disp) + (regs_added_count * movem_push_size) if disp else 0
+                disp = str(disp_val) if disp_val != 0 else ''
+                # Create the new line
+                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
+                modified_lines[i] = new_line
+            elif match := sp_indexing_pattern_3.match(line):
+                blank1, instr, s, blank2, anything1, anything2 = match.groups()
+                blank1 = blank1 if blank1 else ''
+                s = s if s else ''
+                anything1 = anything1 if anything1 else ''
+                anything2 = anything2 if anything2 else ''
+                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
+                disp = str(regs_added_count * movem_push_size)
+                # Create the new line
+                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
+                modified_lines[i] = new_line
+
+        # We have to manually add the movem/move pop from stack instruction/s
+        add_lines_with_pop_regs_from_stack(regs, modified_lines, routine_first_instruction_pos)
+
+    # Now is the time to iterate over lines array and modify accordingly
+    if regs_added_count > 0:
+        # Reset track operations for current phase
+        regs_were_added_into_movem_pop = False
+        
+        # Now scan remaining lines to add regs in movem pop from stack
+        rem_start = i_line + 1
+        rem_end = len(lines)
+        for i in range(rem_start, rem_end):
+            line = lines[i]
+
+            # If reaching the end of the routine
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break
+
+            # Is a movem/move pop instruction?
+            elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+                is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
+                if pop_match.group(1) == 'movem':
+                    regs_str = pop_match.group(3)
+                    regs_list = extract_registers(regs_str, POP_OP)
+                    # Add only missing regs
+                    regs_list.extend([r for r in regs if r not in regs_list])
+                    sortedRegs = sort_regs(regs_list)
+                    # Rebuild register list using '/' as separator
+                    newRegs_str = '/'.join(sortedRegs)
+                    lines[i] = line.replace(regs_str, newRegs_str)
+                    regs_were_added_into_movem_pop = True
+                    # Continue searching for another movem pop since there could be more than one
+
+        # If regs weren't added to any movem pop from stack then we have to manually add the instruction/s
+        if not regs_were_added_into_movem_pop:
+            add_lines_with_pop_regs_from_stack(regs, lines, i_line + 1)
 
     return True
 
@@ -1936,7 +2132,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
                 xN_used_backwards = True
                 break
         # It's a target operand?
-        elif match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
+        elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
             if xN == match.group(1):
                 xN_used_backwards = True
                 break
@@ -1965,7 +2161,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
                 xN_used_forwards = True
                 break
         # It's a target operand?
-        elif match := REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line):
+        elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
             if xN == match.group(1):
                 xN_used_forwards = True
                 break
@@ -1987,7 +2183,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
             if push_match and xN in extract_registers(push_match.group(3), PUSH_OP):
                 # move
                 if push_match.group(1) == 'move':
-                    # Remove the move push by commenting the line (we can't modify the size of the array)
+                    # Remove the move push by commenting the line
                     modified_lines[i] = '#' + line
                 # movem
                 else:
@@ -2008,26 +2204,26 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
 
             pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
             if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
-                # move
-                if pop_match.group(1) == 'move':
-                    # Remove the move pop by commenting the line (we can't modify the size of the array)
-                    modified_lines[i] = '#' + line
-                # movem
-                else:
-                    regs_str = pop_match.group(3)
-                    regs_list = extract_registers(regs_str, POP_OP)
-                    # Remove xN
-                    regs_list.remove(xN)
-                    # If no regs to pop then comment the line
-                    if len(regs_list) == 0:
+                is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(modified_lines[i+1]) else False
+                if is_before_rts_rte:
+                    # move
+                    if pop_match.group(1) == 'move':
+                        # Remove the move pop by commenting the line
                         modified_lines[i] = '#' + line
+                    # movem
                     else:
-                        sortedRegs = sort_regs(regs_list)
-                        # Rebuild register list using '/' as separator
-                        newRegs_str = '/'.join(sortedRegs)
-                        modified_lines[i] = line.replace(regs_str, newRegs_str)
-                # Continue searching. It might exist more than one movem/move pop xN
-                continue
+                        regs_str = pop_match.group(3)
+                        regs_list = extract_registers(regs_str, POP_OP)
+                        # Remove xN
+                        regs_list.remove(xN)
+                        # If no regs to pop then comment the line
+                        if len(regs_list) == 0:
+                            modified_lines[i] = '#' + line
+                        else:
+                            sortedRegs = sort_regs(regs_list)
+                            # Rebuild register list using '/' as separator
+                            newRegs_str = '/'.join(sortedRegs)
+                            modified_lines[i] = line.replace(regs_str, newRegs_str)
 
         # Forwards scan
         rem_start = i_line + 1
@@ -2041,26 +2237,26 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
 
             pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
             if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
-                # move
-                if pop_match.group(1) == 'move':
-                    # Remove the move pop by commenting the line (we can't modify the size of the array)
-                    lines[i] = '#' + line
-                # movem
-                else:
-                    regs_str = pop_match.group(3)
-                    regs_list = extract_registers(regs_str, POP_OP)
-                    # Remove xN
-                    regs_list.remove(xN)
-                    # If no regs to pop then comment the line
-                    if len(regs_list) == 0:
+                is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
+                if is_before_rts_rte:
+                    # move
+                    if pop_match.group(1) == 'move':
+                        # Remove the move pop by commenting the line
                         lines[i] = '#' + line
+                    # movem
                     else:
-                        sortedRegs = sort_regs(regs_list)
-                        # Rebuild register list using '/' as separator
-                        newRegs_str = '/'.join(sortedRegs)
-                        lines[i] = line.replace(regs_str, newRegs_str)
-                # Continue searching. It might exist more than one movem/move pop xN
-                continue
+                        regs_str = pop_match.group(3)
+                        regs_list = extract_registers(regs_str, POP_OP)
+                        # Remove xN
+                        regs_list.remove(xN)
+                        # If no regs to pop then comment the line
+                        if len(regs_list) == 0:
+                            lines[i] = '#' + line
+                        else:
+                            sortedRegs = sort_regs(regs_list)
+                            # Rebuild register list using '/' as separator
+                            newRegs_str = '/'.join(sortedRegs)
+                            lines[i] = line.replace(regs_str, newRegs_str)
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -2087,7 +2283,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_
     # Make them not to interfere with the analysis
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
                     
-    control_flow_dict = build_control_flow_map(i_line, lines, modified_lines)
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited = set()  # Helps to avoid looping infinitely 
     flow_return_frames = []
 
@@ -2095,83 +2291,96 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_
     target_array = lines
     rem_start = i_line + 1
     rem_end = len(target_array)
-    
     i = rem_start
-    while i < rem_end:  # forwards
-        line = target_array[i]
-        i += 1
 
-        if not is_count_mode:
-            # If we detect the same subroutine is being loading into same aN then we can dismiis the line
-            if match := lea_subroutine_into_aN_pattern.match(line) or move_subroutine_into_aN_pattern.match(line):
-                if aN == match.group(5):
-                    this_subr = ''.join(match.group(i) for i in range(1, 5) if match.group(i))
-                    if this_subr == subr:
-                        target_array[i-1] = ''  # remove the instruction but not the line
-                        continue
-        
-        # If matching the "jsr (aN)" then replace it by new_line
-        if match := jsr_an_pattern.match(line):
-            if match.group(1) == aN:
-                replacement_counter += 1
-                if not is_count_mode:
-                    # TODO: detect if jsr (aN) is used in a loop. If so then do not replace
-                    target_array[i-1] = new_line
-                continue
+    # Master control flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
 
-        # End of this routine body?
-        elif FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+        while i < rem_end:  # forwards
+            line = target_array[i]
+            i += 1
 
-        # Reaching rts/rte?
-        elif FUNCTION_EXIT_REGEX.match(line):
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                continue
-            break  # Stop the analysis
+            if not is_count_mode:
+                # If we detect the same subroutine is being loading into same aN then we can dismiis the line
+                if match := (lea_subroutine_into_aN_pattern.match(line) or move_subroutine_into_aN_pattern.match(line)):
+                    if aN == match.group(5):
+                        this_subr = ''.join(match.group(i) for i in range(1, 5) if match.group(i))
+                        if this_subr == subr:
+                            target_array[i-1] = ''  # remove the instruction but not the line
+                            continue
 
-        # Is a label?
-        elif match_label := LABEL_REGEX.match(line):
-            label = match_label.group(1)
-            if label in control_visited:
-                # If there is any return frame then continue from that location
-                if len(flow_return_frames) > 0:
-                    i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            # If matching the "jsr (aN)" then replace it by new_line
+            if match := jsr_an_pattern.match(line):
+                if match.group(1) == aN:
+                    replacement_counter += 1
+                    if not is_count_mode:
+                        # TODO: detect if jsr (aN) is used in a loop. If so then do not replace
+                        target_array[i-1] = new_line
                     continue
-                else:
-                    # Label was already visited and there is no backtrack location.
-                    break  # Stop the analysis
-            else:
-                # Mark this label as visited
-                control_visited.add(label)
-                continue
 
-        elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-            # Jumping into a routine?
-            if match.group(1) in ('jsr', 'bsr'):
-                continue
-            elif match.group(1) in ('bra', 'jra', 'jmp'):
-                # Get the target label (might be a function name which won't be in control_flow_dict)
+            # End of this routine body?
+            elif FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break  # Stop the analysis
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                break  # Stop the analysis
+
+            # Is a label?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                if label in control_visited:
+                    break  # Stop the analysis
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
+
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                # Jumping into a routine?
+                if match.group(1) in ('jsr', 'bsr'):
+                    continue
+                elif match.group(1) in ('bra', 'jra', 'jmp'):
+                    # Get the target label (might be a function name which won't be in control_flow_dict)
+                    label = match.group(2)
+                    # Sometimes the label is a function name and the instruction is jmp/bra.
+                    # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
+                    if label not in control_flow_dict:
+                        if label in declared_functions_set:
+                            # Same behavior than when instruction is in ('jsr','bsr')
+                            continue 
+                        else:
+                            # We actually can't calculate the destination: 
+                            # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # the target labels and visit them one by one
+                            continue
+                    # Target label is in the dictionary AND was not yet visited
+                    elif label in control_flow_dict and label not in control_visited:
+                        # Mark this label as visited
+                        control_visited.add(label)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label];
+                        if control_obj.pos_in_lines != -1:
+                            i = control_obj.pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                            continue
+                        elif control_obj.pos_in_modified_lines != -1:
+                            i = control_obj.pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                            continue
+
+            # If is a conditional branch jcc/bcc (except dbCC)
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
+                # Get the target label
                 label = match.group(2)
-                # Sometimes the label is a function name and the instruction is jmp/bra.
-                # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
-                if label not in control_flow_dict:
-                    if label in declared_functions_set:
-                        # Same behavior than when instruction is in ('jsr','bsr')
-                        continue 
-                    else:
-                        # We actually can't calculate the destination: 
-                        # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                        # TODO: if label is of the form label_or_disp(pc,xN.s) then got to the table and collect all 
-                        # the target labels and visit them one by one
-                        continue
                 # Target label is in the dictionary AND was not yet visited
-                elif label in control_flow_dict and label not in control_visited:
+                if label in control_flow_dict and label not in control_visited:
+                    # Add a return frame so we can backtrack and continue from this point
+                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                    flow_return_frames.append(frame)
                     # Mark this label as visited
                     control_visited.add(label)
                     # Which array the destination line points to?
@@ -2187,61 +2396,32 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_
                         rem_end = len(target_array)
                         continue
 
-        # If is a conditional branch jcc/bcc (except dbCC)
-        elif match := CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line):
-            # Get the target label
-            label = match.group(2)
-            # Target label is in the dictionary AND was not yet visited
-            if label in control_flow_dict and label not in control_visited:
-                # Add a return frame so we can backtrack and continue from this point
-                frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                flow_return_frames.append(frame)
-                # Mark this label as visited
-                control_visited.add(label)
-                # Which array the destination line points to?
-                control_obj = control_flow_dict[label];
-                if control_obj.pos_in_lines != -1:
-                    i = control_obj.pos_in_lines
-                    target_array = lines
-                    rem_end = len(target_array)
-                    continue
-                elif control_obj.pos_in_modified_lines != -1:
-                    i = control_obj.pos_in_modified_lines
-                    target_array = modified_lines
-                    rem_end = len(target_array)
-                    continue
+            # aN is overwritten/cleared by a move, sub or eor itself, or clr
+            if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+                instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matched with the clr
+                src_complex = match.group(2)  # source operand for move/lea/sub/eor
+                instr_clr = match.group(3)
+                dest = match.group(4)  # reg being overwritten or cleared
+                if dest and dest.startswith("%a"):
+                    # if matching sub or eor
+                    if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
+                        # sub or eor it self?
+                        if dest in src_complex and aN == dest:
+                            break  # Stop the analysis
+                    # if matching move
+                    elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
+                        if dest not in src_complex and aN == dest:
+                            break  # Stop the analysis
+                    # just matching the clr instruction
+                    elif instr_clr and aN == dest:
+                        break  # Stop the analysis
 
-        # aN is overwritten/cleared by a move, sub or eor itself, or clr
-        elif match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
-            instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matched with the clr
-            src = match.group(2)  # source operand for move/lea/sub/eor
-            instr_clr = match.group(3)
-            dest = match.group(4)  # reg being overwritten or cleared
-            if dest and dest.startswith("%a"):
-                # if matching sub or eor
-                if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                    # sub or eor it self?
-                    if dest in src and aN == dest:
-                        # If there is any return frame then continue from that location
-                        if len(flow_return_frames) > 0:
-                            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                            continue
-                        break  # Stop the analysis
-                # if matching move
-                elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                    if aN == dest:
-                        # If there is any return frame then continue from that location
-                        if len(flow_return_frames) > 0:
-                            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                            continue
-                        break  # Stop the analysis
-                # just matching the clr instruction
-                elif instr_clr and aN == dest:
-                    # If there is any return frame then continue from that location
-                    if len(flow_return_frames) > 0:
-                        i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
-                        continue
-                    break  # Stop the analysis
+        # If there is any return frame then continue from that location
+        if len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -2883,7 +3063,7 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
-def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
+def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
     """
     Detect optimization opportunities that span multiple lines.
     Returns a tuple of (optimized_lines, lines_to_remove) if pattern matches, (None, 0) otherwise.
@@ -4060,33 +4240,34 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                             return (optimized_lines, 4)
 
             # Calculates offset indexes for accessing arrays.
-            # and.l      #65535,dN       ->    add/sub.w  dN,dN            ; Saves 20 cycles (16 cycles saved from removed and.l)
-            # add/sub.l  dN,dN                 lea        symbolName1,aN
+            # and.l      #65535,dN       ->    add.w      dN,dN            ; Saves 20 cycles (16 cycles saved from removed and.l)
+            # add.l      dN,dN                 lea        symbolName1,aN
             # lea        symbolName1,aN        move.[wl]  disp(sp),(aN,dN.w)
             # move.[wl]  disp(sp),(aN,dN.[wl])
             # Where:
             # symbolName1[.wl][-+*N][.bwl]
-            # Displacement d in d(sp) is optional
+            # Displacement in disp(sp) is optional
             matchA = re.match(r'^(\s*)(andi|and)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
             if matchA:
-                dN = matchA.group(3)
-                matchB = re.match(r'^\s*(add|sub)\.l\s+(%d[0-7]),(%d[0-7])', line_B)
-                if matchB and dN == matchB.group(2) and dN == matchB.group(3):
-                    alu = matchB.group(1)
-                    matchC = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_C)
-                    if matchC:
-                        symbolName_1_full = ''.join(matchC.group(i) for i in range(1, 5) if matchC.group(i))
-                        aN = matchC.group(5)
-                        matchD = re.match(r'^\s*move\.([wl])\s+(-?\d+)?\(%sp\),\s*\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_D)
-                        if matchD and aN == matchD.group(3) and dN == matchD.group(4):
-                            sD = matchD.group(1)
-                            disp = '' if matchD.group(2) is None else matchD.group(2)
-                            optimized_lines = [
-                                f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dN},{dN}',
-                                f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
-                                f'{matchA.group(1)}move.{sD}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
-                            ]
-                            return (optimized_lines, 4)
+                dN = matchA.group(5)
+                mask = parseConstantUnsigned(matchA.group(4))
+                if mask == 65535:
+                    matchB = re.match(r'^\s*add\.l\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+                    if matchB and dN == matchB.group(1) and dN == matchB.group(2):
+                        matchC = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_C)
+                        if matchC:
+                            symbolName_1_full = ''.join(matchC.group(i) for i in range(1, 5) if matchC.group(i))
+                            aN = matchC.group(5)
+                            matchD = re.match(r'^\s*move\.([wl])\s+(-?\d+)?\(%sp\),\s*\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_D)
+                            if matchD and aN == matchD.group(3) and dN == matchD.group(4):
+                                sD = matchD.group(1)
+                                disp = matchD.group(2) if matchD.group(2) else ''
+                                optimized_lines = [
+                                    f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
+                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
+                                    f'{matchA.group(1)}move.{sD}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
+                                ]
+                                return (optimized_lines, 4)
 
             # This pattern comes up after applying optimization for lsr.w #8,dN
             # move.w  dM,dN        ->   move.w  dM,-(sp)       ; Saves 4 cycles
@@ -4382,13 +4563,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
                             return ([optimized_line], 3)
 
         # If -32767 <= val <= 32767
-        # move.l  aN,-(sp)   ->    link    aN,#val         ; Saves 12 cycles
-        # move.l  sp,aN
-        # add.w   #val,sp
-        matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
+        # move.[wl]  aN,-(sp)   ->    link    aN,#val         ; Saves 12 cycles
+        # move.[wl]  sp,aN
+        # add.w      #val,sp
+        matchA = re.match(r'^(\s*)(move|movea)\.[wl](\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
         if matchA:
             aN = matchA.group(4)
-            matchB = re.match(r'^\s*(move|movea)\.l\s+%sp,\s*(%a[0-7])', line_B)
+            matchB = re.match(r'^\s*(move|movea)\.[wl]\s+%sp,\s*(%a[0-7])', line_B)
             if matchB and aN == matchB.group(2):
                 matchC = re.match(r'^\s*(add|adda|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*%sp', line_C)
                 if matchC:
@@ -6788,8 +6969,8 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines):
 
 indirection_0_pattern = re.compile(
     r'^\s*'
-    r'([a-zA-Z]+)\.?([bwl])?\s+'    # instruction mnemonic with optional .[bwl]
-    r'(\s+[^,]*,)?\s*'              # optional first operand including the comma
+    r'([a-zA-Z]+)\.?([bwl])?\s+'  # instruction mnemonic with optional .[bwl]
+    r'([^,]*,)?\s*'               # optional first operand including the comma
     r'(?:0\((%a[0-7]|%sp|%pc)\)|\(0,(%a[0-7]|%sp)\))'  # 0(aN) or (0,aN)
 )
 
@@ -12293,7 +12474,7 @@ def optimizeSingleLine_ShortenBranches(line, i_line, lines, modified_lines):
     # No optimization was applied
     return ([], False)
 
-def optimize_asm(lines, num_pass):
+def optimize_asm(input_lines, num_pass):
     """
     Perform multi and single line optimzations
     """
@@ -12316,10 +12497,10 @@ def optimize_asm(lines, num_pass):
     modified_multi_lines = []
     
     rem_start = 0
-    rem_end = len(lines)
+    rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
     i_line = rem_start
     while i_line < rem_end:  # forwards
-        line = lines[i_line]
+        line = input_lines[i_line]
         i_line += 1
 
         # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
@@ -12371,7 +12552,11 @@ def optimize_asm(lines, num_pass):
             for multi_span_size in range(MULTIPLE_LINES_OPTIMIZATION_LIMIT, 2 - 1, -1):
 
                 # Find optimizations spanning multiple lines
-                optimized_multilines, lines_to_remove = optimizeMultipleLines(multi_span_size, i_line-1, lines, modified_multi_lines)
+                prev_rem_end = rem_end
+                optimized_multilines, lines_to_remove = optimizeMultipleLines(multi_span_size, i_line-1, input_lines, modified_multi_lines, num_pass)
+                diff_lines = len(input_lines) - prev_rem_end
+                rem_end += diff_lines  # Adjust new limit
+                i_line += diff_lines  # Adjust next i_line value
 
                 if optimized_multilines is not None:
                     # Update counter
@@ -12380,11 +12565,11 @@ def optimize_asm(lines, num_pass):
 
                     # Get the lines being replaced
                     original_lines = modified_multi_lines[-lines_to_remove:] if lines_to_remove <= len(modified_multi_lines) else []
-                    
+
                     # Calculate original line number for the first line being optimized
                     first_modified_line_pos = len(modified_multi_lines) - lines_to_remove
                     original_line_num = line_number_map.get(first_modified_line_pos, first_modified_line_pos)
-                    
+
                     # Remove the lines we're replacing from modified_multi_lines
                     for _ in range(lines_to_remove):
                         if modified_multi_lines:
@@ -12419,7 +12604,7 @@ def optimize_asm(lines, num_pass):
         print(f'[OPT_LOG] {phase_name}')
 
         rem_start = 0
-        rem_end = len(input_lines)
+        rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
         i_line = rem_start
         while i_line < rem_end:  # forwards
             line = input_lines[i_line]
@@ -12454,7 +12639,11 @@ def optimize_asm(lines, num_pass):
                 continue
 
             # Find single line optimizations
+            prev_rem_end = rem_end
             optimized_lines, was_optimized = optimization_func(line, i_line-1, input_lines, modified_lines)
+            diff_lines = len(input_lines) - prev_rem_end
+            rem_end += diff_lines  # Adjust new limit
+            i_line += diff_lines  # Adjust next i_line value
 
             if was_optimized:
                 # Update counter
@@ -12566,7 +12755,7 @@ def convert_gcc_movem_encoded_regs(line):
     """
     match_push = MOVEM_REGS_INTO_MEM_REGEX.match(line)
     match_pop = MOVEM_MEM_INTO_REGS_REGEX.match(line)
-    if match := match_push or match_pop:
+    if match := (match_push or match_pop):
         regs_str = match.group(1)
         regs_list = extract_registers(regs_str, PUSH_OP) if match_push else extract_registers(regs_str, POP_OP)
         sortedRegs = sort_regs(regs_list)
@@ -12654,7 +12843,7 @@ def search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i_start, i_en
         if FUNCTION_DECLARATION_REGEX.match(prev_line):
             break
         # Is moving a symbolName name into aN?
-        if match := move_symbolName_into_an_pattern.match(prev_line) or lea_symbolName_into_an_pattern.match(prev_line):
+        if match := (move_symbolName_into_an_pattern.match(prev_line) or lea_symbolName_into_an_pattern.match(prev_line)):
             if aN == match.group(3):
                 symbolName = match.group(1)
                 return symbolName
