@@ -96,13 +96,13 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 
 # Analyzes the context of the routine to detect free regs that were actually used but are free to use at 
 # the line the analyzer is looking at.
-USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False  # TODO: review the logic
+USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False  # TODO: review the logic. Not properly working
 
 # This refers to the function that searches for any register not used at the current location of the code in the 
 # context of the current routine and the current program flow in that routine.
 # WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
-USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic
+USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic. Not properly working
 
 # By default if a routine is NOT an interrupt then scratch pad regs naturally don't need to be push/pop in/from stack.
 # In any other case we must add them, and that's where this flag enables/disables this functionality.
@@ -132,14 +132,14 @@ OPTIMIZE_DIVISION_HIGH_WORD_NOT_IMPORTANT = False
 USE_REPLACE_TST_BCC_BY_DBCC_OPTIMIZATION = False
 
 # Set to True only if you know before hand the upper word won't be affected, 
-# which is true for loops (TODO: but I don't check if inside a loop, yet).
+# which is true for loops (TODO: but I don't check if we're inside a loop, yet).
 # Note: VASM compiler seems to do this optimization by default (as per documentation).
 USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION = True
 
 # Instead of loading the subroutine address into an address register aN to later use jsr (aN), we can
 # discard the loading and replace every jsr (aN) by jsr subroutine. There is a tradeoff of upto 3 direct
 # calls and the optimization accounts for that.
-# WARNING: Enabling this flag may cause unexpected side effects on some compplex control flows. Test thoroughly.
+# WARNING: Enabling this flag may cause unexpected side effects on some complex control flows. Test thoroughly.
 USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY = False
 
 # This optimizaton removes the clearing of a register before it is loaded with a word value.
@@ -598,7 +598,7 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
 
 declared_functions_set = set()
 
-def collect_declared_functions():
+def collect_declared_functions(lines):
     """
     Get all the declared functions in this assembly unit declared by FUNCTION_DECLARATION_REGEX
     """
@@ -1454,7 +1454,7 @@ def add_lines_with_pop_regs_from_stack(regs, target_lines, starting_at):
 
 def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
     """
-    Replace any usage of xN register by xM register.
+    Replace any usage of xN register by xM register starting at i_line+1.
     Special handling is considered in movem/move push/pop instructions if xM is not covered.
     1. Search over the remaining lines in lines array starting at i_line+1 and save those
        indices of lines who satisfy next:
@@ -1575,7 +1575,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
             # Simple text replacement of register name
             lines[i] = re.sub(rf'\b{re.escape(xN)}\b', xM, line)
 
-    # Phase 3: Search for the movem/move push/pop instruction and add xM reg if not already there and replace xN by xM
+    # Phase 3: Search for the movem/move push/pop instruction and add xM reg if not already there, and replace xN by xM
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
@@ -1865,9 +1865,40 @@ sp_indexing_pattern_3 = re.compile(
     r'(.+)?'                       # Any characters
 )
 
+def adjust_sp_indexing(i, target_lines, line, offset):
+    if match := (sp_indexing_pattern_1.match(line) or sp_indexing_pattern_2.match(line)):
+        blank1, instr, s, blank2, anything1, disp, xN_with_comma, anything2 = match.groups()
+        blank1 = blank1 if blank1 else ''
+        s = s if s else ''
+        anything1 = anything1 if anything1 else ''
+        disp = disp if disp else ''
+        disp = disp[:-1] if disp.endswith(',') else disp
+        xN_with_comma = xN_with_comma if xN_with_comma else ''
+        anything2 = anything2 if anything2 else ''
+        # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a substraction
+        disp_val = int(disp) if disp else 0
+        disp_val += (sign_factor * regs_count * movem_push_size)                
+        disp = str(disp_val) if disp_val != 0 else ''
+        # Create the new line
+        new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
+        modified_lines[i] = new_line
+    elif match := sp_indexing_pattern_3.match(line):
+        blank1, instr, s, blank2, anything1, anything2 = match.groups()
+        blank1 = blank1 if blank1 else ''
+        s = s if s else ''
+        anything1 = anything1 if anything1 else ''
+        anything2 = anything2 if anything2 else ''
+        # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a substraction
+        disp_val = (sign_factor * regs_count * movem_push_size)
+        disp = str(disp_val)
+        # Create the new line
+        new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
+        modified_lines[i] = new_line
+
 def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines):
     """
     Add regs into movem/move push/pop. Ignore scratch pad regs if not in an interrupt routine.
+    Adjust SP indexing instructions.
     """
 
     if len(regs) == 0:
@@ -1933,7 +1964,8 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, m
                     # There is only one movem push at the beginning of the routine
                     regs_were_added_into_movem_push = True
                 else:
-                    print(f"{Fore.YELLOW}[WARNING at {func_name}]{Style.RESET_ALL} There is more than one movem push into stack")
+                    # TODO: analyze the function that prints next warning
+                    print(f"{Fore.YELLOW}[WARNING at {func_name}]{Style.RESET_ALL} There is more than one MOVEM push into stack")
 
         # Is a movem/move pop instruction?
         elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
@@ -1951,32 +1983,8 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, m
                 # Continue searching for another movem pop since there could be more than one
 
         elif regs_added_count > 0:
-            if match := (sp_indexing_pattern_1.match(line) or sp_indexing_pattern_2.match(line)):
-                blank1, instr, s, blank2, anything1, disp, xN_with_comma, anything2 = match.groups()
-                blank1 = blank1 if blank1 else ''
-                s = s if s else ''
-                anything1 = anything1 if anything1 else ''
-                disp = disp if disp else ''
-                disp = disp[:-1] if disp.endswith(',') else disp
-                xN_with_comma = xN_with_comma if xN_with_comma else ''
-                anything2 = anything2 if anything2 else ''
-                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
-                disp_val = int(disp) + (regs_added_count * movem_push_size) if disp else 0
-                disp = str(disp_val) if disp_val != 0 else ''
-                # Create the new line
-                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
-                modified_lines[i] = new_line
-            elif match := sp_indexing_pattern_3.match(line):
-                blank1, instr, s, blank2, anything1, anything2 = match.groups()
-                blank1 = blank1 if blank1 else ''
-                s = s if s else ''
-                anything1 = anything1 if anything1 else ''
-                anything2 = anything2 if anything2 else ''
-                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
-                disp = str(regs_added_count * movem_push_size)
-                # Create the new line
-                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
-                modified_lines[i] = new_line
+            # Adjust sp indexing by adding/substracting the amount of regs involved in previous logic
+            adjust_sp_indexing(i, modified_lines, line, regs_added_count * movem_push_size)
 
     # If regs were already in the movem push into stack then we are done since they already exist in the movem pop from stack
     if regs_were_added_into_movem_push and regs_added_count == 0:
@@ -2010,32 +2018,8 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, m
             elif POP_REGS_FROM_STACK_REGEX.match(line):
                 continue
 
-            elif match := (sp_indexing_pattern_1.match(line) or sp_indexing_pattern_2.match(line)):
-                blank1, instr, s, blank2, anything1, disp, xN_with_comma, anything2 = match.groups()
-                blank1 = blank1 if blank1 else ''
-                s = s if s else ''
-                anything1 = anything1 if anything1 else ''
-                disp = disp if disp else ''
-                disp = disp[:-1] if disp.endswith(',') else disp
-                xN_with_comma = xN_with_comma if xN_with_comma else ''
-                anything2 = anything2 if anything2 else ''
-                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
-                disp_val = int(disp) + (regs_added_count * movem_push_size) if disp else 0
-                disp = str(disp_val) if disp_val != 0 else ''
-                # Create the new line
-                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
-                modified_lines[i] = new_line
-            elif match := sp_indexing_pattern_3.match(line):
-                blank1, instr, s, blank2, anything1, anything2 = match.groups()
-                blank1 = blank1 if blank1 else ''
-                s = s if s else ''
-                anything1 = anything1 if anything1 else ''
-                anything2 = anything2 if anything2 else ''
-                # Adjust sp indexing by adding regs_added_count multiplied by the size of the original movem into stack instruction
-                disp = str(regs_added_count * movem_push_size)
-                # Create the new line
-                new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
-                modified_lines[i] = new_line
+            # Adjust sp indexing by adding/substracting the amount of regs involved in previous logic
+            adjust_sp_indexing(i, modified_lines, line, regs_added_count * movem_push_size)
 
         # We have to manually add the movem/move pop from stack instruction/s
         add_lines_with_pop_regs_from_stack(regs, modified_lines, routine_first_instruction_pos)
@@ -2070,6 +2054,9 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, m
                     regs_were_added_into_movem_pop = True
                     # Continue searching for another movem pop since there could be more than one
 
+            # Adjust sp indexing by adding/substracting the amount of regs involved in previous logic
+            adjust_sp_indexing(i, lines, line, regs_added_count * movem_push_size)
+
         # If regs weren't added to any movem pop from stack then we have to manually add the instruction/s
         if not regs_were_added_into_movem_pop:
             add_lines_with_pop_regs_from_stack(regs, lines, i_line + 1)
@@ -2094,10 +2081,6 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
             For modified_lines: idem.
     """
 
-    # TODO: add use of control_flow_dict
-    # TODO: adjust usage of sp on instructions affected by the removal of a reg from the push into stack 
-    return
-
     # Make them not to interfere with the analysis
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
@@ -2105,32 +2088,26 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
     xN_used_backwards = False
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
         line = modified_lines[i]
 
         # Break conditions
         if FUNCTION_DECLARATION_REGEX.match(line):
             break
 
-        # If it's a movem/move push xN then exit the loop, it means we are at the begining of the routine
-        push_match = PUSH_REGS_INTO_STACK_REGEX.match(line)
-        if push_match and xN in extract_registers(push_match.group(3), PUSH_OP):
-            # There is only one movem/move push xN which is at the beginning of the routine
-            break
+        if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+            continue
 
-        # If it's a movem/move pop xN then we skip it since it means an exit block (likely) is 
-        # set at this location of the routine instead of at the very end
-        pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-        if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
-            # Continue searching. It might exist more than one movem/move pop xN
+        elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
             continue
 
         # xN is used as source operand or in any indirection (in both source and target) operand
-        if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
             regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
             if xN in regs_list:
                 xN_used_backwards = True
                 break
+
         # It's a target operand?
         elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
             if xN == match.group(1):
@@ -2141,17 +2118,17 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
     xN_used_forwards = False
     rem_start = i_line + 1
     rem_end = len(lines)
-    for i in range(rem_start, rem_end):
+    for i in range(rem_start, rem_end):  # forwards
         line = lines[i]
 
         # End of this routine body?
         if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             break
 
-        # If it's a movem/move pop xN then we skip it
-        pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-        if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
-            # Continue searching. It might exist more than one movem/move pop xN
+        if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+            continue
+
+        elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
             continue
 
         # xN is used as source operand or in any indirection (in both source and target) operand
@@ -2169,43 +2146,68 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
     # xN not used at all? Then remove it from movem/move push/pop
     if not xN_used_backwards and not xN_used_forwards:
 
-        # Backwards scan
+        # Search for the first instruction in the routine
+        routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
+        print("---------------- About to remove reg", xN)
+
+        # Get this routine name
         start_idx = len(modified_lines) - 1
         end_idx = 0
-        for i in range(start_idx, end_idx - 1, -1):
+        func_name = ""
+        for i in range(start_idx, end_idx - 1, -1):  # backwards
+            line = modified_lines[i]
+            # Break conditions
+            if match_func := FUNCTION_DECLARATION_REGEX.match(line):
+                func_name = match_func.group(1)
+                break
+
+        reg_were_removed_from_movem_push = False
+
+        # At this point we already know we are going to remove reg xN from movem/move push/pop
+        regs_removed_count = 1
+        # Initially we assume a movem.l instruction
+        movem_push_size = 4
+    
+        # Attack modified_lines[]
+        start_idx = routine_first_instruction_pos
+        end_idx = len(modified_lines)
+        for i in range(start_idx, end_idx):  # forwards
             line = modified_lines[i]
 
-            # End of this routine body?
+            # Just in case this routine has no movem/move push into stack
             if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
                 break
 
-            push_match = PUSH_REGS_INTO_STACK_REGEX.match(line)
-            if push_match and xN in extract_registers(push_match.group(3), PUSH_OP):
-                # move
-                if push_match.group(1) == 'move':
-                    # Remove the move push by commenting the line
-                    modified_lines[i] = '#' + line
-                # movem
-                else:
-                    regs_str = push_match.group(3)
-                    regs_list = extract_registers(regs_str, PUSH_OP)
-                    # Remove xN
-                    regs_list.remove(xN)
-                    # If no regs to pop then comment the line
-                    if len(regs_list) == 0:
-                        modified_lines[i] = '#' + line
+            if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+                if xN in extract_registers(push_match.group(3), PUSH_OP):
+                    if not reg_were_removed_from_movem_push:
+                        # Register the size of the first movem/move push
+                        movem_push_size = 2 if push_match.group(1) == 'w' else 4
+                        # move
+                        if push_match.group(1) == 'move':
+                            # Remove the move push by commenting the line
+                            modified_lines[i] = '#' + line
+                        # movem
+                        else:
+                            regs_str = push_match.group(3)
+                            regs_list = extract_registers(regs_str, PUSH_OP)
+                            # Remove xN
+                            regs_list.remove(xN)
+                            # If no regs to pop then comment the line
+                            if len(regs_list) == 0:
+                                modified_lines[i] = '#' + line
+                            else:
+                                sortedRegs = sort_regs(regs_list)
+                                # Rebuild register list using '/' as separator
+                                newRegs_str = '/'.join(sortedRegs[::-1])  # reverse the list of regs
+                                modified_lines[i] = line.replace(regs_str, newRegs_str)
                     else:
-                        sortedRegs = sort_regs(regs_list)
-                        # Rebuild register list using '/' as separator
-                        newRegs_str = '/'.join(sortedRegs[::-1])  # reverse the list of regs
-                        modified_lines[i] = line.replace(regs_str, newRegs_str)
-                # There is only one movem/move push xN which is at the beginning of the routine
-                break
+                        # TODO: analyze the function that prints next warning
+                        print(f"{Fore.YELLOW}[WARNING at {func_name}]{Style.RESET_ALL} There is more than one MOVEM push into stack")
 
-            pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-            if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
+            elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(modified_lines[i+1]) else False
-                if is_before_rts_rte:
+                if xN in extract_registers(pop_match.group(3), POP_OP) and is_before_rts_rte:
                     # move
                     if pop_match.group(1) == 'move':
                         # Remove the move pop by commenting the line
@@ -2225,7 +2227,10 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
                             newRegs_str = '/'.join(sortedRegs)
                             modified_lines[i] = line.replace(regs_str, newRegs_str)
 
-        # Forwards scan
+            # Adjust sp indexing by adding/substracting the amount of regs involved in previous logic
+            adjust_sp_indexing(i, modified_lines, line, -1 * regs_removed_count * movem_push_size)
+
+        # Attack lines[]
         rem_start = i_line + 1
         rem_end = len(lines)
         for i in range(rem_start, rem_end):
@@ -2235,10 +2240,9 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
             if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
                 break
 
-            pop_match = POP_REGS_FROM_STACK_REGEX.match(line)
-            if pop_match and xN in extract_registers(pop_match.group(3), POP_OP):
+            elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
-                if is_before_rts_rte:
+                if xN in extract_registers(pop_match.group(3), POP_OP) and is_before_rts_rte:
                     # move
                     if pop_match.group(1) == 'move':
                         # Remove the move pop by commenting the line
@@ -2257,6 +2261,9 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modifie
                             # Rebuild register list using '/' as separator
                             newRegs_str = '/'.join(sortedRegs)
                             lines[i] = line.replace(regs_str, newRegs_str)
+
+            # Adjust sp indexing by adding/substracting the amount of regs involved in previous logic
+            adjust_sp_indexing(i, lines, line, -1 * regs_removed_count * movem_push_size)
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -4585,7 +4592,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
         # Needs a free dM register
         matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
         if matchA:
-            matchB = re.match(r'^\s*(add|adda|addq)(\.[bwl])?\s+#4,\s*%sp', line_B)
+            matchB = re.match(r'^\s*(add|adda|addq)(\.[wl])?\s+#4,\s*%sp', line_B)
             if matchB:
                 matchC = re.match(r'^\s*(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)', line_C)
                 if matchC:
@@ -4597,6 +4604,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         dM = find_unused_data_register([], i_line, lines, modified_lines, 3)[0]
                     if dM is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                            # TODO: Check if it needs to follow the label and adjust use of SP
                             optimized_lines = [
                                 f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{dM}',
                                 f'{matchA.group(1)}beq{s_branch}{matchA.group(3)}{label}'
@@ -12871,6 +12879,7 @@ def non_used_functions(lines):
     # Phase 1:
     # Collect all the declared functions in this  assembly unit.
     # This was done previously by calling collect_declared_functions()
+    # Global variable is declared_functions_set
 
     # Phase 2:
     # Get all the routines declared as global, meaning they are outside this assembly unit
@@ -13047,12 +13056,14 @@ def remove_simple_abi(lines):
     # - when at the function declaration: replace the pop from stack by the assigment of the argument, or
     #   remove it if the poping reg is the same than the argument reg. Apply adjustments over subsequent uses of sp.
     modified_lines_no_abi = []
-    i = 0
-    rem_end = len(lines)
-    while i < rem_end:  # forwards
+    accum_sp_adjustment = 0
+    for i in range(0, len(lines)):  # forwards
         line = lines[i]
-        i += 1
         modified_lines_no_abi.append(line)
+
+        # Reset the accumulator when reaching the end of the function
+        if FUNCTION_EXIT_REGEX.match(line):
+            accum_sp_adjustment = 0
 
         # Is calling one of the collected functions?
         if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
@@ -13060,11 +13071,11 @@ def remove_simple_abi(lines):
             # Consider cases like jsr (%a5)
             if func_name.startswith('%a'):
                 aN = func_name
-                func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, modified_lines_no_abi, i-1, 0)
+                func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, modified_lines_no_abi, i, 0)
             if func_name in args_pushed_per_function:
                 # Go backwards until we reach the end of arguments range
-                line_end_of_args_range = (i-1) - 1
-                for k in range((i-1) - 1, max(0, (i-1) - previous_N_lines_for_args) - 1, -1):  # backwards
+                line_end_of_args_range = i - 1
+                for k in range(i - 1, max(0, i - previous_N_lines_for_args) - 1, -1):  # backwards
                     prev_line = modified_lines_no_abi[k]
                     if (
                         FUNCTION_DECLARATION_REGEX.match(prev_line) or FUNCTION_EXIT_REGEX.match(prev_line) or 
@@ -13073,7 +13084,6 @@ def remove_simple_abi(lines):
                     ):
                         line_end_of_args_range = k + 1
                 # Remove the push into sp instructions while going forward up to the call of the function
-                accum_sp_adjustment = 0
                 for k in range(line_end_of_args_range, i):  # forwards
                     next_line = modified_lines_no_abi[k]
                     # Consider only single register push with move, not movem
@@ -13118,7 +13128,8 @@ def remove_simple_abi(lines):
                             val += accum_sp_adjustment
                             val_str = '' if val == 0 else str(val)
                             src = ''.join(match.group(i) for i in range(5, 11) if match.group(i))
-                            r = f'{match.group(1)}{match.group(2)}.{match.group(3)}{match.group(4)}{src},{val_str}(%sp)'
+                            blank1, instr, size, blank2 = match.group(1, 2, 3, 4)
+                            r = f'{blank1}{instr}.{size}{blank2}{src},{val_str}(%sp)'
                             modified_lines_no_abi[k] = r
                         # load disp(sp) into xN
                         elif match := move_disp_sp_into_xn_pattern.match(next_line):
@@ -13128,33 +13139,31 @@ def remove_simple_abi(lines):
                             # Add the adjustment in order to compensate the removal of -(sp) instruction/s
                             val += accum_sp_adjustment
                             val_str = '' if val == 0 else str(val)
-                            r = f'{match.group(1)}{match.group(2)}.{match.group(3)}{match.group(4)}{val_str}(%sp),{match.group(6)}'
+                            blank1, instr, size, blank2, target =match.group(1, 2, 3, 4, 6)
+                            r = f'{blank1}{instr}.{size}{blank2}{val_str}(%sp),{target}'
                             modified_lines_no_abi[k] = r
-
-                if accum_sp_adjustment > 0:
-                    # Adjust the subsequent uses of sp
-                    # TODO: see TODO.txt
-                    pass
 
         # Is one of our collected functions?
         elif match := FUNCTION_DECLARATION_REGEX.match(line):
             func_name = match.group(1)
             if func_name in args_pushed_per_function:
                 args = args_pushed_per_function[func_name].args
-                total_sp_adjustment = args_pushed_per_function[func_name].total_sp_adjustment
+                this_sp_adjustment = args_pushed_per_function[func_name].total_sp_adjustment
                 # Replace the pop from stack by the assigment of the argument, 
                 # or remove it if the poping reg is the same than the argument reg
                 # TODO: see raycasting asm routine DMA_doDmaFast.constprop.0
+                
+                # Accumulate the SP adjustment
+                accum_sp_adjustment += this_sp_adjustment
+
+        elif accum_sp_adjustment > 0:
+            # Adjust the subsequent uses of SP by substracting the accumulated adjustment
+            adjust_sp_indexing(i, modified_lines_no_abi, line, -1 * accum_sp_adjustment)
 
     return modified_lines_no_abi
 
+def mainf(input_filename, output_filename):
 
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python optimize_lst.py <file.ext> <file.opt.ext>")
-        sys.exit(1)
-
-    input_filename = sys.argv[1]
     print(f'[OPT_LOG] Optimizing {input_filename}')
 
     with open(input_filename, 'r', encoding='utf-8') as infile:
@@ -13163,8 +13172,8 @@ if __name__ == "__main__":
     # Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading
     modified_lines = applyGccConversions(lines)
 
-    # Collect all the functions declared in this assembly unit
-    collect_declared_functions()
+    # Collect all the functions declared in this assembly unit and store them into a global variable
+    collect_declared_functions(modified_lines)
 
     # Print non used functions
     non_used_functions(modified_lines)
@@ -13202,7 +13211,13 @@ if __name__ == "__main__":
         with open(input_filename, 'r', encoding='utf-8') as infile:
             modified_lines = infile.readlines()
 
-    output_filename = sys.argv[2]
     with open(output_filename, 'w', encoding='utf-8') as outfile:
         for line in modified_lines:
             outfile.write(line + '\n')
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("Usage: python optimize_lst.py <file.ext> <file.opt.ext>")
+        sys.exit(1)
+
+    mainf(sys.argv[1], sys.argv[2])
