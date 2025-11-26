@@ -1877,11 +1877,11 @@ def adjust_sp_indexing(i, target_lines, line, offset):
         anything2 = anything2 if anything2 else ''
         # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a substraction
         disp_val = int(disp) if disp else 0
-        disp_val += (sign_factor * regs_count * movem_push_size)                
+        disp_val += offset
         disp = str(disp_val) if disp_val != 0 else ''
         # Create the new line
         new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
-        modified_lines[i] = new_line
+        target_lines[i] = new_line
     elif match := sp_indexing_pattern_3.match(line):
         blank1, instr, s, blank2, anything1, anything2 = match.groups()
         blank1 = blank1 if blank1 else ''
@@ -1889,11 +1889,11 @@ def adjust_sp_indexing(i, target_lines, line, offset):
         anything1 = anything1 if anything1 else ''
         anything2 = anything2 if anything2 else ''
         # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a substraction
-        disp_val = (sign_factor * regs_count * movem_push_size)
+        disp_val = offset
         disp = str(disp_val)
         # Create the new line
         new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
-        modified_lines[i] = new_line
+        target_lines[i] = new_line
 
 def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines):
     """
@@ -3127,7 +3127,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                         line_E.replace('-(%sp)', '-4(%sp)', 1),
                                         f'{matchA.group(1)}subq.{s_sub}{matchA.group(2)}#6,%sp'
                                     ]
-                                    return (optimized_lines, 6)
+                                    return (optimized_lines, multi_limit)
 
             # This pattern comes up after applying optimization for lsr.w #8,dN
             # But may apply for other similar situation.
@@ -3158,7 +3158,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                             f'{matchA.group(1)}move.b{matchA.group(2)}{src_B},{dN}',
                                             f'{matchA.group(1)}move.w{matchA.group(2)}{dN},{aN}'
                                         ]
-                                        return (optimized_lines, 6)
+                                        return (optimized_lines, multi_limit)
 
             # This pattern comes up after applying optimization for lsl.w #8,dN
             # clr.w   dN            ->   move.b  disp(aN),-(sp)    ; Saves 12 cycles
@@ -3188,7 +3188,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                         f'{matchA.group(1)}move.w{matchA.group(2)}(%sp)+,{dN}',
                                         f'{matchA.group(1)}move.b{matchA.group(2)}{dM},{dN}'
                                     ]
-                                    return (optimized_lines, 6)
+                                    return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
             # moveq[.l]  #0,dN              ->    move.w     disp(sp),dN       ; Saves 8 cycles
@@ -3227,7 +3227,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                         f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
                                         f'{matchA.group(1)}move.{sF}{matchA.group(3)}({aN},{dM}.w),{dP}'
                                     ]
-                                    return (optimized_lines, 6)
+                                    return (optimized_lines, multi_limit)
 
         # Add more multi-line patterns here for 6 lines
 
@@ -3293,11 +3293,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             d_reg_1 = int(dN[2])  # reg index
                             d_reg_2 = int(dM[2])  # reg index
                             if d_reg_1 < d_reg_2:
-                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
+                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                                 optimized_lines = [
                                     f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm
             # move.w  disp1(Am),Dn                  (movem does sign extension)
@@ -3338,11 +3338,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             d_reg_1 = int(dN[2])  # reg index
                             d_reg_2 = int(dM[2])  # reg index
                             if d_reg_1 < d_reg_2:
-                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
+                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                                 optimized_lines = [
                                     f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm       ; Saves 16 cycles
             # move.w  (Am)+,Dn                      (movem does sign extension)
@@ -3370,11 +3370,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             d_reg_1 = int(dN[2])  # reg index
                             d_reg_2 = int(dM[2])  # reg index
                             if d_reg_1 < d_reg_2:
-                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
+                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                                 optimized_lines = [
                                     f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm     ; Saves 16 cycles
             # move.w  (Am)+,Dn                      (movem does sign extension)
@@ -3404,11 +3404,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             d_reg_1 = int(dN[2])  # reg index
                             d_reg_2 = int(dM[2])  # reg index
                             if d_reg_1 < d_reg_2:
-                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
+                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                                 optimized_lines = [
                                     f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
         if USE_FABRI1983_MOVEM_OPTIMIZATIONS:
 
@@ -3446,7 +3446,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     optimized_lines = [
                                         f'{matchA.group(1)}movem.{s}{matchA.group(3)}{xreg_list},-({aN})'
                                     ]
-                                    return (optimized_lines, 5)
+                                    return (optimized_lines, multi_limit)
 
             # Consecutively pop from stack into a sequence of registers
             # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4/xN5    ; Saves 4 cycles
@@ -3480,7 +3480,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     optimized_lines = [
                                         f'{matchA.group(1)}movem.{s}{matchA.group(3)}({aN})+,{xreg_list}'
                                     ]
-                                    return (optimized_lines, 5)
+                                    return (optimized_lines, multi_limit)
 
         if USE_FABRI1983_OPTIMIZATIONS:
 
@@ -3508,7 +3508,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{src_E},{dN}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # Unnecessary clear of data register to multiply by 4 an address register and add/sub a constant
             # moveq[.l]  #0,dN     ->   add.l      aN,aN           ; Saves 8 cycles. Leaves dN with different value than expected.
@@ -3536,7 +3536,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                         f'{matchA.group(1)}add.l{matchA.group(3)}{aN},{aN}',
                                         f'{matchA.group(1)}{alu}.l{matchA.group(3)}#{val},{aN}'
                                     ]
-                                    return (optimized_lines, 5)
+                                    return (optimized_lines, multi_limit)
 
             # Unnecessary clear of data register to multiply by 2 an address register and add/sub a constant
             # moveq[.l]  #0,dN     ->   move.l     aN,aM           ; Saves 8 cycles. Leaves dN with different value than expected.
@@ -3565,7 +3565,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                         f'{matchA.group(1)}add.l {matchA.group(3)}{aM},{aM}',
                                         f'{matchA.group(1)}{alu}.l {matchA.group(3)}#{val},{aM}'
                                     ]
-                                    return (optimized_lines, 5)
+                                    return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
             # moveq[.l]  #0,dN              ->    move.w     symbolName1,dN        ; Saves 8 cycles
@@ -3600,7 +3600,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_2_full},{aN}',
                                     f'{matchA.group(1)}move.{sE}{matchA.group(3)}({aN},{dN}.w),{dP}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays. The offset at dN has already the correct stride.
             # moveq[.l]  #0,dN             ->   move.w     disp1(sp),dN            ; Saves 16 cycles
@@ -3635,7 +3635,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full}({aN},{dN}.w),{aN}',
                                     f'{matchA.group(1)}move.{sE}{matchA.group(3)}({aN}),{dP}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # Calculates jump offsets is always a word length operation.
             # moveq[.wl] #0,dN              ->    move.w  symbolName1,dN       ; Saves 8 cycles
@@ -3667,7 +3667,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{label}(%pc,{dN}.w),{dP}',
                                     f'{matchA.group(1)}jmp   {matchA.group(3)}{disp}(%pc,{dP}.w)'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
             # This pattern comes up after applying optimization for lsr.w #8,dN
             # clr.w   dN           ->   move.w  dM,-(sp)       ; Saves 8 cycles
@@ -3692,7 +3692,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     f'{matchA.group(1)}clr.w {matchA.group(2)}{dN}',
                                     f'{matchA.group(1)}move.b{matchA.group(2)}(%sp)+,{dN}'
                                 ]
-                                return (optimized_lines, 5)
+                                return (optimized_lines, multi_limit)
 
         # Add more multi-line patterns here for 5 lines
 
@@ -4551,7 +4551,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             val = parseConstantSigned(matchB.group(5), 16)
                         if -32768 <= val <= 32767:
                             optimized_line = f'{matchC.group(1)}lea{matchC.group(4)}{val}({aN},{aM}),{aP}'
-                            return ([optimized_line], 3)
+                            return ([optimized_line], multi_limit)
 
                     # If -32768 <= val <= 32767
                     # move.s  aN,aP      ->    lea     -val(aN,aM),aP
@@ -4567,7 +4567,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             val = parseConstantSigned(matchB.group(5), 16)
                         if -32768 <= val <= 32767:
                             optimized_line = f'{matchC.group(1)}lea{matchC.group(4)}{-val}({aN},{aM}),{aP}'
-                            return ([optimized_line], 3)
+                            return ([optimized_line], multi_limit)
 
         # If -32767 <= val <= 32767
         # move.[wl]  aN,-(sp)   ->    link    aN,#val         ; Saves 12 cycles
@@ -4583,7 +4583,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     val = parseConstantSigned(matchC.group(3), 16)
                     if -32767 <= val <= 32767:
                         optimized_line = f'{matchA.group(1)}link{matchA.group(3)}{aN},#{val}'
-                        return ([optimized_line], 3)
+                        return ([optimized_line], multi_limit)
 
         # Testing for null (or 0)
         # move.l  aN,-(sp)   ->    move.l  aN,dM           ; Saves 16 cycles
@@ -4599,9 +4599,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     aN = matchA.group(4)
                     label = matchC.group(3)
                     s_branch = '' if matchC.group(3) is None else matchC.group(3)
-                    dM = find_free_after_use_data_register([], i_line, lines, modified_lines, 3)[0]
+                    dM = find_free_after_use_data_register([], i_line, lines, modified_lines, multi_limit)[0]
                     if dM is None:
-                        dM = find_unused_data_register([], i_line, lines, modified_lines, 3)[0]
+                        dM = find_unused_data_register([], i_line, lines, modified_lines, multi_limit)[0]
                     if dM is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                             # TODO: Check if it needs to follow the label and adjust use of SP
@@ -4609,7 +4609,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{dM}',
                                 f'{matchA.group(1)}beq{s_branch}{matchA.group(3)}{label}'
                             ]
-                            return (optimized_lines, 3)
+                            return (optimized_lines, multi_limit)
 
         # Tail recursion for BSR/JSR or exploiting PEA opportunities
         matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)', line_A)
@@ -4634,7 +4634,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
                         f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
                     ]
-                    return (optimized_lines, 3)
+                    return (optimized_lines, multi_limit)
 
         if USE_FABRI1983_MOVEM_OPTIMIZATIONS:
 
@@ -4664,7 +4664,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             optimized_lines = [
                                 f'{matchA.group(1)}movem.{s}{matchA.group(3)}{xreg_list},-({aN})'
                             ]
-                            return (optimized_lines, 3)
+                            return (optimized_lines, multi_limit)
 
         if USE_FABRI1983_OPTIMIZATIONS:
 
@@ -4675,7 +4675,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
             # Where:
             # symbolName1[.wl][-+*N][.bwl]
             # dM can be dN
-            matchA = re.match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),(%d[0-7])', line_A)
+            matchA = re.match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
             if matchA:
                 alu = matchA.group(2)
                 dM = matchA.group(4)
@@ -4693,7 +4693,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
                             f'{matchA.group(1)}move.{sC}{matchA.group(3)}{dP},({aN},{dN}.w)'
                         ]
-                        return (optimized_lines, 3)
+                        return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
             # add/sub.l  dM,dN           ->    add/sub.w  dM,dN            ; Saves 4 cycles
@@ -4703,7 +4703,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
             # symbolName1[.wl][-+*N][.bwl]
             # dM can be dN
             # Displacement d in d(sp) is optional
-            matchA = re.match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),(%d[0-7])', line_A)
+            matchA = re.match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
             if matchA:
                 alu = matchA.group(2)
                 dM = matchA.group(4)
@@ -4721,7 +4721,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
                             f'{matchA.group(1)}move.{sC}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
                         ]
-                        return (optimized_lines, 3)
+                        return (optimized_lines, multi_limit)
 
             # Unnecessary redundant use of register aN
             # move.s     dM,aN        ->    add/sub.s   dM,dN         ; Saves [4,8] cycles. Leaves aN as a potential free register
@@ -4735,7 +4735,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 s = matchA.group(3)
                 dM = matchA.group(5)
                 aN = matchA.group(6)
-                matchB = re.match(r'^\s*(add|sub)\.([wl])\s+(%a[0-7]),(%d[0-7])', line_B)
+                matchB = re.match(r'^\s*(add|sub)\.([wl])\s+(%a[0-7]),\s*(%d[0-7])', line_B)
                 if matchB and s == matchB.group(2) and aN == matchB.group(3):
                     alu = matchB.group(1)
                     dN = matchB.group(4)
@@ -4747,25 +4747,49 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}move.{s}{matchA.group(4)}{dN},-(%sp)'
                                 
                             ]
-                            return (optimized_lines, 3)
+                            return (optimized_lines, multi_limit)
 
             # Unnecessary copy
             # move.l  dN,aN     ->   move.l  dN,aN           ; Saves 4 cycles
             # move.w  aN,dN          instr other than [jb]cc
             # instr other than [jb]cc
-            matchA = re.match(r'^(\s*)move\.l(\s+)(%d[0-7]),(%a[0-7])', line_A)
+            matchA = re.match(r'^(\s*)move\.l(\s+)(%d[0-7]),\s*(%a[0-7])', line_A)
             if matchA:
                 dN = matchA.group(3)
                 aN = matchA.group(4)
-                matchB = re.match(r'^\s*move\.w\s+(%a[0-7]),(%d[0-7])', line_B)
+                matchB = re.match(r'^\s*move\.w\s+(%a[0-7]),\s*(%d[0-7])', line_B)
                 if matchB and aN == matchB.group(1) and dN == matchB.group(2):
                     matchC = re.match(r'^\s*([jb]w+)(\.[sbw])?\s+([0-9A-Za-z_\.]+)', line_C)
-                    if matchC is None or matchC.group(1) not in bcc_or_jcc_instructions:
+                    if not matchC or matchC.group(1) not in bcc_or_jcc_instructions:
                         optimized_lines = [
                             f'{matchA.group(1)}move.l{matchA.group(2)}{dN},{aN}',
                             line_C
                         ]
-                        return (optimized_lines, 3)
+                        return (optimized_lines, multi_limit)
+
+            # Case for a potentially new free register
+            # Clear higher word of data register
+            # moveq[.l]  #0,dN     ->     swap    dM         ; Saves 0 cycles. But leaves 1 potential free register
+            # move.w      dM,dN           clr.w   dM
+            # move.l      dN,dM           swap    dM
+            # Leaves dN free which potentially can be removed from movem/move push/pop stack if not used anymore.
+            matchA = re.match(r'^(\s)*moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
+            if matchA:
+                dN = matchA.group(4)
+                matchB = re.match(r'^\s*move\.w\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+                if matchB and dN == matchB.group(2):
+                    dM = matchB.group(1)
+                    matchC = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
+                    if matchC and dN == matchC.group(1) and dM == matchC.group(2):
+                        # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
+                        if num_pass == 2:
+                            if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, multi_limit)
+                            optimized_lines = [
+                                f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
+                                f'{matchA.group(1)}clr.w{matchA.group(3)}{dM}',
+                                f'{matchA.group(1)}swap {matchA.group(3)}{dM}'
+                            ]
+                            return (optimized_lines, multi_limit)
 
         if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
@@ -4782,7 +4806,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}subq{matchA.group(2)}#6,%sp'
                         ]
-                        return (optimized_lines, 3)
+                        return (optimized_lines, multi_limit)
 
             # Clearing consecutively the stack by just offseting the sp.
             # clr.l  -(sp)     ->    lea     -12(sp),sp    ; Saves 58 cycles.
@@ -4802,7 +4826,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}lea{matchA.group(2)}-12(%sp),%sp'
                         ]
-                        return (optimized_lines, 3)
+                        return (optimized_lines, multi_limit)
 
         else:
 
@@ -4820,7 +4844,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}pea   {matchA.group(2)}0.w,{dN}',
                             f'{matchA.group(1)}move.w{matchA.group(2)}#0,-(%sp)'
                         ]
-                        return (optimized_lines, 3)
+                        return (optimized_lines, multi_limit)
 
             # Clearing consecutively the stack by pushing 0.
             # clr.l  -(sp)     ->    moveq   #0,dN         ; Saves 22 cycles.
@@ -4839,9 +4863,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     matchC_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_C)
                     matchC_pea = re.match(r'^\s*pea\s+0.w', line_C)
                     if matchC_clr or matchC_pea:
-                        free_d_regs = find_free_after_use_data_register([], i_line, lines, modified_lines, 3)
+                        free_d_regs = find_free_after_use_data_register([], i_line, lines, modified_lines, multi_limit)
                         if len(free_d_regs) < 3:
-                            free_d_regs = find_unused_data_register([], i_line, lines, modified_lines, 3)
+                            free_d_regs = find_unused_data_register([], i_line, lines, modified_lines, multi_limit)
                         if len(free_d_regs) >= 3:
                             dN, dM, dP = free_d_regs[:3]
                             if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dN,dM,dP], i_line, lines, modified_lines):
@@ -4851,7 +4875,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                     f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dP}',
                                     f'{matchA.group(1)}movem.l{matchA.group(2)}{dN}/{dM}/{dP},-(%sp)'
                                 ]
-                                return (optimized_lines, 3)
+                                return (optimized_lines, multi_limit)
 
         # Add more multi-line patterns here for 3 lines
 
@@ -4885,9 +4909,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if s == 'l':
                         n = 32-val
                     mask = -(2 ** (n - 1))
-                    dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 2)[0]
+                    dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, multi_limit)[0]
                     if dM is None:
-                        dM = find_unused_data_register([dN], i_line, lines, modified_lines, 2)[0]
+                        dM = find_unused_data_register([dN], i_line, lines, modified_lines, multi_limit)[0]
                     if dM is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                             optimized_lines = [
@@ -4895,7 +4919,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}add.{s} {matchA.group(3)}{dM},{dN}',
                                 f'{matchA.group(1)}eor.{s} {matchA.group(3)}{dM},{dN}'
                             ]
-                            return (optimized_lines, 2)
+                            return (optimized_lines, multi_limit)
 
 
         # Test bit #7 (8th position) on byte size
@@ -4919,7 +4943,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     f'{matchA.group(1)}tst.b{matchA.group(2)}{ea}',
                     f'{matchA.group(1)}bpl{s_branch}{matchA.group(2)}{label}'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
             # btst.b  #7,<ea>    ->    tst.b   <ea>        ; Saves 4 cycles. Status flags wrong
             # bne     label            bmi     label
@@ -4937,7 +4961,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     f'{matchA.group(1)}tst.b{matchA.group(2)}{ea}',
                     f'{matchA.group(1)}bmi{s_branch}{matchA.group(2)}{label}'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # Test bit #7,15,31 (8th,16th,31th position) on long size
         matchA = re.match(r'^(\s*)btst\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
@@ -4963,7 +4987,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}tst.{s_for_tst}{matchA.group(2)}{dN}',
                         f'{matchA.group(1)}bpl{s_branch}{matchA.group(2)}{label}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # If val in [7, 15, 31]
                 # btst.l  #val,dN    ->    tst.s   dN          ; Saves 4 cycles. Status flags wrong
@@ -4977,7 +5001,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}tst.{s_for_tst}{matchA.group(2)}{dN}',
                         f'{matchA.group(1)}bmi{s_branch}{matchA.group(2)}{label}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Optimizations using TAS instruction are only safe if used on regular RAM and not on memory-mapped I/O 
         # like VDP regs, YM2612 sound chip, Z80 bus, control ports. Hardware registers like (aN) is valid if 
@@ -5005,7 +5029,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}tas  {matchA.group(2)}{mem_address}',
                             f'{matchA.group(1)}bpl{s_branch}{matchA.group(2)}{label}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                     # bset.b #7,mem    ->    tas  mem           ; Saves 4 cycles. Status flags wrong
                     # bne    label           bmi  label
@@ -5019,7 +5043,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}tas  {matchA.group(2)}{mem_address}',
                             f'{matchA.group(1)}bmi{s_branch}{matchA.group(2)}{label}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         # bset.l #7,dN
         matchA = re.match(r'^(\s*)bset\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
@@ -5039,7 +5063,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}tas  {matchA.group(2)}{dN}',
                         f'{matchA.group(1)}bpl{s_branch}{matchA.group(2)}{label}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # bset.l #7,dN     ->    tas   dN          ; Saves 4 cycles. Status flags wrong
                 # bne    label           bmi   label
@@ -5051,7 +5075,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}tas  {matchA.group(2)}{dN}',
                         f'{matchA.group(1)}bmi{s_branch}{matchA.group(2)}{label}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Flags for tst.w:
         # ---------------
@@ -5075,7 +5099,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbf{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # beq    label
@@ -5084,7 +5108,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # bpl    label
@@ -5093,7 +5117,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # bmi    label
@@ -5102,7 +5126,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # bge    label
@@ -5111,7 +5135,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # blt    label
@@ -5120,7 +5144,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbeq   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # bhi    label
@@ -5129,7 +5153,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbeq{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # tst.w  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
                 # bls    label
@@ -5138,7 +5162,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines):
                         label = matchB.group(2)
                         optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
         # Tail recursion for BSR or exploiting PEA opportunities
         matchA = re.match(r'^(\s*)[j]?bsr(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$', line_A)
@@ -5152,7 +5176,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
             matchB = re.match(r'^\s*rts\b', line_B)
             if matchB:
                 optimized_line = f'{matchA.group(1)}bra{s_branch}{matchA.group(3)}{subr}'
-                return ([optimized_line], 2)
+                return ([optimized_line], multi_limit)
 
         # Tail recursion for JSR or exploiting PEA opportunities
         matchA = re.match(r'^(\s*)jsr(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$', line_A)
@@ -5165,7 +5189,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
             matchB = re.match(r'^\s*rts\b', line_B)
             if matchB:
                 optimized_line = f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
-                return ([optimized_line], 2)
+                return ([optimized_line], multi_limit)
 
         if USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY:
 
@@ -5181,12 +5205,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
                     ]
-                    count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
+                    count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], multi_limit)
                     count_replacements += 1  # First replacement is the one we made in optimized_lines[]
                     if count_replacements <= 3:
-                        replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
-                        return (optimized_lines, 2)
+                        replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], multi_limit)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, multi_limit)
+                        return (optimized_lines, multi_limit)
 
             # move.l  #subr,aN   ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused
             # jsr     (aN)
@@ -5200,12 +5224,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
                     ]
-                    count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
+                    count_replacements = count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], multi_limit)
                     count_replacements += 1  # First replacement is the one we made in optimized_lines[]
                     if count_replacements <= 3:
-                        replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], 2)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
-                        return (optimized_lines, 2)
+                        replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, optimized_lines[0], multi_limit)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, multi_limit)
+                        return (optimized_lines, multi_limit)
 
         # move.l  val(aN),aM   ->   jmp  val(aN)     ; Saves 14 cycles. Leaves aM unused
         # jmp     (aM)
@@ -5221,11 +5245,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     val = matchA.group(4)
                 elif matchA.group(5):
                     val = matchA.group(5)[:-1]  # remove ','
-                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
+                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                 optimized_lines = [
                     f'{matchA.group(1)}jmp{matchA.group(3)}{val}({aN_or_pc})'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # move.l  val(aN,dN.s),aM   ->   jmp  val(aN,dN.s)    ; Saves 12 cycles. Leaves aM unused
         # jmp     (aM)
@@ -5242,11 +5266,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     val = matchA.group(4)
                 elif matchA.group(5):
                     val = matchA.group(5)[:-1]  # remove ','
-                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
+                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                 optimized_lines = [
                     f'{matchA.group(1)}jmp{matchA.group(3)}{val}({aN_or_pc},{dN_s})'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # lea     label_or_val(aN),aM   ->   jmp  label_or_val(aN)    ; Saves 6 cycles. Leaves aM unused
         # jmp     (aM)
@@ -5262,11 +5286,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     label_or_val = matchA.group(3)
                 elif matchA.group(4):
                     label_or_val = matchA.group(4)[:-1]  # remove ','
-                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
+                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                 optimized_lines = [
                     f'{matchA.group(1)}jmp{matchA.group(2)}{label_or_val}({aN_or_pc})'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # lea     label_or_val(aN,dN.s),aM   ->   jmp  label_or_val(aN,dN.s)    ; Saves 6 cycles. Leaves aM unused
         # jmp     (aM)
@@ -5282,11 +5306,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     label_or_val = matchA.group(3)
                 elif matchA.group(4):
                     label_or_val = matchA.group(4)[:-1]  # remove ','
-                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
+                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, multi_limit)
                 optimized_lines = [
                     f'{matchA.group(1)}jmp{matchA.group(2)}{label_or_val}({aN_or_pc},{dN_s})'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # Apply a mask where -128 ≤ mask ≤ 127
         # move.s   <ea>,dN    ->    moveq   #mask,dN      ; Saves 4 cycles. Top bits of dN different
@@ -5312,7 +5336,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}moveq{matchA.group(3)}#{mask},{dN}',
                         f'{matchA.group(1)}and.{s}{matchA.group(3)}{ea},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # move.l  aN,sp      ->    unlk    aN       ; Saves 4 cycles
         # move.l  (sp)+,aN
@@ -5324,7 +5348,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 optimized_lines = [
                     f'{matchA.group(1)}unlk{matchA.group(3)}{aN}'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # Push aN into sp and then add/sub constant into sp
         matchA = re.match(r'^(\s*)move\.([wl])(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
@@ -5340,7 +5364,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 optimized_lines = [
                     f'{matchA.group(1)}pea{matchA.group(3)}{val}({aN})'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
             # move.[wl]  aN,-(sp)   ->    pea   -val(aN)
             # sub*.[wl]  #val,(sp)            
@@ -5350,7 +5374,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 optimized_lines = [
                     f'{matchA.group(1)}pea{matchA.group(3)}{-val}({aN})'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         if USE_FABRI1983_OPTIMIZATIONS:
 
@@ -5367,7 +5391,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}({aN})+,{xN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Decrement by 1 byte before reading 1 byte from memory
             # sub*     #1,aN        ->    move.b   -(aN),xN        ; Saves 6 cycles
@@ -5382,7 +5406,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(4)}-({aN}),{xN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Increment by 2 bytes after reading 1 word from memory
             # move.w   (aN),xN      ->    move.w   (aN)+,xN        ; Saves 8 cycles
@@ -5396,7 +5420,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.w{matchA.group(3)}({aN})+,{xN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Decrement by 2 bytes before reading 1 word from memory
             # sub*     #2,aN        ->    move.w   -(aN),xN        ; Saves 6 cycles
@@ -5410,7 +5434,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.w{matchA.group(4)}-({aN}),{xN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Increment by 4 bytes after reading 1 long from memory
             # move.l   (aN),xN      ->    move.l   (aN)+,xN        ; Saves 8 cycles
@@ -5424,7 +5448,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(3)}({aN})+,{xN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Decrement by 4 bytes before reading 1 long from memory
             # sub*     #4,aN        ->    move.l   -(aN),xN        ; Saves 6 cycles
@@ -5438,7 +5462,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(4)}-({aN}),{xN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Unnecessary redundant use of register dM
             # add.s  dN,dM     ->   add.s  dN,dP           ; Saves 4 cycles. Leaves dM as a potential free register
@@ -5458,7 +5482,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}add.{s}{matchA.group(3)}{dN},{dP}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
             # lea     symbolName1,aN    ->   move.l  *,aN                 ; Saves [6,8] cycles
@@ -5474,7 +5498,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}move.l{matchA.group(2)}{src_B},{aN}',
                         f'{matchA.group(1)}lea   {matchA.group(2)}{symbolName_1_full}({aN}),{aN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Load a memory value with an offset into a data register
             # lea     symbolName1,aN       ->   lea     symbolName1,aN       ; Saves 4 cycles
@@ -5496,7 +5520,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}lea   {matchA.group(2)}{symbolName_1_full},{aN}',
                             f'{matchA.group(1)}move.{s}{matchA.group(2)}{op_N}({aN}),{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
             # This pattern comes up after applying optimization for lsl.w #8,dN
             # clr.b   dN            ->   move.b  dM,dN             ; Saves 4 cycles
@@ -5510,7 +5534,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(2)}{dM},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Move xN into dM and then add/sub a constant into dM
         # If -128 <= val <= 127
@@ -5518,9 +5542,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
         # add*/sub*.[wl]  #val,dM          add/sub.[wl]  xN,dM
         matchA = re.match(r'^(\s*)move\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(%d[0-7])', line_A)
         if matchA:
-            sA = matchA.group(2)
-            xN = matchA.group(4)
-            dM = matchA.group(5)
+            sA, xN, dM = matchA.group(2, 4, 5)
             matchB = re.match(r'^\s*(add|addq|addi|sub|subq|subi)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 val = parseConstantSigned(matchB.group(3), 8)
@@ -5532,14 +5554,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}moveq{matchA.group(3)}#{val},{dM}',
                         f'{matchA.group(1)}add.{sA}{matchA.group(3)}{xN},{dM}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Calculating effective address between address registers and a constant
         matchA = re.match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%a[0-7]),\s*(%a[0-7])', line_A)
         if matchA:
-            s = matchA.group(3)
-            aN = matchA.group(5)
-            aM = matchA.group(6)
+            s, aN, aM = matchA.group(3, 5, 6)
 
             # If -32767 <= val <= 32767
             # move.s  aN,aM      ->    lea   val(aN),aM
@@ -5556,7 +5576,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN}),{aM}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # If -32768 <= val <= 32767
             # move.s  aN,aM      ->    lea   -val(aN),aM
@@ -5573,7 +5593,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN}),{aM}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Reduce addition and move into memory with only one move instruction.
         # add.[wl]   xN,aN     ->    move.[wl] (aN,xN.w),aM     ; Saves 2 cycles
@@ -5590,7 +5610,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 optimized_lines = [
                     f'{matchA.group(1)}move.{sB}{matchA.group(4)}({aN},{xN}.w),{aM}'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # Calculating effective address involving a value and registers xN and aN.
         # If -32768 <= val <= 32767
@@ -5609,7 +5629,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}move.{sB}{matchA.group(4)}{xN},{aN}',
                         f'{matchA.group(1)}lea   {matchA.group(4)}{val}({aN}),{aN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Calculating effective address involving a value and registers xN and aN.
         # If -128 <= val <= 127
@@ -5631,7 +5651,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{xN}.{sB}),{aN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Calculating effective address involving a value and registers xN and aN.
         # If -128 <= val <= 127
@@ -5640,9 +5660,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
         # s: b,w,l
         matchA = re.match(r'^(\s)*(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
         if matchA:
-            sA = matchA.group(3)
-            xN = matchA.group(5)
-            aN = matchA.group(6)
+            sA, xN, aN = matchA.group(3, 5, 6)
             matchB = re.match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
             if matchB and aN == matchB.group(4):
                 val = parseConstantSigned(matchB.group(3), 8)
@@ -5653,7 +5671,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{xN}.{sA}),{aN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Calculating effective address involving a value and registers xN and aN.
         # If -127 <= val <= 128
@@ -5675,7 +5693,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(4)}-{val}({aN},{xN}.{sB}),{aN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Calculating effective address involving a value and registers xN and aN.
         # If -128 <= val <= 127
@@ -5684,9 +5702,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
         # s: b,w,l
         matchA = re.match(r'^(\s)*(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
         if matchA:
-            sA = matchA.group(3)
-            xN = matchA.group(5)
-            aN = matchA.group(6)
+            sA, xN, aN = matchA.group(3, 5, 6)
             matchB = re.match(r'^\s*(sub|suba|subq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
             if matchB and aN == matchB.group(4):
                 val = parseConstantSigned(matchB.group(3), 8)
@@ -5697,51 +5713,49 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(4)}-{val}({aN},{xN}.{sA}),{aN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Addition using indexing modes
-        # add.s   (aN,dP.z),xN  ->  add.z   dP,aN          ; Saves [2,4] cycles. Leaves aN with different value than expected
+        # add.s   (aN,dP.z),xN  ->  adda.z  dP,aN          ; Saves [2,4] cycles. Leaves aN with different value than expected
         # add.s   (aN,dP.z),xM      add.s   (aN),xN
         #                           add.s   (aN),xM
+        # Make sure aN is not used before is cleared/overwitten
         matchA = re.match(r'^(\s*)(add|adda)\.([bwl])(\s+)\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_A)
         if matchA:
-            s = matchA.group(3)
-            aN = matchA.group(5)
-            dP = matchA.group(6)
-            xN = matchA.group(8)
-            z = '' if matchA.group(7) is None else matchA.group(7)[1:]  # removes the .
-            matchB = re.match(r'^\s*(add|adda)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
-            if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
-                    xM = matchB.group(6)
-                    optimized_lines = [
-                        f'{matchA.group(1)}add.{z}{matchA.group(4)}{dP},{aN}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(4)}({aN}),{xN}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(4)}({aN}),{xM}'
-                    ]
-                    return (optimized_lines, 2)
+            s, aN, dP, xN = matchA.group(3, 5, 6, 8)
+            z = '' if not matchA.group(7) else matchA.group(7)[1:]  # removes the .
+            if dP != xN:
+                matchB = re.match(r'^\s*(add|adda)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
+                if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
+                        xM = matchB.group(6)
+                        optimized_lines = [
+                            f'{matchA.group(1)}adda.{z}{matchA.group(4)}{dP},{aN}',
+                            f'{matchA.group(1)}add.{s} {matchA.group(4)}({aN}),{xN}',
+                            f'{matchA.group(1)}add.{s} {matchA.group(4)}({aN}),{xM}'
+                        ]
+                        return (optimized_lines, multi_limit)
 
         # Substraction using indexing modes
-        # sub.s   (aN,dP.z),xN  ->  sub.z   dP,aN          ; Saves [2,4] cycles. Leaves aN with different value than expected
+        # sub.s   (aN,dP.z),xN  ->  suba.z  dP,aN          ; Saves [2,4] cycles. Leaves aN with different value than expected
         # sub.s   (aN,dP.z),xM      sub.s   (aN),xN
         #                           sub.s   (aN),xM
+        # Make sure aN is not used before is cleared/overwitten
         matchA = re.match(r'^(\s*)(sub|suba)\.([bwl])(\s+)\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_A)
         if matchA:
-            s = matchA.group(3)
-            aN = matchA.group(5)
-            dP = matchA.group(6)
-            xN = matchA.group(8)
-            z = '' if matchA.group(7) is None else matchA.group(7)[1:]  # removes the .
-            matchB = re.match(r'^\s*(sub|suba)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
-            if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
-                    xM = matchB.group(6)
-                    optimized_lines = [
-                        f'{matchA.group(1)}sub.{z}{matchA.group(4)}{dP},{aN}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(4)}({aN}),{xN}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(4)}({aN}),{xM}'
-                    ]
-                    return (optimized_lines, 2)
+            s, aN, dP, xN = matchA.group(3, 5, 6, 8)
+            z = '' if not matchA.group(7) else matchA.group(7)[1:]  # removes the .
+            if dP != xN:
+                matchB = re.match(r'^\s*(sub|suba)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
+                if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines):
+                        xM = matchB.group(6)
+                        optimized_lines = [
+                            f'{matchA.group(1)}suba.{z}{matchA.group(4)}{dP},{aN}',
+                            f'{matchA.group(1)}sub.{s} {matchA.group(4)}({aN}),{xN}',
+                            f'{matchA.group(1)}sub.{s} {matchA.group(4)}({aN}),{xM}'
+                        ]
+                        return (optimized_lines, multi_limit)
 
         # Addition using indexing modes
         # add.s   d(aN),dN   ->   move.s  d(aN),dP      ; Saves 4 cycles
@@ -5771,9 +5785,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 if dispA == dispB:
                     disp_str = '' if dispA == 0 else f'{dispA}'
                     dM = matchB.group(8)
-                    dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                    dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines, multi_limit)[0]
                     if dP is None:
-                        dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                        dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines, multi_limit)[0]
                     if dP is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
                             optimized_lines = [
@@ -5781,7 +5795,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}add.{s} {matchA.group(3)}({dP}),{dN}',
                                 f'{matchA.group(1)}add.{s} {matchA.group(3)}({dP}),{dM}'
                             ]
-                            return (optimized_lines, 2)
+                            return (optimized_lines, multi_limit)
 
         # Substraction using indexing modes
         # sub.s   d(aN),dN   ->   move.s  d(aN),dP      ; Saves 4 cycles
@@ -5811,9 +5825,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 if dispA == dispB:
                     disp_str = '' if dispA == 0 else f'{dispA}'
                     dM = matchB.group(8)
-                    dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                    dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines, multi_limit)[0]
                     if dP is None:
-                        dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                        dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines, multi_limit)[0]
                     if dP is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
                             optimized_lines = [
@@ -5821,7 +5835,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}sub.{s} {matchA.group(3)}({dP}),{dN}',
                                 f'{matchA.group(1)}sub.{s} {matchA.group(3)}({dP}),{dM}'
                             ]
-                            return (optimized_lines, 2)
+                            return (optimized_lines, multi_limit)
 
         # Addition using indexing modes
         # add.s   d(aN),aM   ->   move.s  d(aN),aQ      ; Saves 4 cycles
@@ -5851,9 +5865,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 if dispA == dispB:
                     disp_str = '' if dispA == 0 else f'{dispA}'
                     aP = matchB.group(9)
-                    aQ = find_free_after_use_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                    aQ = find_free_after_use_address_register([aM,aP], i_line, lines, modified_lines, multi_limit)[0]
                     if aQ is None:
-                        aQ = find_unused_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                        aQ = find_unused_address_register([aM,aP], i_line, lines, modified_lines, multi_limit)[0]
                     if aQ is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aQ], i_line, lines, modified_lines):
                             optimized_lines = [
@@ -5861,7 +5875,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}add.{s} {matchA.group(4)}({aQ}),{aM}',
                                 f'{matchA.group(1)}add.{s} {matchA.group(4)}({aQ}),{aP}'
                             ]
-                            return (optimized_lines, 2)
+                            return (optimized_lines, multi_limit)
 
         # Addition using indexing modes
         # sub.s   d(aN),aM   ->   move.s  d(aN),aQ      ; Saves 4 cycles
@@ -5891,9 +5905,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 if dispA == dispB:
                     disp_str = '' if dispA == 0 else f'{dispA}'
                     aP = matchB.group(9)
-                    aQ = find_free_after_use_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                    aQ = find_free_after_use_address_register([aM,aP], i_line, lines, modified_lines, multi_limit)[0]
                     if aQ is None:
-                        aQ = find_unused_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                        aQ = find_unused_address_register([aM,aP], i_line, lines, modified_lines, multi_limit)[0]
                     if aQ is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aQ], i_line, lines, modified_lines):
                             optimized_lines = [
@@ -5901,7 +5915,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                                 f'{matchA.group(1)}sub.{s} {matchA.group(4)}({aQ}),{aM}',
                                 f'{matchA.group(1)}sub.{s} {matchA.group(4)}({aQ}),{aP}'
                             ]
-                            return (optimized_lines, 2)
+                            return (optimized_lines, multi_limit)
 
         # Push word constants into stack
         # move.w   #x,-(sp)   ->    move.l  #xy,-(sp)      ; Saves 4 cycles
@@ -5918,7 +5932,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 optimized_lines = [
                     f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},-(%sp)'
                 ]
-                return (optimized_lines, 2)
+                return (optimized_lines, multi_limit)
 
         # Move byte constants into consecutive memory
         # If mem1+1 == mem2
@@ -5944,7 +5958,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}move.w{matchA.group(2)}#{xy},{mem1}{s_mem}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         # Move word constants into consecutive memory
         # If mem1+2 == mem2
@@ -5966,7 +5980,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},{mem1}{s_mem}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Move byte constants into consecutive memory calculated from effective address
         # If d1+1 == d2
@@ -5993,7 +6007,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}move.w{matchA.group(2)}#{xy},{disp_str}({aN})'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         # Move byte constants into consecutive memory calculated from effective address
         # If d1+2 == d2
@@ -6016,7 +6030,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},{disp_str}({aN})'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Move 2 consecutive word values from indirect memory to 2 consecutive indirect memory addresses
         # move.w   disp1(aN),disp3(aM)    ->   move.l  disp1(aN),disp3(aM)   ; Saves 8 cycles
@@ -6040,7 +6054,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(2)}{disp_src_str}({aN}),{disp_dest_str}({aM})'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Negate a dN and then add/sub into dM or same dN
         matchA = re.match(r'^(\s*)neg\.([bwl])(\s+)(%d[0-7])', line_A)
@@ -6057,7 +6071,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}add.{sA}{matchA.group(3)}{dN},{dM}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # neg.s    dN         ->    eor.s   #val-1,dN   ; Saves 4 cycles
             # add.s    #val,dN
@@ -6076,7 +6090,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}eor.{sA}{matchA.group(3)}#{val-1},{dN}'
                     ]
                     print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} Next optimization might fail if dN >= val")
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # neg.s    dN         ->    sub.s   dN,dM       ; Saves 4 cycles. Leaves dN with different value than expected
             # add.s    dN,dM
@@ -6087,11 +6101,45 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}sub.{sA}{matchA.group(3)}{dN},{dM}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
+
+        # Clearing consecutive memory from same symbolName
+        clr_mem_from_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?(\+\d+)?(\.[bwl])?;?$'
+        matchA = re.match(clr_mem_from_symbol_pattern, line_A)
+        if matchA:
+            matchB = re.match(clr_mem_from_symbol_pattern, line_B)
+            if matchB:
+
+                # If clearing symbolName and symbolName+1
+                # clr.b   symbolName       ->    clr.w   symbolName
+                # clr.b   symbolName+1
+                if matchA.group(2) == 'b' and matchB.group(2) == 'b':
+                    symbolName_1 = ''.join(matchA.group(4) for i in range(4, 6) if matchA.group(i))
+                    symbolName_2 = ''.join(matchB.group(4) for i in range(4, 6) if matchB.group(i))
+                    symbolName_1_op = 0 if not matchA.group(6) else int(matchA.group(6))
+                    symbolName_2_op = 0 if not matchB.group(6) else int(matchB.group(6))
+                    if symbolName_1 == symbolName_2 and (symbolName_1_op + 1 == symbolName_2_op):
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_1}'
+                        ]
+                        return (optimized_lines, multi_limit)
+
+                # If clearing symbolName and symbolName+1
+                # clr.w   symbolName       ->    clr.l   symbolName
+                # clr.w   symbolName+2
+                if matchA.group(2) == 'w' and matchB.group(2) == 'w':
+                    symbolName_1 = ''.join(matchA.group(4) for i in range(4, 6) if matchA.group(i))
+                    symbolName_2 = ''.join(matchB.group(4) for i in range(4, 6) if matchB.group(i))
+                    symbolName_1_op = 0 if not matchA.group(6) else int(matchA.group(6))
+                    symbolName_2_op = 0 if not matchB.group(6) else int(matchB.group(6))
+                    if symbolName_1 == symbolName_2 and (symbolName_1_op + 2 == symbolName_2_op):
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_1}'
+                        ]
+                        return (optimized_lines, multi_limit)
 
         # Clearing consecutive memory
-        # No #symbolName neither symbolName are considered as memory operand
-        # Note that gcc might use #-15673756 as memory operand
+        # Note that gcc might use negative numbers
         clr_mem_no_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?;?$'
         matchA = re.match(clr_mem_no_symbol_pattern, line_A)
         if matchA:
@@ -6109,12 +6157,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{mem1}{s_mem}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # If mem1+2 == mem2
                 # clr.w   mem1       ->    clr.l   mem1
                 # clr.w   mem2
-                # Avoid #symbolName or symbolName as memory operand
                 if matchA.group(2) == 'w' and matchB.group(2) == 'w':
                     mem1 = parseConstantSigned(matchA.group(4), 32)
                     mem2 = parseConstantSigned(matchB.group(4), 32)
@@ -6123,7 +6170,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}clr.l{matchA.group(3)}{mem1}{s_mem}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         # Clearing consecutive memory calculated from effective address
         clr_mem_ea_pattern = r'^(\s*)clr\.([bw])(\s+)(?:(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)|\((-?\d+|0[xX][0-9a-fA-F]+),(%a[0-7])\))'
@@ -6154,7 +6201,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{disp_str}({aN})'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # If d1+2 == d2
                 # clr.w   d1(aN)       ->    clr.l   d1(aN)
@@ -6178,7 +6225,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         optimized_lines = [
                             f'{matchA.group(1)}clr.l{matchA.group(3)}{disp_str}({aN})'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
@@ -6193,7 +6240,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
@@ -6207,7 +6254,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}subq{matchA.group(2)}#4,%sp'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
             # Clearing consecutively the stack by just offseting the sp.
             # clr.l  -(sp)     ->    subq  #8,sp     ; Saves 36 cycles
@@ -6223,7 +6270,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}subq{matchA.group(2)}#8,%sp'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         else:
 
@@ -6237,7 +6284,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}pea{matchA.group(2)}0.w'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         # Clear higher byte of word with 0xFF (255)
         # move.w  xN,dN    ->   moveq   #0,dN   ; Saves 4 cycles
@@ -6254,7 +6301,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                         f'{matchA.group(1)}move.b{matchA.group(3)}{xN},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         if USE_AGGRESSIVE_AVOID_CLEAR_BEFORE_MOVE_WORD_INTO_DN:
 
@@ -6274,7 +6321,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     optimized_lines = [
                         f'{matchA.group(1)}move.w{matchA.group(4)}{ea},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
         ############################################################################
         # Rotates Left
@@ -6295,9 +6342,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 0 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_line = f'{matchA.group(1)}ror.w{matchB.group(3)}#{8-x},{dN}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # 1 ≤ x ≤ 7
                 # moveq    #8+x,dM    ->    swap    dN           ; Saves 4*x cycles
@@ -6307,23 +6354,23 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 1 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}ror.l{matchB.group(3)}#{8-x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #16,dM     ->    swap    dN           ; Saves 40 cycles
                 # rol.l    dM,dN
                 matchB = re.match(r'^(\s*)(rol\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 16 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}swap{matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 1 ≤ x ≤ 7
                 # moveq    #16+x,dM   ->    swap    dN           ; Saves 32 cycles
@@ -6333,12 +6380,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 1 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}rol.l{matchB.group(3)}#{x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 8 ≤ x ≤ 15
                 # moveq    #16+x,dM   ->    ror.l   #16-x,dN     ; Saves 4+4*x cycles
@@ -6348,9 +6395,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 8 <= x <= 15:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_line = f'{matchA.group(1)}ror.l{matchB.group(3)}#{16-x},{dN}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
         ############################################################################
         # Rotates Right
@@ -6371,9 +6418,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 0 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_line = f'{matchA.group(1)}rol.w{matchB.group(3)}#{8-x},{dN}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
                 # 1 ≤ x ≤ 7
                 # moveq    #8+x,dM    ->    swap    dN           ; Saves 4*x cycles
@@ -6383,23 +6430,23 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 1 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}rol.l{matchB.group(3)}#{8-x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #16,dM     ->    swap    dN           ; Saves 40 cycles
                 # ror.l    dM,dN
                 matchB = re.match(r'^(\s*)(ror\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 16 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}swap{matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 1 ≤ x ≤ 7
                 # moveq    #16+x,dM   ->    swap    dN           ; Saves 32 cycles
@@ -6409,12 +6456,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 1 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}ror.l{matchB.group(3)}#{x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 8 ≤ x ≤ 15
                 # moveq    #16+x,dM   ->    rol.l   #16-x,dN     ; Saves 4+4*x cycles
@@ -6424,9 +6471,9 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 8 <= x <= 15:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_line = f'{matchA.group(1)}rol.l{matchB.group(3)}#{16-x},{dN}'
-                        return ([optimized_line], 2)
+                        return ([optimized_line], multi_limit)
 
         ############################################################################
         # Logical Shift Left and Arithmetic Shift Left
@@ -6448,11 +6495,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 1 <= x <= 47:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.b{matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #9,dM      ->    move.b   dN,-(sp)       ; Saves 4 cycles
                 # lsl.w    dM,dN            move.w   (sp)+,dN
@@ -6461,14 +6508,14 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsl\.w|asl\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 9 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.w{matchA.group(3)}(%sp)+,{dN}',
                         f'{matchA.group(1)}clr.b {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 2 ≤ x ≤ 7
                 # moveq    #8+x,dM    ->    ror.w    #8-x,dN        ; Saves 4*x-4 cycles
@@ -6479,12 +6526,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if 2 <= x <= 7:
                         dN = matchB.group(5)
                         mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}ror.w {matchA.group(3)}#{8-x},{dN}',
                             f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 0 ≤ x ≤ 47
                 # moveq    #16+x,dM   ->    clr.w    dN             ; Saves 38+2*x cycles
@@ -6494,11 +6541,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 0 <= x <= 47:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 3 ≤ x ≤ 7
                 # moveq    #8+x,dM    ->    swap     dN             ; Saves 4*x-8 cycles
@@ -6510,25 +6557,25 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if 3 <= x <= 7:
                         dN = matchB.group(5)
                         mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}ror.l {matchA.group(3)}#{8-x},{dN}',
                             f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #16,dM     ->    swap     dN             ; Saves 36 cycles
                 # lsl.l    dM,dN            clr.w    dN
                 matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 16 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # moveq    #17,dM     ->    add.w    dN,dN          ; Saves 34 cycles
                 # lsl.l    dM,dN            swap     dN
@@ -6536,13 +6583,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 17 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # moveq    #18,dM     ->    add.w    dN,dN          ; Saves 32 cycles
                 # lsl.l    dM,dN            add.w    dN,dN
@@ -6551,14 +6598,14 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 18 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 3 ≤ x ≤ 7
                 # moveq    #16+x,dM   ->    lsl.w    #x,dN          ; Saves 30 cycles
@@ -6569,13 +6616,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 3 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}lsl.w{matchA.group(3)}#{x},{dN}',
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #24,dM     ->    move.b   dN,-(sp)       ; Saves 32 cycles
                 # lsl.l    dM,dN            move.w   (sp)+,dN
@@ -6585,7 +6632,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 24 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.w{matchA.group(3)}(%sp)+,{dN}',
@@ -6593,7 +6640,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # moveq    #25,dM     ->    move.b   dN,-(sp)       ; Saves 30 cycles
                 # lsl.l    dM,dN            move.w   (sp)+,dN
@@ -6604,7 +6651,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 25 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.w{matchA.group(3)}(%sp)+,{dN}',
@@ -6613,7 +6660,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 2 ≤ x ≤ 7
                 # moveq    #24+x,dM   ->    ror.w    #8-x,dN        ; Saves 4*x+22 cycles
@@ -6626,14 +6673,14 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if 2 <= x <= 7:
                         dN = matchB.group(5)
                         mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}ror.w {matchA.group(3)}#{8-x},{dN}',
                             f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
                             f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 0 ≤ x ≤ 31
                 # moveq    #32+x,dM   ->    moveq    #0,dN          ; Saves 72+2*x cycles
@@ -6643,11 +6690,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 32
                     if 0 <= x <= 31:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         ############################################################################
         # Logical Shift Right
@@ -6668,11 +6715,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 1 <= x <= 47:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.b{matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 2 ≤ x ≤ 6
                 # moveq    #8+x,dM    ->    andi.w   #~((1<<(8+x))-1),dN    ; Saves 4*x-4 cycles
@@ -6683,12 +6730,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if 2 <= x <= 6:
                         dN = matchB.group(5)
                         mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
                             f'{matchA.group(1)}rol.w {matchB.group(3)}#{8-x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #15,dM     ->    add.w    dN,dN     ; Saves 28 cycles
                 # lsr.w    dM,dN            subx.w   dN,dN
@@ -6696,13 +6743,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsr\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 15 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}subx.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}neg.w {matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 0 ≤ x ≤ 47
                 # moveq    #16+x,dM   ->    clr.w    dN        ; Saves 38+2*x cycles
@@ -6712,11 +6759,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 0 <= x <= 47:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 3 ≤ x ≤ 7
                 # moveq    #8+x,dM    ->    andi.w   #~((1<<(8+x))-1),dN    ; Saves 4*x-8 cycles
@@ -6728,25 +6775,25 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     if 3 <= x <= 7:
                         dN = matchB.group(5)
                         mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
                             f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}rol.l {matchA.group(3)}#{8-x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #16,dM     ->    clr.w    dN        ; Saves 36 cycles
                 # lsr.l    dM,dN            swap     dN
                 matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 16 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}swap {matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 1 ≤ x ≤ 7
                 # moveq    #16+x,dM   ->    clr.w    dN        ; Saves 30 cycles
@@ -6757,13 +6804,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 1 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}',
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}lsr.w{matchA.group(3)}#{x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #24,dM     ->    swap     dN        ; Saves 36 cycles
                 # lsr.l    dM,dN            move.w   dN,-(sp)
@@ -6772,14 +6819,14 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 24 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}move.w{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                         f'{matchA.group(1)}move.b{matchA.group(3)}(%sp)+,{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 1 ≤ x ≤ 6
                 # moveq    #24+x,dM   ->    clr.w    dN        ; Saves 4*x+22 cycles
@@ -6791,7 +6838,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 24
                     if 1 <= x <= 6:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}',
@@ -6799,7 +6846,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
                             f'{matchA.group(1)}rol.w {matchA.group(3)}#{8-x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #31,dM     ->    add.l    dN,dN     ; Saves 58 cycles
                 # lsr.l    dM,dN            moveq    #0,dN
@@ -6807,13 +6854,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 31 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}add.l {matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                         f'{matchA.group(1)}addx.w{matchA.group(3)}{dN},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 0 ≤ x ≤ 31
                 # moveq    #32+x,dM   ->    moveq    #0,dN     ; Saves 72+2*x cycles
@@ -6823,11 +6870,11 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 32
                     if 0 <= x <= 31:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         ############################################################################
         # Arithmetic Shift Right
@@ -6849,13 +6896,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 8
                     if 2 <= x <= 6:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}rol.l{matchB.group(3)}#{8-x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 0 ≤ x ≤ 48
                 # moveq    #15+x,dM   ->    add.w  dN,dN       ; Saves 32+2*x cycles
@@ -6865,24 +6912,24 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 15
                     if 0 <= x <= 48:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
                             f'{matchA.group(1)}subx.w{matchB.group(3)}{dN},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #16,dM     ->    swap   dN          ; Saves 36 cycles
                 # asr.l    dM,dN            ext.l  dN
                 matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 16 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 1 ≤ x ≤ 7
                 # moveq    #16+x,dM   ->    swap   dN          ; Saves 30 cycles
@@ -6893,13 +6940,13 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 16
                     if 1 <= x <= 7:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
                             f'{matchA.group(1)}asr.w{matchB.group(3)}#{x},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # moveq    #24,dM     ->    swap   dN          ; Saves 28 cycles
                 # asr.l    dM,dN            ext.l  dN
@@ -6909,7 +6956,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                 matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
                 if val == 24 and matchB and dM == matchB.group(4):
                     dN = matchB.group(5)
-                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                    if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                     optimized_lines = [
                         f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ext.l {matchA.group(3)}{dN}',
@@ -6917,7 +6964,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}move.b{matchA.group(3)}(%sp)+,{dN}',
                         f'{matchA.group(1)}ext.w {matchA.group(3)}{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # moveq    #25,dM     ->    swap   dN          ; Saves 26 cycles
                 # asr.l    dM,dN            ext.l  dN
@@ -6933,7 +6980,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                         f'{matchA.group(1)}moveq{matchA.group(3)}#9,{dM}',
                         f'{matchA.group(1)}asr.w{matchB.group(3)}{dM},{dN}'
                     ]
-                    return (optimized_lines, 2)
+                    return (optimized_lines, multi_limit)
 
                 # 2 ≤ x ≤ 6
                 # moveq    #24+x,dM   ->    swap   dN          ; Saves 20+4*x cycles
@@ -6946,7 +6993,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 24
                     if 2 <= x <= 6:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
                             f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
@@ -6954,7 +7001,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                             f'{matchA.group(1)}rol.l{matchB.group(3)}#{8-x},{dN}',
                             f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
                 # 0 ≤ x ≤ 32
                 # moveq    #31+x,dM   ->    add.l  dN,dN       ; Saves 58+2*x cycles
@@ -6964,12 +7011,12 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     x = val - 31
                     if 0 <= x <= 32:
                         dN = matchB.group(5)
-                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
+                        if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, multi_limit)
                         optimized_lines = [
                             f'{matchA.group(1)}add.l {matchA.group(3)}{dN},{dN}',
                             f'{matchA.group(1)}subx.l{matchB.group(3)}{dN},{dN}'
                         ]
-                        return (optimized_lines, 2)
+                        return (optimized_lines, multi_limit)
 
         # Add more multi-line patterns here for 2 lines
 
@@ -7258,9 +7305,8 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines):
 
     # Push memory address into sp
     # move.l   #mem_addr,-(sp)   ->   pea   mem_addr   ; Saves 8 cycles
-    # Egs for mem_addr: #-520158600[.bwl][+-*N], #0xFFFFFFFF[.bwl][+-*N], #symbolName[.bwl][+-*N]
-    # NOTE: #symbolName is not being matched, don't know why. However, next reg expr pattern does it.
-    match = re.match(r'^(\s*)move\.l(\s+)#([a-zA-Z_]\w*|-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
+    # Examples for mem_addr: #-520158600[.bwl][+-*N], #0xFFFFFFFF[.bwl][+-*N], #symbolName[.bwl][+-*N]
+    match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
     if match:
         mem_address = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
         optimized_line = f'{match.group(1)}pea{match.group(2)}{mem_address}'
@@ -12947,7 +12993,7 @@ move_disp_sp_into_xn_pattern = re.compile(
 
 @dataclass
 class ABIFunctionData:
-    args: []
+    args: list
     total_sp_adjustment: int
 
 def remove_simple_abi(lines):
@@ -13065,8 +13111,22 @@ def remove_simple_abi(lines):
         if FUNCTION_EXIT_REGEX.match(line):
             accum_sp_adjustment = 0
 
+        # Is one of our collected functions?
+        if match := FUNCTION_DECLARATION_REGEX.match(line):
+            func_name = match.group(1)
+            if func_name in args_pushed_per_function:
+                args = args_pushed_per_function[func_name].args
+                this_sp_adjustment = args_pushed_per_function[func_name].total_sp_adjustment
+                
+                # Accumulate the SP adjustment
+                accum_sp_adjustment += this_sp_adjustment
+                
+                # Replace the pop from stack by the assigment of the argument, 
+                # or remove it if the poping reg is the same than the argument reg
+                # TODO: see raycasting asm routine DMA_doDmaFast.constprop.0
+                
         # Is calling one of the collected functions?
-        if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+        elif uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
             # Consider cases like jsr (%a5)
             if func_name.startswith('%a'):
@@ -13142,19 +13202,6 @@ def remove_simple_abi(lines):
                             blank1, instr, size, blank2, target =match.group(1, 2, 3, 4, 6)
                             r = f'{blank1}{instr}.{size}{blank2}{val_str}(%sp),{target}'
                             modified_lines_no_abi[k] = r
-
-        # Is one of our collected functions?
-        elif match := FUNCTION_DECLARATION_REGEX.match(line):
-            func_name = match.group(1)
-            if func_name in args_pushed_per_function:
-                args = args_pushed_per_function[func_name].args
-                this_sp_adjustment = args_pushed_per_function[func_name].total_sp_adjustment
-                # Replace the pop from stack by the assigment of the argument, 
-                # or remove it if the poping reg is the same than the argument reg
-                # TODO: see raycasting asm routine DMA_doDmaFast.constprop.0
-                
-                # Accumulate the SP adjustment
-                accum_sp_adjustment += this_sp_adjustment
 
         elif accum_sp_adjustment > 0:
             # Adjust the subsequent uses of SP by substracting the accumulated adjustment
