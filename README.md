@@ -29,8 +29,8 @@ Add the toolchain into your PATH so SGDK can see it, as well for the next step t
 Then, compile the gcc plugin `optimizer_plugin.c` responsible to execute the python script over the 
 gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
 (or [build_plugin_mingw32.sh](build_plugin_mingw32.sh "build_plugin_mingw32.sh") **WIP**).  
-This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder, along 
-with the `optimize_lst.py` file.
+This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder.  
+Move `optimize_lst.py` and `mul_patterns.py` files into SGDK's `tools` folder.
 
 Optionally, build SGDK. You can use script [build_sgdk.sh](build_sgdk.sh "build_sgdk.sh").  
 This step is optional if you have your SGDK already built/installed. Then you can rely on SGDK's `makefile.gen` will take 
@@ -49,6 +49,6 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
 	 	$(CC) $(PLUGIN_PARAM) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
 	 	@$(RM) $(OUT_DIR)/cmd_
 	 ```
-- Make sure python is in your PATH.
+- Make sure python 3.10+ is in your PATH.
 - Build your project:
   - `make -f $GDK/makefile.gen release -j1`
