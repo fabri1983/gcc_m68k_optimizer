@@ -5984,7 +5984,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
 
         # Move byte constants into consecutive memory calculated from effective address
         # If d1+1 == d2
-        # move.b   #x,d1(aN)  ->    move.w  #xy,d1(aN)     ; Saves 16 cycles
+        # move.b   #x,d1(aN)   ->   move.w  #xy,d1(aN)     ; Saves 16 cycles
         # move.b   #y,d2(aN)
         # xy = (x << 8) | (y & 0xff)
         # d1 must be an even number
@@ -6011,7 +6011,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
 
         # Move byte constants into consecutive memory calculated from effective address
         # If d1+2 == d2
-        # move.w   #x,d1(aN)  ->    move.l  #xy,d1(aN)     ; Saves 8 cycles
+        # move.w   #x,d1(aN)   ->   move.l  #xy,d1(aN)     ; Saves 8 cycles
         # move.w   #y,d2(aN)
         # xy = (x << 16) | (y & 0xffff)
         move_constant_word_to_mem_ea_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
@@ -6032,22 +6032,49 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass):
                     ]
                     return (optimized_lines, multi_limit)
 
+        # Keep memory operands in registers
+        # add/sub.s   symbol_or_mem,dN    ->    move.s     symbol_or_mem,dP      ; Saves 8 cycles
+        # add/sub.s   symbol_or_mem,dM          add/sub.s  dP,dN
+        #                                       add/sub.s  dP,dM
+        # Needs free data register dP
+        add_mem_value_to_dn_pattern = r'^(\s*)(add|sub)\.([wl])(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])'
+        matchA = re.match(add_mem_value_to_dn_pattern, line_A)
+        if matchA:
+            alu_1, s_A, dN = matchA.group(2, 3, 9)
+            symbol_or_mem_full_1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
+            matchB = re.match(add_mem_value_to_dn_pattern, line_B)
+            if matchB:
+                alu_2, s_B, dM = matchB.group(2, 3, 9)
+                symbol_or_mem_full_2 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
+                if symbol_or_mem_full_1 == symbol_or_mem_full_2 and s_A == s_B:
+                    dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines)[0]
+                    if dP is None:
+                        dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines)[0]
+                    if dP is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
+                        optimized_lines = [
+                            f'{matchA.group(1)}move.{s}{matchA.group(4)}{symbol_or_mem_full_1},{dP}',
+                            f'{matchA.group(1)}{alu_1}.{s} {matchA.group(4)}{dP},{dN}',
+                            f'{matchA.group(1)}{alu_2}.{s} {matchA.group(4)}{dP},{dM}'
+                        ]
+                        return (optimized_lines, multi_limit)
+
         # Move 2 consecutive word values from indirect memory to 2 consecutive indirect memory addresses
         # move.w   disp1(aN),disp3(aM)    ->   move.l  disp1(aN),disp3(aM)   ; Saves 8 cycles
         # move.w   disp2(aN),disp4(aM)
         # Displacements can be optional.
         # disp1+2 = disp2
         # disp3+2 = disp4
-        matchA = re.match(r'^(\s*)move\.w(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)', line_A)
+        indirect_to_indirect_pattern = r'^(\s*)move\.w(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)'
+        matchA = re.match(indirect_to_indirect_pattern, line_A)
         if matchA:
             aN = matchA.group(4)
             aM = matchA.group(6)
-            matchB = re.match(r'^\s*move\.w\s+(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)', line_B)
-            if matchB and aN == matchB.group(2) and aM == matchB.group(4):
+            matchB = re.match(indirect_to_indirect_pattern, line_B)
+            if matchB and aN == matchB.group(4) and aM == matchB.group(6):
                 disp1 = 0 if matchA.group(3) is None else parseConstantSigned(matchA.group(3), 16)
-                disp2 = 0 if matchB.group(1) is None else parseConstantSigned(matchB.group(1), 16)
+                disp2 = 0 if matchB.group(3) is None else parseConstantSigned(matchB.group(3), 16)
                 disp3 = 0 if matchA.group(5) is None else parseConstantSigned(matchA.group(5), 16)
-                disp4 = 0 if matchB.group(3) is None else parseConstantSigned(matchB.group(3), 16)
+                disp4 = 0 if matchB.group(5) is None else parseConstantSigned(matchB.group(5), 16)
                 if disp1+2 == disp2 and disp3+2 == disp4:
                     disp_src_str = '' if disp1 == 0 else str(disp1)
                     disp_dest_str = '' if disp3 == 0 else str(disp3)
