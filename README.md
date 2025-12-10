@@ -52,3 +52,5 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
 - Make sure python 3.10+ is in your PATH.
 - Build your project:
   - `make -f $GDK/makefile.gen release -j1`
+
+You can find me in the SGDK Discord server: https://discord.gg/xmnBWQS
