@@ -30,7 +30,7 @@ Then, compile the gcc plugin `optimizer_plugin.c` responsible to execute the pyt
 gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
 (or [build_plugin_mingw32.sh](build_plugin_mingw32.sh "build_plugin_mingw32.sh") **WIP**).  
 This will create `optimizer_plugin.so` (or `optimizer_plugin.dll`) file. Move it into SGDK's `tools` folder.  
-Move `optimize_lst.py` and `mul_patterns.py` files into SGDK's `tools` folder.
+Move `optimize_lst.py` and `optimize_mul_patterns.py` files into SGDK's `tools` folder.
 
 Optionally, build SGDK. You can use script [build_sgdk.sh](build_sgdk.sh "build_sgdk.sh").  
 This step is optional if you have your SGDK already built/installed. Then you can rely on SGDK's `makefile.gen` will take 
