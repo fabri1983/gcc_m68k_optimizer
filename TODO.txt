@@ -1,0 +1,194 @@
+Examples of ABI calls:
+Case 1:
+	move.l %d1,-(%sp)
+	eor.w %d1,%d2
+	move.l %d2,-(%sp)
+	move.l %d0,-(%sp)
+	jsr (%a0)
+    ... code with arithmetic over SP ...
+Case 2:
+	move.l %d0,-(%sp)
+	move.l %a0,-(%sp)
+	jsr SYS_getFarDataSafe
+	... lot of instructions but none jsr ...
+    ... code with arithmetic over SP ...
+
+Case 3:
+	pea 6400.w
+	move.l %a0,-(%sp)
+	lea SYS_getFarDataSafe,%a5
+	move.l %d1,52(%sp)
+	jsr (%a5)
+	... lot of instructions but none jsr ...
+    ... code with arithmetic over SP ...
+
+Case 4:
+    move.l %d0,-(%sp)
+	jsr (%a5)
+	... lot of instructions but none jsr ...
+    ... code with arithmetic over SP ...
+
+Case 5:
+	move.l %d0,-(%sp)
+	jsr MEM_free
+	... code with arithmetic over SP ...
+
+jsr/bsr/bra/jra/jmp
+Arithmetic over SP: instructions involving disp(%sp) or (disp,%sp) or (%sp), but not -(%sp) neither (%sp)+
+Where disp is an integer displacement: value or -value
+PEA val_or_symbol must be treated as: move.l #val_or_symbol,-(%sp)
+LINK aN,#val must be treated as: move.w  aN,-(sp)
+                                 move.w  sp,aN
+                                 add.w   #val,sp
+UNLK aN must be treated as: move.l  aN,sp
+                            move.l  (sp)+,aN
+
+SGDK SAMPLES:
+	Crash or Fail:
+		benchmark -> Crash after Horizontal Scrolling (alternative/alternate). I think it was test 7
+		flash-save -> Gives HW Error text on display
+		game/sonic -> Crash when pressing start
+		snd/xgm-player -> Crash when loading rom
+	Other:
+		megawifi -> Needs Emulator with Megawifi support?
+		sys/console -> Needs MODULE_CONSOLE set to 1
+
+
+TODO
+====
+Ver los TODO en el optimizer script.
+
+Test the new division optimization.
+
+Tener en cuenta siempre que si se deja de usar un registro hay q usar:
+	if_reg_not_used_anymore_then_remove_from_push_pop(<reg>, i_line, lines, modified_lines, <ingore_N_previous_lines>)
+
+
+
+Single instruction
+==================
+
+Multiplication by a negative constant: see the comments in the optimizer script and implement accordingly.
+
+clr.s  -(aN)       ->    move.s  dN,-(aN)          ; Saves [6,10] cycles
+aN is not sp
+Must find a dN holding 0 already in bits s
+
+btst.s  #val,dN    ->    btst.s  dM,dN             ; Saves 4 cycles
+Must find a dM holding val already in bits s
+
+
+
+Multiline instructions
+======================
+
+
+
+Assembler useful functions
+==========================
+# Sign: sets d1=0 if d0=0, d1=1 if d0>0, or d1=-1 if d0<0
+# add.s   d0,d0
+# subx.s  d1,d1
+# negx.s  d0
+# addx.s  d1,d1
+ 
+# Check if A=B, (d0=A, d1=B, range 0000-7FFF, but true in all cases if B=$ffff)
+# eor.w   d1,d0
+# bgt     not_equal
+# Note that d0 is overwritten.
+
+# If the carry bit is set, then dN=0xFF, otherwise dN=0x00
+# scs[.b] dN     ->   subx.l dN,dN         ; Saves [4,6] cycles
+# ext.w   dN
+# ext.l   dN
+
+# Absolute value: abs(x). Needs a free reg d1.
+# move.s  d0,d1
+# add.s   d1,d1
+# subx.s  d1,d1
+# eor.s   d1,d0
+# sub.s   d1,d0
+# Result: abs(x) in d0
+
+# Max of 2 unsigned nums. Needs a free reg d2.
+# Where d0=X, d1=Y
+# sub.s   d1,d0
+# subx.s  d2,d2
+# or.s    d2,d0
+# addx.s  d1,d0
+# Result: d0 = max(X,Y)
+
+# Min of 2 unsigned nums. Needs a free reg d2.
+# Where d0=X, d1=Y
+# sub.s   d1,d0
+# subx.s  d2,d2
+# and.s   d2,d0
+# add.s   d1,d0
+# Result: d0 = min(X,Y)
+
+# Simultaneous Max and Min of 2 unsigned nums. Needs a free reg d2.
+# Where d0=X, d1=Y
+# sub.s   d1,d0
+# subx.s  d2,d2
+# and.s   d0,d2
+# eor.s   d2,d0
+# add.s   d1,d0
+# add.s   d2,d1
+# Results: d0 = max(X,Y), d1 = min(X,Y)
+
+
+Is there a way to improve it?
+-----------------------------
+void hint_enqueueTiles (void* from, u16 toIndex, u16 lenInWord)
+{
+    ++tiles_elems;
+    tiles_from[tiles_elems-1] = from;
+    tiles_toIndex[tiles_elems-1] = toIndex;
+    tiles_lenInWord[tiles_elems-1] = lenInWord;
+    tilesLenInWordTotalToDMA += lenInWord;
+}
+
+GCC output (but it will be modified by the LTO):
+218 cycles (using the optimizer)
+hint_enqueueTiles:
+	move.l 12(%sp),%d1
+	move.w tiles_elems,%d0
+	move.w %d0,%a0
+	addq.w #1,%a0
+	move.w %a0,tiles_elems
+	swap  %d0
+	clr.w %d0
+	swap  %d0
+	add.w  %d0,%d0
+	lea    tiles_toIndex,%a0
+	move.w 10(%sp),(%a0,%d0.w)
+	lea tiles_lenInWord,%a0
+	move.w %d1,(%a0,%d0.l)
+	add.w %d1,tilesLenInWordTotalToDMA
+	add.w  %d0,%d0
+	lea    tiles_from,%a0
+	move.l 4(%sp),(%a0,%d0.w)
+	rts
+
+My version:
+190 cycles (178 cycles if using .w for the lea instructions, except the first one that loads the full canonical address)
+hint_enqueueTiles:
+    lea     tiles_elems,a0     ;// tiles_elems base address
+    move.w  (a0),d0            ;// Get tiles_elems value
+    addq.w  #1,(a0)            ;// +1 to tiles_elems
+
+    add.w   d0,d0              ;// Multiply by 2 for word access
+
+    lea     tiles_toIndex,a0   ;// tiles_toIndex base address
+    move.w  10(sp),(a0,d0.w)   ;// Store second argument: u16 toIndex
+
+    lea     tiles_lenInWord,a0 ;// tiles_lenInWord base address
+    move.w  14(sp),d1          ;// Get third argument: u16 lenInWord
+    move.w  d1,(a0,d0.w)       ;// Store third argument
+    
+    add.w   d1,tilesLenInWordTotalToDMA ;// Add third argument into tilesLenInWordTotalToDMA
+
+    add.w   d0,d0              ;// Now multiplied by 2 again for long access
+    lea     tiles_from,a0      ;// tiles_from base address
+    move.l  4(sp),(a0,d0.w)    ;// Store first argument: void* from
+    rts
