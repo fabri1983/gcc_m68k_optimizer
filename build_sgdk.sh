@@ -22,7 +22,7 @@ CORE_COUNT=$(nproc)
 
 install_deps() {
   echo "Installing dependencies..."
-  sudo apt install -y openjdk-17-jre
+  sudo apt install -y openjdk-21-jre
 }
 
 deps_check() {

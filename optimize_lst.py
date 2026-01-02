@@ -156,8 +156,9 @@ USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK = True
 USE_AGGRESSIVE_CLR_SP_OPTIMIZATION = False
 
 # This is not an optimization per sé. It replaces dN.l by dN.w on indirect addressing.
-# It might help some optimizations (currently not implemented) to change instruction size .l by .w, thus saving 4 cycles.
-# WARNING: In certain code scenarios this produce glitches. Test thoroughly.
+# It might help some optimizations (currently not implemented) to change surrounding instructions size .l by .w, 
+# thus saving 4 cycles.
+# WARNING: In scenarios where dN >= 0x8000 it produces glitches due to sign extension. Test thoroughly.
 USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 
 # By lowering the value you can skip patterns requiring bigger number of lines. 1 means no multi line optimizations.
@@ -260,7 +261,7 @@ def containsCompilerDirective(line):
     first_word = line.lstrip().split(None, 1)[0] if line.lstrip() else ""
     return first_word in compilerDirectiveEntries
 
-def isValue(s):
+def isValue(s) -> bool:
     """
     Check if a string is a valid number: integer, hexadecimal, binary.
     """
@@ -826,7 +827,7 @@ def pop_flow_return_frame_data(flow_return_frames):
     rem_end = len(target_array)
     return i, target_array, rem_end
 
-def in_an_interrupt_routine(i_line, lines, modified_lines):
+def in_an_interrupt_routine(i_line, lines, modified_lines) -> bool:
     """
     Search over the lines in modified_lines array for a rte instruction, before the declaration of current function.
     Search over remaining lines in lines array for a rte instruction, before exiting the current function.
@@ -1362,7 +1363,7 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
 
     return candidates
 
-def in_a_SGDK_sound_related_routine(modified_lines):
+def in_a_SGDK_sound_related_routine(modified_lines) -> bool:
     """
     Search backwards up to the function declaration to see if we are in any of next type of routines:
         Z80_xxx, XGM_xxx, XGM2_xxx, SND_xxx
@@ -1822,13 +1823,13 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
 
     return collected_lines
 
-def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines):
+def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines) -> bool:
 
     checkTargetOperand = False
     matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines)
     return len(matching_lines) > 0
 
-def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines):
+def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines) -> bool:
 
     checkTargetOperand = True
     matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines)
@@ -1921,7 +1922,7 @@ def adjust_sp_indexing(i, target_lines, line, offset):
         target_lines[i] = new_line
 
 @export_func
-def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines):
+def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines) -> bool:
     """
     Add regs into movem/move push/pop. Ignore scratch pad regs if not in an interrupt routine.
     Adjust SP indexing instructions.
@@ -2535,7 +2536,7 @@ def get_displacement_and_areg(match):
 
     return (disp, areg)
 
-def are_regs_sorted(regs):
+def are_regs_sorted(regs) -> bool:
     """
     Given a list of "%dN"s and "%aN"s ("%sp" too), test if they are sorted
     in the expected M68000 standard: d0,d1,...,d7,a0,a1,...,a7
@@ -2775,7 +2776,7 @@ def instruction_size(line_stripped):
 MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128
 
-def is_label_within_8_bytes_range(label, i_line, lines, modified_lines):
+def is_label_within_8_bytes_range(label, i_line, lines, modified_lines) -> bool:
     """
     Checks if a label is within an 8-byte range (backwards or forwards).
     """
@@ -3096,7 +3097,7 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
-def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass) -> tuple[list[str] | None, bool]:
+def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, current_pass) -> tuple[list[str] | None, bool]:
     """
     Detect optimization opportunities that span multiple lines.
     Returns a tuple of (optimized_lines, lines_to_remove) if pattern matches, (None, 0) otherwise.
@@ -4855,7 +4856,7 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass) 
                     matchC = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
                     if matchC and dN == matchC.group(1) and dM == matchC.group(2):
                         # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
-                        if num_pass == 2:
+                        if current_pass == 2:
                             if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, multi_limit)
                             optimized_lines = [
                                 f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
@@ -4949,6 +4950,25 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass) 
                                     f'{matchA.group(1)}movem.l{matchA.group(2)}{dN}/{dM}/{dP},-(%sp)'
                                 ]
                                 return (optimized_lines, multi_limit)
+
+        # Clear mask: using dN as a clearing mask over dM
+        # not.s  dN       ->   or.s   dN,dM            ; Saves 4 cycles
+        # and.s  dN,dM         eor.s  dN,dM
+        # not.s  dN
+        matchA = re.match(r'^(\s*)not\.([bwl])(\s+)(%d[0-7])', line_A)
+        if matchA:
+            s = matchA.group(2)
+            dN = matchA.group(4)
+            matchB = re.match(r'^\s*and\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+            if matchB and s == matchB.group(1) and dN == matchB.group(2):
+                dM = matchB.group(3)
+                matchC = re.match(r'^\s*not\.([bwl])\s+(%d[0-7])', line_C)
+                if matchC and dM != dN and s == matchC.group(1) and dN == matchC.group(2):
+                    optimized_lines = [
+                        f'{matchA.group(1)}or.{s} {matchA.group(3)}{dN},{dM}',
+                        f'{matchA.group(1)}eor.{s}{matchA.group(3)}{dN},{dM}'
+                    ]
+                    return (optimized_lines, multi_limit)
 
         # Add more multi-line patterns here for 3 lines
 
@@ -6327,6 +6347,23 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass) 
                         ]
                         return (optimized_lines, multi_limit)
 
+        # Clear higher byte of word with 0xFF (255)
+        # move.w  xN,dN    ->   moveq   #0,dN   ; Saves 4 cycles
+        # and.w   #255,dN       move.b  xN,dN
+        matchA = re.match(r'^(\s*)move\.([bw])(\s+)(%[ad][0-7]),\s*(%d[0-7])', line_A)
+        if matchA:
+            xN = matchA.group(4)
+            dN = matchA.group(5)
+            matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
+            if matchB and dN == matchB.group(4):
+                val = parseConstantUnsigned(matchB.group(2))
+                if val == 0xFF:
+                    optimized_lines = [
+                        f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                        f'{matchA.group(1)}move.b{matchA.group(3)}{xN},{dN}'
+                    ]
+                    return (optimized_lines, multi_limit)
+
         if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
             # Push 2 words consecutively into the stack.
@@ -6383,23 +6420,6 @@ def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, num_pass) 
                 if matchB:
                     optimized_lines = [
                         f'{matchA.group(1)}pea{matchA.group(2)}0.w'
-                    ]
-                    return (optimized_lines, multi_limit)
-
-        # Clear higher byte of word with 0xFF (255)
-        # move.w  xN,dN    ->   moveq   #0,dN   ; Saves 4 cycles
-        # and.w   #255,dN       move.b  xN,dN
-        matchA = re.match(r'^(\s*)move\.([bw])(\s+)(%[ad][0-7]),\s*(%d[0-7])', line_A)
-        if matchA:
-            xN = matchA.group(4)
-            dN = matchA.group(5)
-            matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
-            if matchB and dN == matchB.group(4):
-                val = parseConstantUnsigned(matchB.group(2))
-                if val == 0xFF:
-                    optimized_lines = [
-                        f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
-                        f'{matchA.group(1)}move.b{matchA.group(3)}{xN},{dN}'
                     ]
                     return (optimized_lines, multi_limit)
 
@@ -8521,7 +8541,7 @@ def optimizeSingleLine_ShortenBranches(line, i_line, lines, modified_lines) -> t
     # No optimization was applied
     return ([], False)
 
-def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
+def optimize_asm(input_lines, current_pass) -> tuple[list[str], int, int]:
     """
     Perform multi and single line optimzations
     """
@@ -8538,7 +8558,7 @@ def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
     print_start_asm_block = False
     print_end_asm_block = False
 
-    # Phase 1: Optimze multiple lines first
+    # Step 1: Optimze multiple lines first
     print('[OPT_LOG] Multi line patterns')
 
     modified_multi_lines = []
@@ -8600,7 +8620,7 @@ def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
 
                 # Find optimizations spanning multiple lines
                 prev_rem_end = rem_end
-                optimized_multilines, lines_to_remove = optimizeMultipleLines(multi_span_size, i_line-1, input_lines, modified_multi_lines, num_pass)
+                optimized_multilines, lines_to_remove = optimizeMultipleLines(multi_span_size, i_line-1, input_lines, modified_multi_lines, current_pass)
                 diff_lines = len(input_lines) - prev_rem_end
                 rem_end += diff_lines  # Adjust new limit
                 i_line += diff_lines  # Adjust next i_line value
@@ -8638,7 +8658,7 @@ def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
 
     # NOTE: At this point we know that modified_multi_lines lines have not trealing whitespace
 
-    def process_single_lines_helper(input_lines, optimization_func, phase_name) -> tuple[list[str], int]:
+    def process_single_lines_helper(input_lines, optimization_func, step_name) -> tuple[list[str], int]:
         
         # Keep track of inline assembly blocks: #APP and #NO_APP
         inside_inline_asm_block = False
@@ -8648,7 +8668,7 @@ def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
         modified_lines = []
         num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
 
-        print(f'[OPT_LOG] {phase_name}')
+        print(f'[OPT_LOG] {step_name}')
 
         rem_start = 0
         rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
@@ -8714,8 +8734,8 @@ def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
 
         return (modified_lines, num_updates)
 
-    # Phase 2: Single line patterns
-    modified_single_lines_phase_2, num_updates_2 = process_single_lines_helper(
+    # Step 2: Single line patterns
+    modified_single_lines_step_2, num_updates_2 = process_single_lines_helper(
         modified_multi_lines, 
         optimizeSingleLine_Peepholes, 
         "Single line patterns (common peepholes)"
@@ -8723,28 +8743,28 @@ def optimize_asm(input_lines, num_pass) -> tuple[list[str], int, int]:
     num_updated_lines_found += num_updates_2
     num_patterns_found += num_updates_2
 
-    # Phase 3: Movem on one single register (only on second pass)
-    modified_single_lines_phase_3, num_updates_3 = process_single_lines_helper(
-        modified_single_lines_phase_2, 
+    # Step 3: Movem on one single register (only on second pass)
+    modified_single_lines_step_3, num_updates_3 = process_single_lines_helper(
+        modified_single_lines_step_2, 
         optimizeSingleLine_MovemWithSingleRegister, 
         "Single line patterns (movem on one single register)"
     )
     num_updated_lines_found += num_updates_3
     num_patterns_found += num_updates_3
 
-    # Phase 4: Shorten branch instructions
-    # Only if running 2nd pass
-    modified_single_lines_phase_4 = modified_single_lines_phase_3
-    if num_pass == 2:
-        modified_single_lines_phase_4, num_updates_4 = process_single_lines_helper(
-            modified_single_lines_phase_3, 
+    # Step 4: Shorten branch instructions
+    # Only if at 2nd pass
+    modified_single_lines_step_4 = modified_single_lines_step_3
+    if current_pass == 2:
+        modified_single_lines_step_4, num_updates_4 = process_single_lines_helper(
+            modified_single_lines_step_3, 
             optimizeSingleLine_ShortenBranches, 
             "Single line patterns (shorten branch instructions)"
         )
         num_updated_lines_found += num_updates_4
         num_patterns_found += num_updates_4
 
-    return (modified_single_lines_phase_4, num_updated_lines_found, num_patterns_found)
+    return (modified_single_lines_step_4, num_updated_lines_found, num_patterns_found)
 
 # Reg expr to match the pattern %pc@(disp,%xN:s)
 gcc_indirection_style_pattern = re.compile(r'%pc@\((-?\d+),%([ad])([0-7]):([bwl])\)')
@@ -8766,12 +8786,11 @@ gcc_indirection_with_long_dn_access_pattern = re.compile(
     r')'
 )
 
-def replace_gcc_dn_long_indirection_by_word(line: str) -> str:
+def replace_gcc_dn_long_indirection_by_word(line: str, modified_lines: [str]) -> str:
     """
     Replaces dN.l by dN.w in patterns: (aN/sp/pc,%dN.l) or disp(aN/sp/pc,%dN.l) or (disp,aN/sp/pc,%dN.l)
     """
     if not USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD:
-        # TODO: in some cases when replacing dN.l by dN.w glitches appear in Blastem
         return line
 
     def replace_match(match):
@@ -8783,7 +8802,16 @@ def replace_gcc_dn_long_indirection_by_word(line: str) -> str:
             return f'({match.group(6)},{match.group(7)},{match.group(8)}.w)'
         # Fallback: return original
         return match.group(0)
-    
+
+    # Apply the replacement
+    new_line = gcc_indirection_with_long_dn_access_pattern.sub(replace_match, line)
+    # If no replacement occurred then return the original line
+    if new_line == line:
+        return line
+
+    # We need to make sure no symbol nor memory address was loaded into dN in previous instructions.
+    # TODO: implement
+
     return gcc_indirection_with_long_dn_access_pattern.sub(replace_match, line)
 
 def convert_from_gcc_fp_style(line: str) -> str:
@@ -8851,8 +8879,8 @@ def applyGccConversions(lines: list[str]) -> list[str]:
         line = convert_from_gcc_indirection_style(line)
         # Replace %fp by %a6
         line = convert_from_gcc_fp_style(line)
-        # Replace dN.l by dN.w in indirection accesses
-        line = replace_gcc_dn_long_indirection_by_word(line)
+        # Replace dN.l by dN.w in indirection accesses when possible
+        line = replace_gcc_dn_long_indirection_by_word(line, modified_lines)
         # Replace gcc encoded list of regs by a human readable format
         line = convert_gcc_movem_encoded_regs(line)
         # Remove dereference over symbol names, like: lea (PAL_setPalette.constprop.0),%a3
@@ -9223,11 +9251,11 @@ def mainf(input_filename: str, output_filename: str):
     #modified_lines = remove_simple_abi(modified_lines)
 
     # 1st pass
-    print('[OPT_LOG] FIRST pass:')
+    print('[OPT_LOG] -- FIRST pass --')
     modified_lines, num_updated_lines_found, num_patterns_found = optimize_asm(modified_lines, 1)
 
     # 2nd pass: catch new opportunities and optimize branches
-    print('[OPT_LOG] SECOND pass: (opt line numbers will point to result from first pass and not to original lines):')
+    print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
     modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
     num_updated_lines_found += num_updated_lines_found_2nd_pass
     num_patterns_found += num_patterns_found_2nd_pass
