@@ -21,15 +21,15 @@ These are four of my projects in which I use the optimizer. The next picture out
 
 ### Sources
 
-https://gist.github.com/flamewing/ad17bf22875be36ad4ae26f159a94f8b
-http://www.easy68k.com/paulrsm/doc/asp68k6.txt
-https://mikro.naprvyraz.sk/docs/Optimize/68OPT.TXT
-http://preserve.mactech.com/articles/mactech/Vol.08/08.02/Efficient68000/index.html
-http://www.easy68k.com/paulrsm/doc/trick68k.htm
-https://wiki.neogeodev.org/index.php?title=Optimization
-http://www.ibaug.de/vasm/doc/vasm.pdf
-http://www.csua.berkeley.edu/~muchandr/m68k
-Custom patterns found from gcc -S outputs
+https://gist.github.com/flamewing/ad17bf22875be36ad4ae26f159a94f8b  
+http://www.easy68k.com/paulrsm/doc/asp68k6.txt  
+https://mikro.naprvyraz.sk/docs/Optimize/68OPT.TXT  
+http://preserve.mactech.com/articles/mactech/Vol.08/08.02/Efficient68000/index.html  
+http://www.easy68k.com/paulrsm/doc/trick68k.htm  
+https://wiki.neogeodev.org/index.php?title=Optimization  
+http://www.ibaug.de/vasm/doc/vasm.pdf  
+http://www.csua.berkeley.edu/~muchandr/m68k  
+Custom patterns found from gcc -S outputs  
 
 ### Build gcc and the plugin
 
