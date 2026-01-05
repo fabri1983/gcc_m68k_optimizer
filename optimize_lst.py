@@ -9524,7 +9524,9 @@ def mainf(input_filename: str, output_filename: str):
     # Print non used functions
     non_used_functions(modified_lines)
 
-    # Load canonical address in aN register only the first time, then use .w for other loads
+    # Load canonical address in aN register only the first time, then use .w for other loads.
+    # NOTE: this is not a valid for gcc due to the SGDK nature of locating .bss higher than 64KB region, where the
+    # linker emits a relocation R_68K_32 meaning the symbol needs to be loaded using its 32 bits location address
     #print('[OPT_LOG] -- Load complete canonical address once into aN register --')
     #num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = load_canonical_address_once(modified_lines)
     #num_updated_lines_found += num_updated_lines_found_canon_addr_pass
