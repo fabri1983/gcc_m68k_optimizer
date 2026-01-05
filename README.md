@@ -15,9 +15,21 @@ The optimization depends heavily on the project you run it over. On some, it sav
 See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all peepholes and switches 
 the optimizer provides.
 
-These are four of my projects in which I use the optimizer. The picture outlines how many patterns were applied.
+These are four of my projects in which I use the optimizer. The next picture outlines how many patterns were applied on each.
 
 ![stats.jpg](stats.png?raw=true "stats.png")
+
+### Sources
+
+https://gist.github.com/flamewing/ad17bf22875be36ad4ae26f159a94f8b
+http://www.easy68k.com/paulrsm/doc/asp68k6.txt
+https://mikro.naprvyraz.sk/docs/Optimize/68OPT.TXT
+http://preserve.mactech.com/articles/mactech/Vol.08/08.02/Efficient68000/index.html
+http://www.easy68k.com/paulrsm/doc/trick68k.htm
+https://wiki.neogeodev.org/index.php?title=Optimization
+http://www.ibaug.de/vasm/doc/vasm.pdf
+http://www.csua.berkeley.edu/~muchandr/m68k
+Custom patterns found from gcc -S outputs
 
 ### Build gcc and the plugin
 

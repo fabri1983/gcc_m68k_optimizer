@@ -67,14 +67,6 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 
 Single instruction
 ==================
-Loading canonical address followed by more loadings into same aN.
-If aN has been previously loaded with a canonical address of a symbol or a memory location, 
-then loads into aN can be replaced with a word access. 
-Ensure aN not been cleared/overwritten up to this line.
-lea symbolName,aN    ->   lea symbolName.w,a0      ; Saves 4 cycles
-move.l #symbolName,a0   ->   move.w #symbolName.w,a0     ; Saves 4 cycles
-move.l #mem_address,a0   ->   move.w #mem_address,a0     ; Saves 4 cycles
-
 Clear upper word of dN where we know for sure dN holds: 0 <= val <= 0x7FFF (32767)
 and.l  #0xFFFF,d0   ->   ext.l   d0                ; Saves 12 cycles
 
