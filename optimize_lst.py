@@ -8987,14 +8987,14 @@ def non_used_functions(lines: list[str]):
     
     # TODO: Replace non used functions lines by empty line so we can keep matching lines locations between 'before' and 'after'.
 
-lea_canonical_address_pattern = re.compile(
-    r'^(\s*)lea(\s+)([0-9a-zA-Z_\.]+)(\.l)?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+lea_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)lea(\s+)(0x[0-9]+)(\.l)?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
 )
-move_canonical_address_pattern = re.compile(
-    r'^(\s*)(move|movea)\.l(\s+)#([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)(\.[bwl])?,\s*(%a[0-7])'
+move_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)(move|movea)\.l(\s+)#(0x[0-9]+)(\.[wl])?([\-\+]\d+)(\.[bwl])?,\s*(%a[0-7])'
 )
 
-def load_canonical_address_once(lines: list[str]):
+def set_canonical_address_once(lines: list[str]):
     """
     Find loading instructions of a canonical address from a symbol or memory, to later re use the same 
     aN register for other loadings but changing the instruction size to .w saving thus 4 cycles.
@@ -9004,9 +9004,8 @@ def load_canonical_address_once(lines: list[str]):
     def optimize_load_canonical_address(start_function_pos: int, func_name: str, lines: list[str], canonical_load_instr_pos: int, canonical_aN: str) -> tuple[int, int]:
         global declared_functions_set
 
-        # Print findings?
-        if PRINT_OPTIMIZATION_LOG or True:
-            print(f'[OPT_LOG] -> Canonical load: {lines[canonical_load_instr_pos].strip()}')
+        # Print the canonical load line only if we have found a candidate to optimize
+        print_canonical_line = True
 
         control_flow_dict = build_control_flow_map(start_function_pos + 1, lines, [])
         control_visited = set()  # Helps to avoid looping infinitely 
@@ -9120,28 +9119,27 @@ def load_canonical_address_once(lines: list[str]):
 
                 optimized_line = ''
 
-                # lea     symbolName,aN     ->   lea     symbolName.w,aN         ; Saves 4 cycles
-                if match := lea_canonical_address_pattern.match(line):
-                    symbolName = match.group(3)
-                    symbolName_size = match.group(4)
-                    # Note: sometimes the matching doesn't skip the symbol size and it ends being part of symbol name
-                    if (not symbolName_size or symbolName_size == '.l') and not symbolName.endswith('.w') and canonical_aN == match.group(7):
-                        symbolName_ops = ''.join(match.group(i) for i in range(5, 7) if match.group(i))
-                        if symbolName.endswith('.l'):
-                            symbolName = symbolName[:-2]  # remove last 2 chars
-                        optimized_line = f'{match.group(1)}lea{match.group(2)}{symbolName}.w{symbolName_ops},{canonical_aN}'
+                # lea     mem_address,aN     ->   lea     mem_address.w,aN         ; Saves 4 cycles
+                if match := lea_canonical_mem_address_pattern.match(line):
+                    mem_addr = match.group(3)
+                    mem_addr_size = match.group(4)
+                    # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+                    if (not mem_addr_size or mem_addr_size == '.l') and not mem_addr.endswith('.w') and canonical_aN == match.group(7):
+                        mem_addr_ops = ''.join(match.group(i) for i in range(5, 7) if match.group(i))
+                        if mem_addr.endswith('.l'):
+                            mem_addr = mem_addr[:-2]  # remove last 2 chars
+                        optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_addr}.w{mem_addr_ops},{canonical_aN}'
 
-                # move.l  #symbolName,aN    ->   move.w  #symbolName.w,aN        ; Saves 4 cycles
                 # move.l  #mem_address,aN   ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
-                elif match := move_canonical_address_pattern.match(line):
-                    symbolName_or_mem_addr = match.group(4)
-                    symbolName_or_mem_addr_size = match.group(5)
-                    # Note: sometimes the matching doesn't skip the symbol size and it ends being part of the symbol name
-                    if (not symbolName_or_mem_addr_size or symbolName_or_mem_addr_size == '.l') and not symbolName_or_mem_addr.endswith('.w') and canonical_aN == match.group(8):
-                        symbolName_or_mem_addr_ops = ''.join(match.group(i) for i in range(6, 8) if match.group(i))
-                        if symbolName_or_mem_addr.endswith('.l'):
-                            symbolName_or_mem_addr = symbolName_or_mem_addr[:-2]  # remove last 2 chars
-                        optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{symbolName_or_mem_addr}.w{symbolName_or_mem_addr_ops},{canonical_aN}'
+                elif match := move_canonical_mem_address_pattern.match(line):
+                    mem_addr = match.group(4)
+                    mem_addr_size = match.group(5)
+                    # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+                    if (not mem_addr_size or mem_addr_size == '.l') and not mem_addr.endswith('.w') and canonical_aN == match.group(8):
+                        mem_addr_ops = ''.join(match.group(i) for i in range(6, 8) if match.group(i))
+                        if mem_addr.endswith('.l'):
+                            mem_addr = mem_addr[:-2]  # remove last 2 chars
+                        optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{mem_addr}.w{mem_addr_ops},{canonical_aN}'
 
                 # Replace the original line with the its optimized version
                 if optimized_line != '':
@@ -9149,12 +9147,16 @@ def load_canonical_address_once(lines: list[str]):
                     num_updated_lines_found += 1
                     num_patterns_found += 1
                     # Print findings?
-                    if PRINT_OPTIMIZATION_LOG or True:
+                    if PRINT_OPTIMIZATION_LOG:
                         # Print starting or ending an inline asm block
                         if print_start_asm_block:
                             print('[OPT_LOG] --> Start inline asm block')
                             print_start_asm_block = False
                             print_end_asm_block = True
+                        # Print the canonical line only once
+                        if print_canonical_line:
+                            print(f'[OPT_LOG] -> Canonical load: {lines[canonical_load_instr_pos].strip()}')
+                            print_canonical_line = False
                         # Print optimization log
                         print_optimized_diff([line], i-1, [optimized_line])
                     continue
@@ -9243,15 +9245,15 @@ def load_canonical_address_once(lines: list[str]):
         canonical_load_instr_pos = -1
         canonical_aN = ''
 
-        if match := lea_canonical_address_pattern.match(line):
-            symbolName = match.group(3)
-            symbolName_size = match.group(4)
-            # Note: sometimes the matching doesn't skip the symbol size and it ends being part of the symbol name
-            if (not symbolName_size or symbolName_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+        if match := lea_canonical_mem_address_pattern.match(line):
+            mem_addr = match.group(3)
+            mem_addr_size = match.group(4)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
                 # Save the instruction position so we can skip it during optimization
                 canonical_load_instr_pos = i 
                 canonical_aN = match.group(7)
-        elif match := move_canonical_address_pattern.match(line):
+        elif match := move_canonical_mem_address_pattern.match(line):
             # Save the instruction position so we can skip it during optimization
             canonical_load_instr_pos = i 
             canonical_aN = match.group(8)
@@ -9505,7 +9507,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
     return modified_lines_no_abi
 
 
-def mainf(input_filename: str, output_filename: str):
+def mainf(input_filename: str, symbols_filename: str, output_filename: str):
 
     print(f'[OPT_LOG] Optimizing {input_filename}')
 
@@ -9528,14 +9530,14 @@ def mainf(input_filename: str, output_filename: str):
     # NOTE: this is not a valid for gcc due to the SGDK nature of locating .bss higher than 64KB region, where the
     # linker emits a relocation R_68K_32 meaning the symbol needs to be loaded using its 32 bits location address
     #print('[OPT_LOG] -- Load complete canonical address once into aN register --')
-    #num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = load_canonical_address_once(modified_lines)
+    #num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = set_canonical_address_once(modified_lines)
     #num_updated_lines_found += num_updated_lines_found_canon_addr_pass
     #num_patterns_found += num_patterns_found_canon_addr_pass
 
     # Remove ABI when possible
     #print('[OPT_LOG] -- Simple ABI removal pass --')
     #modified_lines = remove_simple_abi(modified_lines)
-    
+
     # 1st pass
     print('[OPT_LOG] -- FIRST pass --')
     modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, 1)
@@ -9572,11 +9574,11 @@ def mainf(input_filename: str, output_filename: str):
             outfile.write(line + '\n')
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python optimize_lst.py <file.ext> <file.opt.ext>")
+    if len(sys.argv) != 4:
+        print("Usage: python optimize_lst.py <file.ext> <symbols_file> <file.opt.ext>")
         sys.exit(1)
 
-    mainf(sys.argv[1], sys.argv[2])
+    mainf(sys.argv[1], sys.argv[2], sys.argv[3])
 
 # Export decorated functions and classes
 __all__ = _PUBLIC_FUNCS_AND_CLASSES

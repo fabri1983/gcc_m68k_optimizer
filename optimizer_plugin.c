@@ -38,6 +38,7 @@ int plugin_is_GPL_compatible;
 
 typedef struct {
 	bool keep_files;
+	char* symbols_path;
 } my_callback_params_t;
 
 // Peephole function: Read file, modify, write back
@@ -99,21 +100,22 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 			free(filename_copy);
 			return;
 		}
-		
+
 		// Copy content of filename into filename_copy
 		char buffer[4096];
 		size_t bytes_read;
 		while ((bytes_read = fread(buffer, 1, sizeof(buffer), fp_orig)) > 0) {
 			fwrite(buffer, 1, bytes_read, fp_copy);
 		}
-		
+
 		fclose(fp_orig);
 		fclose(fp_copy);
 	}
 
     // Execute python program named optimize_lst.py with its arguments
-    char command[512];
-    snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" 1>&2", filename, filename_optimized);
+    char command[1024];
+    snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" \"%s\" 1>&2", 
+		filename, my_params->symbols_path, filename_optimized);
 
     int ret = system(command);
     if (ret != 0) {
@@ -156,7 +158,6 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 
     free(filename_optimized);
 	free(filename_copy);
-	free(my_params);
 
     PRINT_INFO("Optimizer executed on: %s\n", filename);
 }
@@ -164,6 +165,7 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 static void callback(void *gcc_data, void *user_data) {
 	my_callback_params_t *my_params = (my_callback_params_t *) user_data;
     my_optimize_func(global_options.x_asm_file_name, my_params);
+	free(my_params);
 }
 
 // Plugin entry point
@@ -178,24 +180,39 @@ int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version 
 	// Allocate space for user params data struct
 	my_callback_params_t *my_params = (my_callback_params_t *) xmalloc(sizeof(my_callback_params_t));
 	my_params->keep_files = false;
+	my_params->symbols_path = NULL;
 
 	for (int i=0; i < plugin_info->argc; i++)
     {
 		// -fplugin-arg-optimizer_plugin-disable=1
 		// If parameter disable is 1 or true then avoid the plugin registration
 		if (strcmp(plugin_info->argv[i].key, "disable") == 0 &&
-				(strcasecmp(plugin_info->argv[i].value, "true") == 0 ||
-				strcasecmp(plugin_info->argv[i].value, "1") == 0))
+				(strcasecmp(plugin_info->argv[i].value, "true") == 0 || strcasecmp(plugin_info->argv[i].value, "1") == 0)) {
+			free(my_params);
 			return 0;
+		}
 
 		// -fplugin-arg-optimizer_plugin-keep-files=1
 		// If parameter keep-files is 1 or true then set user params struct accordingly
 		if (strcmp(plugin_info->argv[i].key, "keep-files") == 0 &&
-				(strcasecmp(plugin_info->argv[i].value, "true") == 0 ||
-				strcasecmp(plugin_info->argv[i].value, "1") == 0))
+				(strcasecmp(plugin_info->argv[i].value, "true") == 0 || strcasecmp(plugin_info->argv[i].value, "1") == 0)) {
 			my_params->keep_files = true;
+		}
+
+		// -fplugin-arg-optimizer_plugin-symbols-path=<path_to_symbols_file>
+		if (strcmp(plugin_info->argv[i].key, "symbols-path") == 0) {
+			if (plugin_info->argv[i].value != NULL) {
+				// Make a copy of the string
+				my_params->symbols_path = xstrdup(plugin_info->argv[i].value);
+				if (!my_params->symbols_path) {
+					PRINT_ERROR("Failed to allocate memory for symbols_path in plugin_init()\n");
+					free(my_params);
+					return 1;
+				}
+			}
+		}
     }
-	
+
     register_callback(plugin_info->base_name, PLUGIN_FINISH, callback, (void *)my_params);
 
     return 0;

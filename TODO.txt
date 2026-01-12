@@ -88,16 +88,16 @@ Next optimization only valid for 3 or more disp(SP).
 Adding same immediate value into subsequent memory by indirect access.
 Needs a free An register
     addq.w #1,44(sp)
-    might be some 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN not sp)
+    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN not sp)
     addq.w #1,46(sp)
-    might be some 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN not sp)
+    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN not sp)
     addq.w #1,48(sp)
 ; Saves 4 cycles
     lea 44(sp),a0
     addq.w #1,(a0)+
-    instructions gathered in the middle (if any)
+    instructions gathered in-between (if any)
     addq.w #1,(a0)+
-    instructions gathered in the middle (if any)
+    instructions gathered in-between (if any)
     addq.w #1,(a0)
 
 
@@ -212,7 +212,8 @@ hint_enqueueTiles:
 	rts
 
 My version:
-190 cycles (178 cycles if using .w for the lea instructions, except the first one that loads the full canonical address)
+I can't use this version as inline asm because the use of the stack sp is unpredictable.
+190 cycles (178 cycles if using .w for the lea instructions, except the first one that loads the full canonical address, but since SGDK linker script locates symbols above 64KB boundary then .w is not allowed)
 hint_enqueueTiles:
     lea     tiles_elems,a0     ;// tiles_elems base address
     move.w  (a0),d0            ;// Get tiles_elems value
