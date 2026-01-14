@@ -112,10 +112,18 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 		fclose(fp_copy);
 	}
 
-    // Execute python program named optimize_lst.py with its arguments
+    // Execute python program named optimize_lst.py with arguments
     char command[1024];
-    snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" \"%s\" 1>&2", 
-		filename, my_params->symbols_path, filename_optimized);
+	if (my_params->symbols_path != NULL) {
+		// Execute with symbols file
+		snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" \"%s\" 1>&2", 
+			filename, filename_optimized, my_params->symbols_path);
+	}
+	else {
+		// Execute with no symbols file
+		snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" 1>&2", 
+			filename, filename_optimized);
+	}
 
     int ret = system(command);
     if (ret != 0) {
@@ -201,14 +209,9 @@ int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version 
 
 		// -fplugin-arg-optimizer_plugin-symbols-path=<path_to_symbols_file>
 		if (strcmp(plugin_info->argv[i].key, "symbols-path") == 0) {
-			if (plugin_info->argv[i].value != NULL) {
-				// Make a copy of the string
-				my_params->symbols_path = xstrdup(plugin_info->argv[i].value);
-				if (!my_params->symbols_path) {
-					PRINT_ERROR("Failed to allocate memory for symbols_path in plugin_init()\n");
-					free(my_params);
-					return 1;
-				}
+			// Ensure the value is not missing
+			if (plugin_info->argv[i].value != NULL && strcmp(plugin_info->argv[i].value, "") != 0) {
+				my_params->symbols_path = plugin_info->argv[i].value;
 			}
 		}
     }

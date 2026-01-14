@@ -73,6 +73,8 @@ except ImportError:
     print("ERROR: Please install Colorama module with 'pip install colorama'")
     exit(1)
 
+SGDK_RAM_START = 0xE0FF0000
+
 # NOT_WORKING
 # Those lines in this script marked with NOT_WORKING keyword are mean to be skipped from optimization.
 # They produce errors in Blastem emulator.
@@ -165,7 +167,7 @@ USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 MULTIPLE_LINES_OPTIMIZATION_LIMIT = 6
 
 # Registry for public functions
-_PUBLIC_FUNCS_AND_CLASSES = []
+_PUBLIC_FUNCS_AND_CLASSES: list[str] = []
 
 def export_func(func: Callable) -> Callable:
     """Decorator to automatically add functions to __all__"""
@@ -241,7 +243,7 @@ compilerInfoEntries = {
     ".string", ".swbeg", ".text", ".type", ".weak", ".zero", ".zerofill"
 }
 
-def containsCompilerInfo(line):
+def containsCompilerInfo(line: str) -> bool:
     """
     Check if the line starts with any compiler info entry.
     """
@@ -254,14 +256,14 @@ compilerDirectiveEntries = {
     ".if", ".endif", ".macro", ".endm", ".rept", ".irept", ".endr", ".set"
 }
 
-def containsCompilerDirective(line):
+def containsCompilerDirective(line: str) -> bool:
     """
     Check if the line starts with any compiler info entry.
     """
     first_word = line.lstrip().split(None, 1)[0] if line.lstrip() else ""
     return first_word in compilerDirectiveEntries
 
-def isValue(s) -> bool:
+def isValue(s: str) -> bool:
     """
     Check if a string is a valid number: integer, hexadecimal, binary.
     """
@@ -283,44 +285,44 @@ def isValue(s) -> bool:
 
     return False
 
-def parseConstantUnsigned(value):
+def parseConstantUnsigned(s_value: str) -> int:
     """
     Convert a string constant to an integer.
     Handles decimal, hexadecimal (0x, $), and binary (0b, %).
 
     Parameters:
-        value (str): The constant as a string.
+        s_value (str): The constant as a string.
 
     Returns:
         int: Unsigned integer interpretation.
              Otherwise Signed integer for decimal representation
     """
-    if value.startswith(('0x','0X','$')):
-        return int(value[2:], 16)
-    elif value.startswith(('0b','0B','%')):
-        return int(value[2:], 2)
+    if s_value.startswith(('0x','0X','$')):
+        return int(s_value[2:], 16)
+    elif s_value.startswith(('0b','0B','%')):
+        return int(s_value[2:], 2)
     else:
-        return int(value)
+        return int(s_value)
 
-def parseConstantSigned(value, bit_depth=32):
+def parseConstantSigned(s_value: str, bit_depth: int=32) -> int:
     """
     Convert a string constant to a signed integer of the specified bit depth.
     Handles decimal, hexadecimal (0x, $), and binary (0b, %).
 
     Parameters:
-        value (str): The constant as a string.
+        s_value (str): The constant as a string.
         bit_depth (int): Number of bits (8, 16, 32). Default is 32.
 
     Returns:
         int: Signed integer interpretation within the given bit depth.
     """
-    if value.startswith(('0x','0X','$')):
-        result = int(value[2:], 16)
-    elif value.startswith(('0b','0B','%')):
-        result = int(value[2:], 2)
+    if s_value.startswith(('0x','0X','$')):
+        result = int(s_value[2:], 16)
+    elif s_value.startswith(('0b','0B','%')):
+        result = int(s_value[2:], 2)
     else:
         # Just return the integer conversion of the decimal
-        return int(value)
+        return int(s_value)
 
     # Two's complement interpretation for signed values
     signed_threshold = 1 << (bit_depth - 1)
@@ -334,7 +336,7 @@ def parseConstantSigned(value, bit_depth=32):
 
     return result
 
-def find_bset_bit(n):
+def find_bset_bit(n: int) -> int:
     """
     Finds the only bit position 'b' at which is 1.
     Returns None if 'n' is not a valid single-bit mask.
@@ -354,11 +356,11 @@ def find_bset_bit(n):
         b += 1
     return b
 
-def find_bclr_bit(n):
+def find_bclr_bit(n: int) -> int:
     return find_bset_bit(~n)  # NOT n
 
 # Set of mapings valid only for move.l #n optimizations
-n_to_m = {
+n_to_m: dict[int, int] = {
     -32881: -113,
     -32849: -81,
     -32817: -49,
@@ -425,7 +427,7 @@ n_to_m = {
     32879: 111
 }
 
-def getMForMovelOptimization(n):
+def getMForMovelOptimization(n: int) -> int | None:
     return n_to_m.get(n, None)  # Returns None if n is not found
 
 PUSH_REGS_INTO_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([wl])\s+([^,]+),\s*-\(%sp\)')
@@ -438,7 +440,7 @@ SINGLE_REG_REGEX = re.compile(r'(%[ad])([0-7])')
 PUSH_OP = 1
 POP_OP = 2
 
-def sort_regs(regs):
+def sort_regs(regs: list[str]):
     # First, separate the registers into data and address lists and sort them numerically
     data_regs = sorted([r for r in regs if r.startswith('%d')], key=lambda r: int(r[2:]))
     addr_regs = sorted([r for r in regs if r.startswith('%a')], key=lambda r: int(r[2:]))
@@ -446,7 +448,7 @@ def sort_regs(regs):
     ordered_list = data_regs + addr_regs
     return ordered_list
 
-def extract_registers(regs_encoded, operation_type):
+def extract_registers(regs_encoded: str, operation_type: int) -> list[str]:
     """
     Analyzes regs_encoded and returns the registers in the order they are transferred.
     Args:
@@ -458,7 +460,7 @@ def extract_registers(regs_encoded, operation_type):
     if not regs_encoded:
         return []
 
-    regs_set = set()
+    regs_set: set[str] = set()
 
     # Check for immediate constant
     const_match = re.match(r'#(-?\d+)', regs_encoded)
@@ -472,11 +474,11 @@ def extract_registers(regs_encoded, operation_type):
         # d0–d7 are bits 0–7
         for i in range(8):
             if value & (1 << i):
-                regs_set.add(f'%d{i}')
+                regs_set.add("%d" + str(i))
         # a0–a7 are bits 8–15
         for i in range(8):
             if value & (1 << (8 + i)):
-                regs_set.add(f'%a{i}')
+                regs_set.add("%a" + str(i))
     else:
         # Split into register groups (separated by /)
         for group in regs_encoded.split('/'):
@@ -486,14 +488,15 @@ def extract_registers(regs_encoded, operation_type):
                 reg_type_start, start, reg_type_end, end = range_match.groups()
                 start, end = int(start), int(end)
                 if reg_type_start == reg_type_end:
-                    regs_set.update(f"{reg_type_start}{n}" for n in range(start, end + 1))
+                    regs_set.update(f'{reg_type_start}{n}' for n in range(start, end + 1))
             # Single register
             elif reg_match := SINGLE_REG_REGEX.fullmatch(group):
                 reg_type, num = reg_match.groups()
                 num = int(num)
                 regs_set.add(f'{reg_type}{num}')
 
-    ordered_list = sort_regs(regs_set)
+    regs_list = list(regs_set)
+    ordered_list = sort_regs(regs_list)
     return ordered_list
 
 FUNCTION_DECLARATION_REGEX = re.compile(
@@ -610,7 +613,7 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'(%[ad][0-7])\b'                 # Register being overwritten
 )
 
-declared_functions_set = set()
+declared_functions_set: set[str] = set()
 
 def collect_declared_functions(lines: list[str]):
     """
@@ -618,8 +621,8 @@ def collect_declared_functions(lines: list[str]):
     """
     global declared_functions_set
     
-    for i_line in range(0, len(lines)):
-        line = lines[i_line]
+    for i in range(0, len(lines)):
+        line = lines[i]
         # Is a function declaration?
         if match := FUNCTION_DECLARATION_REGEX.match(line):
             declared_functions_set.add(match.group(1))
@@ -733,7 +736,7 @@ def build_control_flow_map(i_line: int, lines: list[str], modified_lines: list[s
         control_obj.inverted_for_modified_lines
     """
 
-    control_flow_dict = {}
+    control_flow_dict: dict[str, ControlFlowPosInArray] = {}
 
     # Phase 1: collect all the labels and their line position
 
@@ -827,7 +830,7 @@ def pop_flow_return_frame_data(flow_return_frames: list[ControlFlowReturnFrame])
     rem_end = len(target_array)
     return i, target_array, rem_end
 
-def in_an_interrupt_routine(i_line, lines, modified_lines) -> bool:
+def in_an_interrupt_routine(i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
     """
     Search over the lines in modified_lines array for a rte instruction, before the declaration of current function.
     Search over remaining lines in lines array for a rte instruction, before exiting the current function.
@@ -861,15 +864,15 @@ def in_an_interrupt_routine(i_line, lines, modified_lines) -> bool:
     return False
 
 @export_func
-def find_free_after_use_data_register(excludes, i_line, lines, modified_lines, ignore_N_previous_lines=0):
+def find_free_after_use_data_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0):
     return find_free_after_use_register(excludes, i_line, lines, modified_lines, "%d", ignore_N_previous_lines)
 
 @export_func
-def find_free_after_use_address_register(excludes, i_line, lines, modified_lines, ignore_N_previous_lines=0):
+def find_free_after_use_address_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0):
     excludes.append("%a7")
     return find_free_after_use_register(excludes, i_line, lines, modified_lines, "%a", ignore_N_previous_lines)
 
-def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_type, ignore_N_previous_lines):
+def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], reg_type: str, ignore_N_previous_lines: int):
     """
     Search for a free after use register xM:
     1. Search backwards over the lines in modified_lines array for a register xM, different 
@@ -975,8 +978,8 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
     used_before_overwritten_or_cleared_mask = 0;
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
-    control_visited = set()  # Helps to avoid looping infinitely 
-    flow_return_frames = []
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
     
     # Start with lines array
     target_array = lines
@@ -1165,15 +1168,15 @@ def find_free_after_use_register(excludes, i_line, lines, modified_lines, reg_ty
     return candidates
 
 @export_func
-def find_unused_data_register(excludes, i_line, lines, modified_lines, ignore_N_previous_lines=0):
+def find_unused_data_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0):
     return find_unused_register(excludes, i_line, lines, modified_lines, "%d", ignore_N_previous_lines)
 
 @export_func
-def find_unused_address_register(excludes, i_line, lines, modified_lines, ignore_N_previous_lines=0):
+def find_unused_address_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0):
     excludes.append("%a7")
     return find_unused_register(excludes, i_line, lines, modified_lines, "%a", ignore_N_previous_lines)
 
-def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, ignore_N_previous_lines):
+def find_unused_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], reg_type: str, ignore_N_previous_lines: int):
     """
     Search for unused registers before i_line:
     Starting at the beginning of the current routine, search for registers different than any reg 
@@ -1191,8 +1194,8 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
-    control_visited = set()  # Helps to avoid looping infinitely 
-    flow_return_frames = []
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
 
     # Bitmask tracking (7-0 = x7-x0)
     # Initially we set all them as available
@@ -1363,7 +1366,7 @@ def find_unused_register(excludes, i_line, lines, modified_lines, reg_type, igno
 
     return candidates
 
-def in_a_SGDK_sound_related_routine(modified_lines) -> bool:
+def in_a_SGDK_sound_related_routine(modified_lines: list[str]) -> bool:
     """
     Search backwards up to the function declaration to see if we are in any of next type of routines:
         Z80_xxx, XGM_xxx, XGM2_xxx, SND_xxx
@@ -1378,7 +1381,7 @@ def in_a_SGDK_sound_related_routine(modified_lines) -> bool:
 
     return False
 
-def get_routine_first_instruction_pos(modified_lines):
+def get_routine_first_instruction_pos(modified_lines: list[str]) -> int:
     """
     Search for the first instruction in the routine. Is the next one to the function name as a label.
     Eg:
@@ -1414,11 +1417,11 @@ sp_modified_by_any_instruction_pattern = re.compile(
     r'^\s*\w+(\.[bwl])?\s+[\d\w#\-\+\(\)%\.,]+,\s*%sp(?![^;#\n]*)'
 )
 
-def add_line_with_push_regs_into_stack(regs, target_lines, insert_at):
+def add_line_with_push_regs_into_stack(regs: list[str], target_lines: list[str], insert_at: int):
     """
     Insert at insert_at a movem/move push into stack instruction.
     """
-    new_lines = []
+    new_lines: list[str] = []
 
     # If len(regs) < 3 then use move instructions. Otherwise movem.
     if len(regs) < 3:
@@ -1434,7 +1437,7 @@ def add_line_with_push_regs_into_stack(regs, target_lines, insert_at):
     for elem in reversed(new_lines):
         target_lines.insert(insert_at, elem)
 
-def add_lines_with_pop_regs_from_stack(regs, target_lines, starting_at):
+def add_lines_with_pop_regs_from_stack(regs: list[str], target_lines: list[str], starting_at: int):
     """
     Insert a movem/move pop from stack instruction before any rts/rte
     """
@@ -1469,10 +1472,8 @@ def add_lines_with_pop_regs_from_stack(regs, target_lines, starting_at):
             # Update the limit
             rem_end = len(target_lines)
 
-    return
-
 @export_func
-def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
+def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[str], modified_lines: list[str]):
     """
     Replace any usage of xN register by xM register starting at i_line+1.
     Special handling is considered in movem/move push/pop instructions if xM is not covered.
@@ -1495,7 +1496,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
     inAnInterruptRoutine = in_an_interrupt_routine(i_line, lines, modified_lines)
 
     # Phase 1: Collect lines that use xN in relevant contexts (forwards scan)
-    collected_indices = []
+    collected_indices: list[int] = []
     xN_overwritten_or_cleared = False
     rem_start = i_line + 1
     rem_end = len(lines)
@@ -1558,7 +1559,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
                     collected_indices.append(i)
 
     # Remove duplicates just in case. Preserving the order.
-    seen = set()
+    seen: set[int] = set()
     collected_indices = [item for item in collected_indices if item not in seen and not seen.add(item)]
 
     # Phase 2: Apply replacements
@@ -1658,7 +1659,7 @@ def replace_xN_by_xM_in_next_lines(xN, xM, i_line, lines, modified_lines):
                         newRegs_str = '/'.join(sortedRegs)
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
-def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines):
+def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], checkTargetOperand: bool, ignore_N_previous_lines: int):
     """
     Search over the remaining lines using control flow starting at i_line+1 for one of next conditions:
     - xN is used as source operand or in any indirection (in both source and target) operand:
@@ -1675,12 +1676,12 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
-    control_visited = set()  # Helps to avoid looping infinitely 
-    flow_return_frames = []
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
 
     # Since we are using control flow to visit many different paths we have to collect 
     # all the lines that satisfy the criteria
-    collected_lines = []
+    collected_lines: list[str] = []
 
     # Start with lines array
     target_array = lines
@@ -1818,18 +1819,18 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     # Remove duplicates just in case. Preserving the order.
-    seen = set()
+    seen: set[str] = set()
     collected_lines = [item for item in collected_lines if item not in seen and not seen.add(item)]
 
     return collected_lines
 
-def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines) -> bool:
+def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
 
     checkTargetOperand = False
     matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines)
     return len(matching_lines) > 0
 
-def is_reg_used_as_word_or_byte_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines) -> bool:
+def is_reg_used_as_word_or_byte_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
 
     checkTargetOperand = True
     matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines)
@@ -1891,7 +1892,7 @@ sp_indexing_pattern_3 = re.compile(
     r'(.+)?'                       # Any characters
 )
 
-def adjust_sp_indexing(i, target_lines, line, offset):
+def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
     if match := (sp_indexing_pattern_1.match(line) or sp_indexing_pattern_2.match(line)):
         blank1, instr, s, blank2, anything1, disp, xN_with_comma, anything2 = match.groups()
         blank1 = blank1 if blank1 else ''
@@ -1922,7 +1923,7 @@ def adjust_sp_indexing(i, target_lines, line, offset):
         target_lines[i] = new_line
 
 @export_func
-def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, modified_lines) -> bool:
+def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
     """
     Add regs into movem/move push/pop. Ignore scratch pad regs if not in an interrupt routine.
     Adjust SP indexing instructions.
@@ -2090,7 +2091,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs, i_line, lines, m
 
     return True
 
-def if_reg_not_used_anymore_then_remove_from_push_pop(xN, i_line, lines, modified_lines, ignore_N_previous_lines):
+def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int):
     """
     Search backwards and forwards for any usage of xN.
     Backwards scan:
@@ -2300,16 +2301,17 @@ jsr_aN_pattern = re.compile(r'^\s*jsr\s+\((%a[0-7])\)')
 lea_subroutine_into_aN_pattern = re.compile(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])')
 move_subroutine_into_aN_pattern = re.compile(r'^\s*move[a]?\.l\s+#([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])')
         
-def count_replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_line, ignore_N_previous_lines):
+def count_replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modified_lines: list[str], subr: str, new_line: str, ignore_N_previous_lines: int) -> int:
     """
     Execute a dry run to count the number of replacements the original function will do.
     """
     count = replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_line, ignore_N_previous_lines, is_count_mode=True)
     return count
 
-def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_line, ignore_N_previous_lines, is_count_mode=False):
+def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modified_lines: list[str], subr: str, new_line: str, ignore_N_previous_lines: int, is_count_mode: bool=False) -> int:
     """
     Search forwards an backwards for every "jsr (aN)" and replace it by new_line, until aN is overwritten or cleared.
+    Returns how many replacements were applied.
     """
     global declared_functions_set
     replacement_counter = 0;
@@ -2318,8 +2320,8 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
                     
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
-    control_visited = set()  # Helps to avoid looping infinitely 
-    flow_return_frames = []
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
 
     # Start with lines array
     target_array = lines
@@ -2463,7 +2465,7 @@ def replace_remaining_jsr_aN_calls(aN, i_line, lines, modified_lines, subr, new_
 
     return replacement_counter
 
-def evaluate_instr_math_expression(expr):
+def evaluate_instr_math_expression(expr: str) -> int | None:
     """
     Evaluate a simple math expression in the form "value [+-* value]".
     Returns None if the expression is invalid.
@@ -2512,11 +2514,12 @@ def evaluate_instr_math_expression(expr):
             result = ops[op](result, num)
 
         return result
+
     except (ValueError, IndexError, KeyError):
         print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): {expr}")
         return None
 
-def get_displacement_and_areg(match):
+def get_displacement_and_areg(match) -> tuple[int | None, str | None]:
     """
     This is exclusively to use with the match object from pattern move_disp_aN_into_xN_pattern
     """
@@ -2543,11 +2546,11 @@ def are_regs_sorted(regs: list[str]) -> bool:
     in the expected M68000 standard: d0,d1,...,d7,a0,a1,...,a7
     """
     # Convert "sp" to "a7" for consistent processing
-    normalized_regs = ['%a7' if reg == '%sp' else reg for reg in regs]
+    normalized_regs: list[str] = ['%a7' if reg == '%sp' else reg for reg in regs]
 
     # Split into data and address registers
-    data_regs = [r for r in normalized_regs if r.startswith('%d')]
-    addr_regs = [r for r in normalized_regs if r.startswith('%a')]
+    data_regs: list[str] = [r for r in normalized_regs if r.startswith('%d')]
+    addr_regs: list[str] = [r for r in normalized_regs if r.startswith('%a')]
 
     # Check if the original list was grouped properly (all data before all address)
     found_addr = False
@@ -2558,12 +2561,11 @@ def are_regs_sorted(regs: list[str]) -> bool:
             # Data register after address register -> invalid grouping
             return False
 
-    def is_increasing(regs, prefix):
+    def is_increasing(regs: list[str], prefix: str) -> bool:
         if not regs:
             return True
         # Extract numbers
-        numbers = [int(reg[len(prefix):]) for reg in regs]
-        
+        numbers: list[int] = [int(reg[len(prefix):]) for reg in regs]
         # Check if strictly increasing (no duplicates, no decreasing)
         return numbers == sorted(numbers) and len(numbers) == len(set(numbers))
 
@@ -2721,7 +2723,8 @@ def classify_operand(op: str, op_base: str, op_size: str) -> str | None:
 
 def split_operands(operand_field: str) -> list[str]:
     """Split operand field into operands, ignoring commas inside (...) or quotes."""
-    ops, cur = [], []
+    ops: list[str] = []
+    cur: list[str] = []
     depth = 0
     for ch in operand_field:
         if ch == '(':
@@ -2784,7 +2787,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
     target_label_def = label + ":"
 
     # Helper function to scan lines and check for label
-    def check_if_label_is_in_range(target_lines, start_idx, end_idx, max_bytes):
+    def check_if_label_is_in_range(target_lines: list[str], start_idx: int, end_idx: int, max_bytes: int) -> bool:
         bytes_accum = 0
         i = start_idx
         rept_stack = []  # Stack to track nested .rept blocks
@@ -2959,30 +2962,30 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
     )
     return is_in_range
 
-def comment_last_N_lines(array, n_lines):
+def comment_last_N_lines(modified_lines: list[str], n_lines: int):
     """
     Starting from the end of the array, replace last N lines by '#' + line.
     """
     if n_lines <= 0:
         return
-    start_index = max(0, len(array) - n_lines)
-    for i in range(start_index, len(array)):
-        line = array[i]
+    start_index = max(0, len(modified_lines) - n_lines)
+    for i in range(start_index, len(modified_lines)):
+        line = modified_lines[i]
         if line != "#APP" and line != "#NO_APP":
-            array[i] = '#' + array[i]
+            modified_lines[i] = '#' + modified_lines[i]
 
-def uncomment_last_N_lines(array, n_lines):
+def uncomment_last_N_lines(modified_lines: list[str], n_lines: int):
     """
     Starting from the end of the array, remove from last N lines the initial character '#'.
     """
     if n_lines <= 0:
         return
-    start_index = max(0, len(array) - n_lines)
-    for i in range(start_index, len(array)):
-        line = array[i]
+    start_index = max(0, len(modified_lines) - n_lines)
+    for i in range(start_index, len(modified_lines)):
+        line = modified_lines[i]
         if line != "#APP" and line != "#NO_APP":
             if line.startswith('#'):
-                array[i] = array[i][1:]
+                modified_lines[i] = modified_lines[i][1:]
 
 IS_ASL_INSTRUCTION_REGEX = re.compile(r'^\s*asl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
@@ -3098,7 +3101,7 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
-def optimizeMultipleLines(multi_limit, i_line, lines, modified_lines, current_pass) -> tuple[list[str] | None, bool]:
+def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, bool]:
     """
     Detect optimization opportunities that span multiple lines.
     Returns a tuple of (optimized_lines, lines_to_remove) if pattern matches, (None, 0) otherwise.
@@ -7164,7 +7167,7 @@ indirection_0_pattern = re.compile(
     r'(?:0\((%a[0-7]|%sp|%pc)\)|\(0,(%a[0-7]|%sp)\))'  # 0(aN) or (0,aN)
 )
 
-def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines) -> tuple[list[str], bool]:
+def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modified_lines: list[str]) -> tuple[list[str], bool]:
     """
     Optimize a single line of assembly code.
     Returns a tuple of (optimized_lines, was_optimized) where:
@@ -8443,7 +8446,7 @@ def optimizeSingleLine_Peepholes(line, i_line, lines, modified_lines) -> tuple[l
     # No optimization was applied
     return ([], False)
 
-def optimizeSingleLine_MovemWithSingleRegister(line, i_line, lines, modified_lines) -> tuple[list[str], bool]:
+def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: list[str], modified_lines: list[str]) -> tuple[list[str], bool]:
 
     if OPTIMIZE_INLINE_ASM_BLOCKS:
         # If line contains the flag that mandates to skip it from be optimized -> do nothing and return
@@ -8505,7 +8508,7 @@ shorten_branches_pattern = re.compile(
     r'(\s+)([0-9a-zA-Z_\.]+)(?![^;#\n]*[-+])'
 )
 
-def optimizeSingleLine_ShortenBranches(line, i_line, lines, modified_lines) -> tuple[list[str], bool]:
+def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str], modified_lines: list[str]) -> tuple[list[str], bool]:
     """
     Optimize branch instructions by using short branch suffix ".s" if the target label is in the range of [-126,128] bytes.
     Returns a tuple of (optimized_lines, was_optimized) where:
@@ -8542,7 +8545,7 @@ def optimizeSingleLine_ShortenBranches(line, i_line, lines, modified_lines) -> t
     # No optimization was applied
     return ([], False)
 
-def optimize_asm(input_lines, current_pass) -> tuple[list[str], int, int]:
+def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], int, int]:
     """
     Perform multi and single line optimzations
     """
@@ -8861,7 +8864,7 @@ def applyGccConversions(lines: list[str]) -> list[str]:
     """
     Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading.
     """
-    modified_lines = []
+    modified_lines: list[str] = []
     for i_line in range(0, len(lines)):
         line = lines[i_line]
         # Rewrite the line without any trailing whitespace. The content of lines will be used in other methods
@@ -8876,7 +8879,7 @@ def applyGccConversions(lines: list[str]) -> list[str]:
                 # Continue with next line
                 continue
 
-        # Replace gcc indirection style on certain instructions
+        # Replace gcc indirection style %pc@(disp,%xN:s) on certain instructions
         line = convert_from_gcc_indirection_style(line)
         # Replace %fp by %a6
         line = convert_from_gcc_fp_style(line)
@@ -8884,7 +8887,7 @@ def applyGccConversions(lines: list[str]) -> list[str]:
         line = replace_gcc_dn_long_indirection_by_word(line, modified_lines)
         # Replace gcc encoded list of regs by a human readable format
         line = convert_gcc_movem_encoded_regs(line)
-        # Remove dereference over symbol names, like: lea (PAL_setPalette.constprop.0),%a3
+        # Remove dereference over symbol names. Eg: lea (PAL_setPalette.constprop.0),%a3 -> lea PAL_setPalette.constprop.0,%a3
         line = remove_gcc_dereference_symbolName_and_immediate(line)
 
         modified_lines.append(line)
@@ -8947,7 +8950,7 @@ def non_used_functions(lines: list[str]):
 
     # Phase 2:
     # Get all the routines declared as global, meaning they are outside this assembly unit
-    global_functions_set = set()
+    global_functions_set: set[str] = set()
     for i_line in range(0, len(lines)):
         line = lines[i_line]
         # Is a function declaration?
@@ -8959,7 +8962,7 @@ def non_used_functions(lines: list[str]):
     # Phase 3:
     # For each call to a function save it into a set of called functions so we can later know which
     # declared functions are not being called.
-    calling_functions_set = set()
+    calling_functions_set: set[str] = set()
     for i in range(0, len(lines)):
         line = lines[i]
 
@@ -8987,219 +8990,48 @@ def non_used_functions(lines: list[str]):
     
     # TODO: Replace non used functions lines by empty line so we can keep matching lines locations between 'before' and 'after'.
 
+lea_canonical_symbol_pattern = re.compile(
+    r'^(\s*)lea(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
 lea_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)lea(\s+)(0x[0-9]+)(\.l)?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+    r'^(\s*)lea(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
+move_canonical_symbol_pattern = re.compile(
+    r'^(\s*)(move|movea)\.l(\s+)#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)(\.[bwl])?,\s*(%a[0-7])'
 )
 move_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(move|movea)\.l(\s+)#(0x[0-9]+)(\.[wl])?([\-\+]\d+)(\.[bwl])?,\s*(%a[0-7])'
+    r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)(\.[bwl])?,\s*(%a[0-7])'
 )
-
-def set_canonical_address_once(lines: list[str]):
+OBJECT_DECLARATION_REGEX = re.compile(
+    r'^\s*'                # Optional leading whitespace
+    r'\.type\s+'           # .type followed by at least one whitespace
+    r'('                   # Start capturing group for object name
+    r'[a-zA-Z_]'           # First character must be a letter or underscore
+    r'[^,]*'               # Any word before a comma
+    r')'                   # End capturing group for object name
+    r',\s*@object'         # @object keyword
+    # Eg:	.type	bmp_buffer_write, @object
+)
+def reduce_load_canonical_address_using_sign_extension(lines: list[str], symbols_filename: str) -> tuple[list[str], int, int]:
     """
-    Find loading instructions of a canonical address from a symbol or memory, to later re use the same 
-    aN register for other loadings but changing the instruction size to .w saving thus 4 cycles.
+    For every loading instruction of a canonical address from a symbol or memory into aN register,
+    we can take advantage of the sign extension nature of lea and move instructions over the high word 
+    of the canonical address:
+    - If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+    - If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
+    Then we have to adjust the code section by padding the same amount of bytes we have reduced, by
+    adding a .rodata section after the last declared function.
     """
-    global declared_functions_set
 
-    def optimize_load_canonical_address(start_function_pos: int, func_name: str, lines: list[str], canonical_load_instr_pos: int, canonical_aN: str) -> tuple[int, int]:
-        global declared_functions_set
-
-        # Print the canonical load line only if we have found a candidate to optimize
-        print_canonical_line = True
-
-        control_flow_dict = build_control_flow_map(start_function_pos + 1, lines, [])
-        control_visited = set()  # Helps to avoid looping infinitely 
-        flow_return_frames = []
-
-        target_array = lines    
-        i = canonical_load_instr_pos + 1  # Start at the immediate next line
-        rem_end = len(lines)
-
-        # Keep track of total number of updated lines and patterns
-        num_updated_lines_found = 0
-        num_patterns_found = 0
-
-        # Keep track of inline assembly blocks: #APP and #NO_APP
-        inside_inline_asm_block = False
-        print_start_asm_block = False
-        print_end_asm_block = False
-
-        # Master control of flow loop: iterates over lines[] as long as there is a return frame to be visited
-        while True:
-
-            while i < rem_end:  # forwards
-                line = target_array[i]
-                i += 1
-
-                # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
-                stripped = line.lstrip()
-
-                # Track inline assembly blocks
-                if stripped.startswith("#APP"):
-                    inside_inline_asm_block = True
-                    if OPTIMIZE_INLINE_ASM_BLOCKS:
-                        print_start_asm_block = True
-                        print_end_asm_block = False
-                elif stripped.startswith("#NO_APP"):
-                    if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
-                        if print_end_asm_block:
-                            print('[OPT_LOG] <-- End inline asm block')
-                    print_start_asm_block = False
-                    print_end_asm_block = False
-                    inside_inline_asm_block = False
-                    
-                # Skip inline assembly blocks?
-                if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
-                    continue
-
-                # If reaching the source canonical load line then it means we have looped
-                if (i-1) == canonical_load_instr_pos:
-                    break  # Stop the analysis at current flow
-
-                # End of this routine body?
-                if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-                    break  # Stop the analysis at current flow
-
-                # Reaching rts/rte?
-                elif FUNCTION_EXIT_REGEX.match(line):
-                    break  # Stop the analysis at current flow
-
-                # Is a label?
-                elif match_label := LABEL_REGEX.match(line):
-                    label = match_label.group(1)
-                    if label in control_visited:
-                        break  # Stop the analysis at current flow
-                    else:
-                        # Mark this label as visited
-                        control_visited.add(label)
-                        continue
-
-                # If is an unconditional branch jmp/bra/bsr/jsr
-                elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-                    # Jumping into a routine?
-                    if match.group(1) in ('jsr', 'bsr'):
-                        continue
-                    elif match.group(1) in ('bra', 'jra', 'jmp'):
-                        # Get the target label
-                        label = match.group(2)
-                        # Sometimes the label is a function name and the instruction is jmp/bra.
-                        # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
-                        if label not in control_flow_dict:
-                            if label in declared_functions_set:
-                                # Same behavior than when instruction is in ('jsr','bsr')
-                                continue
-                            else:
-                                # We actually can't calculate the destination: 
-                                # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                                # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
-                                # the target labels and visit them one by one
-                                continue
-                        # Target label is in the dictionary AND was not yet visited
-                        elif label in control_flow_dict and label not in control_visited:
-                            # Mark this label as visited
-                            control_visited.add(label)
-                            control_obj = control_flow_dict[label];
-                            i = control_obj.pos_in_lines
-                            continue
-
-                # If is a conditional branch jcc/bcc (except dbCC)
-                elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
-                    # Get the target label
-                    label = match.group(2)
-                    # Target label is in the dictionary AND was not yet visited
-                    if label in control_flow_dict and label not in control_visited:
-                        # Add a return frame so we can backtrack and continue from this point
-                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                        flow_return_frames.append(frame)
-                        # Mark this label as visited
-                        control_visited.add(label)
-                        control_obj = control_flow_dict[label];
-                        i = control_obj.pos_in_lines
-                        continue
-
-                optimized_line = ''
-
-                # lea     mem_address,aN     ->   lea     mem_address.w,aN         ; Saves 4 cycles
-                if match := lea_canonical_mem_address_pattern.match(line):
-                    mem_addr = match.group(3)
-                    mem_addr_size = match.group(4)
-                    # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
-                    if (not mem_addr_size or mem_addr_size == '.l') and not mem_addr.endswith('.w') and canonical_aN == match.group(7):
-                        mem_addr_ops = ''.join(match.group(i) for i in range(5, 7) if match.group(i))
-                        if mem_addr.endswith('.l'):
-                            mem_addr = mem_addr[:-2]  # remove last 2 chars
-                        optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_addr}.w{mem_addr_ops},{canonical_aN}'
-
-                # move.l  #mem_address,aN   ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
-                elif match := move_canonical_mem_address_pattern.match(line):
-                    mem_addr = match.group(4)
-                    mem_addr_size = match.group(5)
-                    # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
-                    if (not mem_addr_size or mem_addr_size == '.l') and not mem_addr.endswith('.w') and canonical_aN == match.group(8):
-                        mem_addr_ops = ''.join(match.group(i) for i in range(6, 8) if match.group(i))
-                        if mem_addr.endswith('.l'):
-                            mem_addr = mem_addr[:-2]  # remove last 2 chars
-                        optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{mem_addr}.w{mem_addr_ops},{canonical_aN}'
-
-                # Replace the original line with the its optimized version
-                if optimized_line != '':
-                    target_array[i-1] = optimized_line
-                    num_updated_lines_found += 1
-                    num_patterns_found += 1
-                    # Print findings?
-                    if PRINT_OPTIMIZATION_LOG:
-                        # Print starting or ending an inline asm block
-                        if print_start_asm_block:
-                            print('[OPT_LOG] --> Start inline asm block')
-                            print_start_asm_block = False
-                            print_end_asm_block = True
-                        # Print the canonical line only once
-                        if print_canonical_line:
-                            print(f'[OPT_LOG] -> Canonical load: {lines[canonical_load_instr_pos].strip()}')
-                            print_canonical_line = False
-                        # Print optimization log
-                        print_optimized_diff([line], i-1, [optimized_line])
-                    continue
-
-                # Ensure canonical_aN high word (.l) is not cleared/overwritten before reaching any target load instruction
-                if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
-                    instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
-                    overwritten_size = match.group(2)  # might be missing
-                    src_complex = match.group(3)  # source operand for move/lea/sub/eor
-                    instr_clr = match.group(4)
-                    clr_size = match.group(5)
-                    dest = match.group(6)  # reg being overwritten or cleared
-                    if dest == canonical_aN:
-                        # if matching sub or eor
-                        if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
-                            # sub or eor it self?
-                            if dest in src_complex and (not overwritten_size or overwritten_size == ".l"):
-                                break  # Stop the analysis at current flow
-                        # if matching move or lea
-                        elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                            #if dest not in src_complex and (not overwritten_size or overwritten_size == ".l"):
-                            if (not overwritten_size or overwritten_size == ".l"):
-                                break  # Stop the analysis at current flow
-                        # just matching the clr instruction
-                        elif instr_clr and clr_size == ".l":
-                            break  # Stop the analysis at current flow
-                        else:
-                            # Instruction not considered?
-                            print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} At {func_name} line {i-1}: instruction not considered: {line}")
-                elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
-                    dest = match.group(1)
-                    instr_list = ["unlk", "adda.l", "suba.l", "addq", "subq"]
-                    if dest == canonical_aN and any(instr in line for instr in instr_list):
-                        break  # Stop the analysis at current flow
-
-            # If there is any return frame then continue from that location
-            if len(flow_return_frames) > 0:
-                i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+    # Create a dictinary: symbolName -> memory address (ROM or RAM)
+    mem_addr_by_symbolName_dict: dict[str, str] = {}
+    with open(symbols_filename) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 3:
                 continue
-            else:
-                break  # Exit the master control flow loop
-        
-        return (num_updated_lines_found, num_patterns_found)
+            mem_addr_s, t, symbolName = parts[:3]
+            mem_addr_by_symbolName_dict[symbolName] = "0x" + mem_addr_s
 
     # Keep track of total number of updated lines and patterns
     num_updated_lines_found = 0
@@ -9211,8 +9043,14 @@ def set_canonical_address_once(lines: list[str]):
     # Keep track of the function name for logging purpose
     func_name = ''
 
+    # Note: we don't need to consider A = Absolute address symbol (not relocated) because they are linker defined symbols
+    modified_lines: list[str] = []
+
     for i in range(0, len(lines)):  # forwards
         line = lines[i]
+
+        # Copy the line into destination array
+        modified_lines.append(line)
 
         # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
         stripped = line.lstrip()
@@ -9220,8 +9058,18 @@ def set_canonical_address_once(lines: list[str]):
         # Track inline assembly blocks
         if stripped.startswith("#APP"):
             inside_inline_asm_block = True
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                print_start_asm_block = True
+                print_end_asm_block = False
+            continue
         elif stripped.startswith("#NO_APP"):
             inside_inline_asm_block = False
+            if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+                if print_end_asm_block:
+                    print('[OPT_LOG] <-- End inline asm block')
+            print_start_asm_block = False
+            print_end_asm_block = False
+            continue
 
         # Skip inline assembly blocks?
         if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
@@ -9231,40 +9079,135 @@ def set_canonical_address_once(lines: list[str]):
         if match := FUNCTION_DECLARATION_REGEX.match(line):
             # Save the function name for logging purpose
             func_name = match.group(1)
-            # Save the line location where the functions is declared
-            start_function_pos = i
+            continue
 
         # End of function? Then continue the searching
         if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             # Reset the tracking of function name
             func_name = ''
-            # Flag it as no starting of any function
-            start_function_pos = len(lines)
-            continue;
+            continue
 
-        canonical_load_instr_pos = -1
-        canonical_aN = ''
+        optimized_line = ''
 
-        if match := lea_canonical_mem_address_pattern.match(line):
+        # lea     symbolName,aN     ->   lea     mem_address.w,aN        ; Saves 4 cycles
+        if match := lea_canonical_symbol_pattern.match(line):
+            symbolName = match.group(3)
+            symbol_size = match.group(4)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                symbol_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
+                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
+                    aN = match.group(7)
+                    optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_addr}.w{symbol_ops},{aN}'
+
+        # lea     mem_address,aN    ->   lea     mem_address.w,aN        ; Saves 4 cycles
+        elif match := lea_canonical_mem_address_pattern.match(line):
             mem_addr = match.group(3)
             mem_addr_size = match.group(4)
             # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
             if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
-                # Save the instruction position so we can skip it during optimization
-                canonical_load_instr_pos = i 
-                canonical_aN = match.group(7)
+                mem_addr_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
+                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
+                    aN = match.group(7)
+                    optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_addr}.w{mem_addr_ops},{aN}'
+
+        # move.l  #symbolName,aN    ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
+        elif match := move_canonical_symbol_pattern.match(line):
+            symbolName = match.group(4)
+            symbol_size = match.group(5)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
+                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
+                    aN = match.group(8)
+                    optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{mem_addr}.w{mem_addr_ops},{aN}'
+
+        # move.l  #mem_address,aN   ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
         elif match := move_canonical_mem_address_pattern.match(line):
-            # Save the instruction position so we can skip it during optimization
-            canonical_load_instr_pos = i 
-            canonical_aN = match.group(8)
+            mem_addr = match.group(4)
+            mem_addr_size = match.group(5)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
+                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
+                    aN = match.group(8)
+                    optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{mem_addr}.w{mem_addr_ops},{aN}'
 
-        # Apply the optimization for current function
-        if canonical_load_instr_pos != -1:
-            num_upd_lines, num_patterns = optimize_load_canonical_address(start_function_pos, func_name, lines, canonical_load_instr_pos, canonical_aN)
-            num_updated_lines_found += num_upd_lines
-            num_patterns_found += num_patterns
+        # Replace the original line with the its optimized version
+        if optimized_line != '':
+            modified_lines[i] = optimized_line
+            num_updated_lines_found += 1
+            num_patterns_found += 1
+            # Print findings?
+            if PRINT_OPTIMIZATION_LOG or True:
+                # Print starting or ending an inline asm block
+                if print_start_asm_block:
+                    print('[OPT_LOG] --> Start inline asm block')
+                    print_start_asm_block = False
+                    print_end_asm_block = True
+                # Print optimization log
+                print_optimized_diff([line], i, [optimized_line])
 
-    return (num_updated_lines_found, num_patterns_found)
+    # Given that every reduced load instruction is now 2 bytes smaller we need to
+    # pad the code section with 0s as much as many reductions we made.
+    '''if num_patterns_found > 0:
+        exit_main_loop = False
+        for i in range(0, len(modified_lines)):  # forwards
+            line = modified_lines[i]
+            if match := OBJECT_DECLARATION_REGEX.match(line):
+                # Trace back until the last .size
+                for j in range(i-1, 0-1, -1):  # backwards
+                    line2 = modified_lines[j]
+                    if FUNCTION_SIZE_CALCULATION_REGEX.match(line2):
+                        # Create the padding object
+                        padding_object_rodata: list[str] = [
+                            "\t.section\t.rodata",
+                            "\t.align\t2",
+                            "\t.type\tpadding_object_rodata, @object",
+                            f"\t.size\tpadding_object_rodata, {2*num_patterns_found}",
+                            "padding_object_rodata:",
+                            f"\t.zero\t{2*num_patterns_found}"  # .zero N -> Reserves N bytes, zero-filled
+                        ]
+                        for linerodata in padding_object_rodata:
+                            print(linerodata)
+                        # Add the padding object
+                        modified_lines[j+1:j+1] = padding_object_rodata
+                        exit_main_loop = True
+                        break
+            if exit_main_loop:
+                break'''
+
+    return (modified_lines, num_updated_lines_found, num_patterns_found)
 
 add_sub_sp_pattern = re.compile(
     r'^\s*(add|sub)\S*\s+#(\d+|0[xX][0-9a-fA-F]+),\s*%sp'
@@ -9507,9 +9450,12 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
     return modified_lines_no_abi
 
 
-def mainf(input_filename: str, symbols_filename: str, output_filename: str):
+def mainf(input_filename: str, output_filename: str, symbols_filename: str):
 
     print(f'[OPT_LOG] Optimizing {input_filename}')
+
+    if symbols_filename:
+        print(f'[OPT_LOG] Symbols file: {symbols_filename}')
 
     with open(input_filename, 'r', encoding='utf-8') as infile:
         lines = infile.readlines()
@@ -9520,35 +9466,35 @@ def mainf(input_filename: str, symbols_filename: str, output_filename: str):
     # Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading
     modified_lines = applyGccConversions(lines)
 
-    # Collect all the functions declared in this assembly unit and store them into a global variable
-    collect_declared_functions(modified_lines)
+    if symbols_filename:
+        # Loading a canonical address into aN register can be reduced to its lower word .w taking advantage of sign extension.
+        # It needs the latest symbols file generated in a previous compilation stage.
+        print('[OPT_LOG] -- Reduce load canonical address into aN using sign extension --')
+        #modified_lines, num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = reduce_load_canonical_address_using_sign_extension(modified_lines, symbols_filename)
+        num_updated_lines_found += num_updated_lines_found_canon_addr_pass
+        num_patterns_found += num_patterns_found_canon_addr_pass
+    else:
+        # Collect all the functions declared in this assembly unit and store them into a global variable
+        collect_declared_functions(modified_lines)
 
-    # Print non used functions
-    non_used_functions(modified_lines)
+        # Print non used functions
+        non_used_functions(modified_lines)
 
-    # Load canonical address in aN register only the first time, then use .w for other loads.
-    # NOTE: this is not a valid for gcc due to the SGDK nature of locating .bss higher than 64KB region, where the
-    # linker emits a relocation R_68K_32 meaning the symbol needs to be loaded using its 32 bits location address
-    #print('[OPT_LOG] -- Load complete canonical address once into aN register --')
-    #num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = set_canonical_address_once(modified_lines)
-    #num_updated_lines_found += num_updated_lines_found_canon_addr_pass
-    #num_patterns_found += num_patterns_found_canon_addr_pass
+        # Remove ABI when possible
+        #print('[OPT_LOG] -- Simple ABI removal pass --')
+        #modified_lines = remove_simple_abi(modified_lines)
 
-    # Remove ABI when possible
-    #print('[OPT_LOG] -- Simple ABI removal pass --')
-    #modified_lines = remove_simple_abi(modified_lines)
+        # 1st pass
+        print('[OPT_LOG] -- FIRST pass --')
+        modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, 1)
+        num_updated_lines_found += num_updated_lines_found_1st_pass
+        num_patterns_found += num_patterns_found_1st_pass
 
-    # 1st pass
-    print('[OPT_LOG] -- FIRST pass --')
-    modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, 1)
-    num_updated_lines_found += num_updated_lines_found_1st_pass
-    num_patterns_found += num_patterns_found_1st_pass
-
-    # 2nd pass: catch new opportunities and optimize branches
-    print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
-    modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
-    num_updated_lines_found += num_updated_lines_found_2nd_pass
-    num_patterns_found += num_patterns_found_2nd_pass
+        # 2nd pass: catch new opportunities and optimize branches
+        print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
+        modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
+        num_updated_lines_found += num_updated_lines_found_2nd_pass
+        num_patterns_found += num_patterns_found_2nd_pass
 
     patterns_label = "pattern" if num_patterns_found == 1 else "patterns"
     if not SAVE_OPTIMIZATIONS:
@@ -9574,11 +9520,17 @@ def mainf(input_filename: str, symbols_filename: str, output_filename: str):
             outfile.write(line + '\n')
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print("Usage: python optimize_lst.py <file.ext> <symbols_file> <file.opt.ext>")
+    if len(sys.argv) != 3 and len(sys.argv) != 4:
+        print("Usage: python optimize_lst.py <file.ext> <file.opt.ext> <optional_symbols_file>")
         sys.exit(1)
 
-    mainf(sys.argv[1], sys.argv[2], sys.argv[3])
+    input_filename: str = sys.argv[1]
+    output_filename: str = sys.argv[2]
+    symbols_filename: str = ""
+    if len(sys.argv) == 4:
+        symbols_filename: str = sys.argv[3]
+
+    mainf(input_filename, output_filename, symbols_filename)
 
 # Export decorated functions and classes
 __all__ = _PUBLIC_FUNCS_AND_CLASSES

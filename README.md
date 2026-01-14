@@ -50,16 +50,19 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
 
 ### Execution
 - Open SGDK's `makefile.gen`:
-  - Add next line somewhere after the definition of **OUT_DIR** variable:  
-    `PLUGIN_PARAMS := -fplugin=$(GDK)/tools/optimizer_plugin.so -fplugin-arg-optimizer_plugin-disable=0 -fplugin-arg-optimizer_plugin-keep-files=0 -fplugin-arg-optimizer_plugin-symbols-path=$(OUT_DIR)/symbol.txt`
+  - Add next lines somewhere after the definition of **OUT_DIR** variable:  
+    ```
+	PLUGIN_PARAMS := -fplugin=$(GDK)/tools/optimizer_plugin.so -fplugin-arg-optimizer_plugin-disable=0 -fplugin-arg-optimizer_plugin-keep-files=0
+	PLUGIN_SYMBOLS_PARAMS := $(PLUGIN_PARAMS) -fplugin-arg-optimizer_plugin-symbols-path=$(OUT_DIR)/symbol.txt
+	```
   - Replace the rule for `$(OUT_DIR)/rom.out` as next:  
     ```
-    ifdef PLUGIN_PARAMS
+	ifneq ($(and $(PLUGIN_PARAMS),$(PLUGIN_SYMBOLS_PARAMS)),)
     $(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ $(LIBMD)
     	@$(MKDIR) -p $(dir $@)
-    	$(CC) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
-    	$(NM) $(LTO_PLUGIN) -n -l $(OUT_DIR)/rom.out > $(OUT_DIR)/symbol.txt
     	$(CC) $(PLUGIN_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
+    	$(NM) $(LTO_PLUGIN) -n -l $(OUT_DIR)/rom.out > $(OUT_DIR)/symbol.txt
+    	$(CC) $(PLUGIN_SYMBOLS_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
     	@$(RM) $(OUT_DIR)/cmd_
     else
     $(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ $(LIBMD)
