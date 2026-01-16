@@ -6,6 +6,7 @@ Case 1:
 	move.l %d0,-(%sp)
 	jsr (%a0)
     ... code with arithmetic over SP ...
+
 Case 2:
 	move.l %d0,-(%sp)
 	move.l %a0,-(%sp)
@@ -43,6 +44,8 @@ LINK aN,#val must be treated as: move.w  aN,-(sp)
 UNLK aN must be treated as: move.l  aN,sp
                             move.l  (sp)+,aN
 
+
+
 SGDK SAMPLES:
 	Crash or Fail:
 		benchmark -> Crash after Horizontal Scrolling (alternative/alternate). I think it was test 7
@@ -54,8 +57,16 @@ SGDK SAMPLES:
 		sys/console -> Needs MODULE_CONSOLE set to 1
 
 
+
 TODO
 ====
+When generating an int with int(string) or parseConstantUnsigned(string) and then comparing against an hex value 0xAACCEE00:
+    Use & 0xFFFFFFFF over the int value
+
+Reg expressions catching a symbol or mem address along with its size (\.[bwl])?
+    Make sure the size is not part of the symbolName or the mem address.
+    See reduce_load_and_branch_canonical_address_using_sign_extension()
+
 Ver los TODO en el optimizer script.
 
 Test the new division optimization.
@@ -68,15 +79,15 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 Single instruction
 ==================
 Clear upper word of dN where we know for sure dN holds: 0 <= val <= 0x7FFF (32767)
-and.l  #0xFFFF,d0   ->   ext.l   d0                ; Saves 12 cycles
+and.l   #0xFFFF,d0   ->   ext.l   d0                 ; Saves 12 cycles
 
 Clearing memory using existent dN already holding 0 value.
-Must find a dN holding 0 already in bits s.
-clr.s  -(aN)       ->    move.s  dN,-(aN)          ; Saves [6,10] cycles
+Must find a dN holding 0 in bits s.
+clr.s   -(aN)        ->    move.s  dN,-(aN)          ; Saves [6,10] cycles
 
 Replace usage of immediate by register.
-Must find a dM holding val already in bits s.
-btst.s  #val,dN    ->    btst.s  dM,dN             ; Saves 4 cycles
+Must find a dM holding val in bits s.
+btst.s  #val,dN      ->    btst.s  dM,dN             ; Saves 4 cycles
 
 Multiplication by a negative constant: see the comments in the optimizer script and implement accordingly.
 
@@ -189,7 +200,7 @@ void hint_enqueueTiles (void* from, u16 toIndex, u16 lenInWord)
     tilesLenInWordTotalToDMA += lenInWord;
 }
 
-GCC output (but it will be modified by the LTO):
+GCC output (but this gonna be modified by the LTO so very likely the performance is better):
 218 cycles (using the optimizer)
 hint_enqueueTiles:
 	move.l 12(%sp),%d1
@@ -213,7 +224,7 @@ hint_enqueueTiles:
 
 My version:
 I can't use this version as inline asm because the use of the stack sp is unpredictable.
-190 cycles (178 cycles if using .w for the lea instructions, except the first one that loads the full canonical address, but since SGDK linker script locates symbols above 64KB boundary then .w is not allowed)
+190 cycles (178 cycles if using .w for the lea instructions, optimization made by the optimizer if ram symbols are at high mem >= 0xE0FF8000)
 hint_enqueueTiles:
     lea     tiles_elems,a0     ;// tiles_elems base address
     move.w  (a0),d0            ;// Get tiles_elems value

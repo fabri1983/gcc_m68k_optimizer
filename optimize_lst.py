@@ -7,13 +7,7 @@
 #
 # This script processes assembly output in gas syntax generated at the PLUGIN_FINISH phase.
 # It searches for known single and multi line patterns that can be turned on into peephole 
-# optimizations, and for multi line patterns produced by gcc that are not precisely optimized.
-#
-# The functions provided here in search for a free register can't see the entirity of the 
-# context as they follow branches/jumps in a constrained way, hence might incur in new bugs 
-# if the candidate free register turns out to be not free in a more complex code flow. 
-# In addition, attempts to push/pop the register into the stack are considered to keep 
-# trashed regs saved before returning from the routine.
+# optimizations, and patterns produced by gcc that are not precisely optimized.
 #
 # Some optimizations may leave the CCR flags in a different state than the original immediate 
 # instruction was expecting, therefor may incur in new bugs.
@@ -73,7 +67,8 @@ except ImportError:
     print("ERROR: Please install Colorama module with 'pip install colorama'")
     exit(1)
 
-SGDK_RAM_START = 0xE0FF0000
+SGDK_LOWER_ROM_END = 0x00007FFF
+SGDK_HIGH_RAM_START = 0xE0FF8000
 
 # NOT_WORKING
 # Those lines in this script marked with NOT_WORKING keyword are mean to be skipped from optimization.
@@ -2467,7 +2462,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
 
 def evaluate_instr_math_expression(expr: str) -> int | None:
     """
-    Evaluate a simple math expression in the form "value [+-* value]".
+    Evaluate a simple math expression in the form "value[.bwl] [+-* value[.bwl]]".
     Returns None if the expression is invalid.
     """
     if not expr:
@@ -2477,7 +2472,7 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
     expr = expr.replace(' ', '')
 
     # Check for basic pattern: optional sign followed by digits and optional operator with more digits
-    match_expr = re.fullmatch(r'^(-?\d+)([\+\-\*]\d+)?$', expr)
+    match_expr = re.fullmatch(r'^(-?\d+)(?:\.[bwl])?([\+\-\*]\d+(?:\.[bwl])?)?$', expr)
     if not match_expr:
         print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): match_expr didn't match: {expr}")
         return None
@@ -5107,7 +5102,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
 
             # bset.b #7,mem
             # gcc might add +-*N[.bwl]. Ie: ammoInventory+2
-            matchA = re.match(r'^(\s*)bset\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(#?[a-zA-Z_]\w*|-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?', line_A)
+            matchA = re.match(r'^(\s*)bset\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(#?[a-zA-Z_]\w*|-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?', line_A)
             if matchA:
 
                 mem_address = ''.join(matchA.group(i) for i in range(4, 8) if matchA.group(i))
@@ -7444,7 +7439,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Push memory address into sp
     # move.l   #mem_addr,-(sp)   ->   pea   mem_addr   ; Saves 8 cycles
     # Examples for mem_addr: #-520158600[.bwl][+-*N], #0xFFFFFFFF[.bwl][+-*N], #symbolName[.bwl][+-*N]
-    match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
+    match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
     if match:
         mem_address = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
         optimized_line = f'{match.group(1)}pea{match.group(2)}{mem_address}'
@@ -7550,7 +7545,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         # bset.b  #7,mem   ->    tas   mem         ; Saves 4 cycles. Status flags wrong
         # mem must be address allowing read-modify-write transfer.
         # gcc might add +-*N[.bwl]. Ie: ammoInventory+2
-        match = re.match(r'^(\s*)bset\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(#?[a-zA-Z_]\w*|-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?', line)
+        match = re.match(r'^(\s*)bset\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(#?[a-zA-Z_]\w*|-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?', line)
         if match:
             val = parseConstantUnsigned(match.group(3))
             if val == 7:
@@ -8545,6 +8540,82 @@ def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str],
     # No optimization was applied
     return ([], False)
 
+def process_single_lines_helper(input_lines: list[str], optimization_func, line_number_map: dict[int, int], step_name: str) -> tuple[list[str], int]:
+    
+    # Keep track of inline assembly blocks: #APP and #NO_APP
+    inside_inline_asm_block = False
+    print_start_asm_block = False
+    print_end_asm_block = False
+
+    modified_lines = []
+    num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
+
+    print(f'[OPT_LOG] {step_name}')
+
+    rem_start = 0
+    rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
+    i_line = rem_start
+    while i_line < rem_end:  # forwards
+        line = input_lines[i_line]
+        i_line += 1
+
+        # Track inline assembly blocks
+        if line.startswith("#APP"):
+            inside_inline_asm_block = True
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                print_start_asm_block = True
+                print_end_asm_block = False
+            modified_lines.append(line)
+            continue
+        elif line.startswith("#NO_APP"):
+            if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+                if print_end_asm_block:
+                    print('[OPT_LOG] <-- End inline asm block')
+            print_start_asm_block = False
+            print_end_asm_block = False
+            inside_inline_asm_block = False
+            modified_lines.append(line)
+            continue
+
+        # Check for compiler info or directive entries first
+        if containsCompilerInfo(line) or containsCompilerDirective(line):
+            modified_lines.append(line)
+            continue
+
+        # Skip inline assembly blocks?
+        if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+            modified_lines.append(line)
+            continue
+
+        # Find single line optimizations
+        prev_rem_end = rem_end
+        optimized_lines, was_optimized = optimization_func(line, i_line-1, input_lines, modified_lines)
+        diff_lines = len(input_lines) - prev_rem_end
+        rem_end += diff_lines  # Adjust new limit
+        i_line += diff_lines  # Adjust next i_line value
+
+        if was_optimized:
+            # Update counter
+            num_updates += 1
+            # Print findings?
+            if PRINT_OPTIMIZATION_LOG:
+                # Get the original line number from the map
+                original_line_num = line_number_map.get(i_line-1, i_line-1)
+                # Print starting or ending an inline asm block
+                if print_start_asm_block:
+                    print('[OPT_LOG] --> Start inline asm block')
+                    print_start_asm_block = False
+                    print_end_asm_block = True
+                # Print optimization log
+                print_optimized_diff([line], original_line_num, optimized_lines)
+            # Save the optimized lines
+            modified_lines.extend(optimized_lines)
+        else:
+            # Not optimized -> add the original line
+            modified_lines.append(line)
+
+    return (modified_lines, num_updates)
+
 def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], int, int]:
     """
     Perform multi and single line optimzations
@@ -8555,7 +8626,7 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
     num_patterns_found = 0
 
     # Create a mapping dictionary to track original line numbers
-    line_number_map = {}
+    line_number_map: dict[int, int] = {}
 
     # Keep track of inline assembly blocks: #APP and #NO_APP
     inside_inline_asm_block = False
@@ -8662,86 +8733,11 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
 
     # NOTE: At this point we know that modified_multi_lines lines have not trealing whitespace
 
-    def process_single_lines_helper(input_lines, optimization_func, step_name) -> tuple[list[str], int]:
-        
-        # Keep track of inline assembly blocks: #APP and #NO_APP
-        inside_inline_asm_block = False
-        print_start_asm_block = False
-        print_end_asm_block = False
-
-        modified_lines = []
-        num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
-
-        print(f'[OPT_LOG] {step_name}')
-
-        rem_start = 0
-        rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
-        i_line = rem_start
-        while i_line < rem_end:  # forwards
-            line = input_lines[i_line]
-            i_line += 1
-
-            # Track inline assembly blocks
-            if line.startswith("#APP"):
-                inside_inline_asm_block = True
-                if OPTIMIZE_INLINE_ASM_BLOCKS:
-                    print_start_asm_block = True
-                    print_end_asm_block = False
-                modified_lines.append(line)
-                continue
-            elif line.startswith("#NO_APP"):
-                if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
-                    if print_end_asm_block:
-                        print('[OPT_LOG] <-- End inline asm block')
-                print_start_asm_block = False
-                print_end_asm_block = False
-                inside_inline_asm_block = False
-                modified_lines.append(line)
-                continue
-
-            # Check for compiler info or directive entries first
-            if containsCompilerInfo(line) or containsCompilerDirective(line):
-                modified_lines.append(line)
-                continue
-
-            # Skip inline assembly blocks?
-            if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
-                modified_lines.append(line)
-                continue
-
-            # Find single line optimizations
-            prev_rem_end = rem_end
-            optimized_lines, was_optimized = optimization_func(line, i_line-1, input_lines, modified_lines)
-            diff_lines = len(input_lines) - prev_rem_end
-            rem_end += diff_lines  # Adjust new limit
-            i_line += diff_lines  # Adjust next i_line value
-
-            if was_optimized:
-                # Update counter
-                num_updates += 1
-                # Print findings?
-                if PRINT_OPTIMIZATION_LOG:
-                    # Get the original line number from the map
-                    original_line_num = line_number_map.get(i_line-1, i_line-1)
-                    # Print starting or ending an inline asm block
-                    if print_start_asm_block:
-                        print('[OPT_LOG] --> Start inline asm block')
-                        print_start_asm_block = False
-                        print_end_asm_block = True
-                    # Print optimization log
-                    print_optimized_diff([line], original_line_num, optimized_lines)
-                # Save the optimized lines
-                modified_lines.extend(optimized_lines)
-            else:
-                # Not optimized -> add the original line
-                modified_lines.append(line)
-
-        return (modified_lines, num_updates)
-
     # Step 2: Single line patterns
     modified_single_lines_step_2, num_updates_2 = process_single_lines_helper(
         modified_multi_lines, 
         optimizeSingleLine_Peepholes, 
+        line_number_map, 
         "Single line patterns (common peepholes)"
     )
     num_updated_lines_found += num_updates_2
@@ -8751,6 +8747,7 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
     modified_single_lines_step_3, num_updates_3 = process_single_lines_helper(
         modified_single_lines_step_2, 
         optimizeSingleLine_MovemWithSingleRegister, 
+        line_number_map, 
         "Single line patterns (movem on one single register)"
     )
     num_updated_lines_found += num_updates_3
@@ -8763,6 +8760,7 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
         modified_single_lines_step_4, num_updates_4 = process_single_lines_helper(
             modified_single_lines_step_3, 
             optimizeSingleLine_ShortenBranches, 
+            line_number_map, 
             "Single line patterns (shorten branch instructions)"
         )
         num_updated_lines_found += num_updates_4
@@ -8989,225 +8987,6 @@ def non_used_functions(lines: list[str]):
     print('[OPT_LOG] Non used functions (experimental):', sorted(unused_funcs))
     
     # TODO: Replace non used functions lines by empty line so we can keep matching lines locations between 'before' and 'after'.
-
-lea_canonical_symbol_pattern = re.compile(
-    r'^(\s*)lea(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
-)
-lea_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)lea(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
-)
-move_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(move|movea)\.l(\s+)#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)(\.[bwl])?,\s*(%a[0-7])'
-)
-move_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)(\.[bwl])?,\s*(%a[0-7])'
-)
-OBJECT_DECLARATION_REGEX = re.compile(
-    r'^\s*'                # Optional leading whitespace
-    r'\.type\s+'           # .type followed by at least one whitespace
-    r'('                   # Start capturing group for object name
-    r'[a-zA-Z_]'           # First character must be a letter or underscore
-    r'[^,]*'               # Any word before a comma
-    r')'                   # End capturing group for object name
-    r',\s*@object'         # @object keyword
-    # Eg:	.type	bmp_buffer_write, @object
-)
-def reduce_load_canonical_address_using_sign_extension(lines: list[str], symbols_filename: str) -> tuple[list[str], int, int]:
-    """
-    For every loading instruction of a canonical address from a symbol or memory into aN register,
-    we can take advantage of the sign extension nature of lea and move instructions over the high word 
-    of the canonical address:
-    - If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
-    - If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
-    Then we have to adjust the code section by padding the same amount of bytes we have reduced, by
-    adding a .rodata section after the last declared function.
-    """
-
-    # Create a dictinary: symbolName -> memory address (ROM or RAM)
-    mem_addr_by_symbolName_dict: dict[str, str] = {}
-    with open(symbols_filename) as f:
-        for line in f:
-            parts = line.split()
-            if len(parts) < 3:
-                continue
-            mem_addr_s, t, symbolName = parts[:3]
-            mem_addr_by_symbolName_dict[symbolName] = "0x" + mem_addr_s
-
-    # Keep track of total number of updated lines and patterns
-    num_updated_lines_found = 0
-    num_patterns_found = 0
-
-    # Keep track of inline assembly blocks: #APP and #NO_APP
-    inside_inline_asm_block = False
-
-    # Keep track of the function name for logging purpose
-    func_name = ''
-
-    # Note: we don't need to consider A = Absolute address symbol (not relocated) because they are linker defined symbols
-    modified_lines: list[str] = []
-
-    for i in range(0, len(lines)):  # forwards
-        line = lines[i]
-
-        # Copy the line into destination array
-        modified_lines.append(line)
-
-        # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
-        stripped = line.lstrip()
-
-        # Track inline assembly blocks
-        if stripped.startswith("#APP"):
-            inside_inline_asm_block = True
-            if OPTIMIZE_INLINE_ASM_BLOCKS:
-                print_start_asm_block = True
-                print_end_asm_block = False
-            continue
-        elif stripped.startswith("#NO_APP"):
-            inside_inline_asm_block = False
-            if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
-                if print_end_asm_block:
-                    print('[OPT_LOG] <-- End inline asm block')
-            print_start_asm_block = False
-            print_end_asm_block = False
-            continue
-
-        # Skip inline assembly blocks?
-        if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
-            continue
-
-        # Is a function declaration?
-        if match := FUNCTION_DECLARATION_REGEX.match(line):
-            # Save the function name for logging purpose
-            func_name = match.group(1)
-            continue
-
-        # End of function? Then continue the searching
-        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
-            # Reset the tracking of function name
-            func_name = ''
-            continue
-
-        optimized_line = ''
-
-        # lea     symbolName,aN     ->   lea     mem_address.w,aN        ; Saves 4 cycles
-        if match := lea_canonical_symbol_pattern.match(line):
-            symbolName = match.group(3)
-            symbol_size = match.group(4)
-            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
-            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
-                symbol_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
-                if symbolName.endswith('.l'):
-                    symbolName = symbolName[:-2]  # remove last 2 chars
-                # Ensure we are dealing with a symbol and not a code label
-                if not symbolName in mem_addr_by_symbolName_dict:
-                    continue
-                # Replace the symbol name by its mem address
-                mem_addr = mem_addr_by_symbolName_dict[symbolName]
-                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
-                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
-                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
-                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
-                    aN = match.group(7)
-                    optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_addr}.w{symbol_ops},{aN}'
-
-        # lea     mem_address,aN    ->   lea     mem_address.w,aN        ; Saves 4 cycles
-        elif match := lea_canonical_mem_address_pattern.match(line):
-            mem_addr = match.group(3)
-            mem_addr_size = match.group(4)
-            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
-            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
-                mem_addr_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
-                if mem_addr.endswith('.l'):
-                    mem_addr = mem_addr[:-2]  # remove last 2 chars
-                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
-                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
-                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
-                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
-                    aN = match.group(7)
-                    optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_addr}.w{mem_addr_ops},{aN}'
-
-        # move.l  #symbolName,aN    ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
-        elif match := move_canonical_symbol_pattern.match(line):
-            symbolName = match.group(4)
-            symbol_size = match.group(5)
-            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
-            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
-                mem_addr_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
-                if symbolName.endswith('.l'):
-                    symbolName = symbolName[:-2]  # remove last 2 chars
-                # Ensure we are dealing with a symbol and not a code label
-                if not symbolName in mem_addr_by_symbolName_dict:
-                    continue
-                # Replace the symbol name by its mem address
-                mem_addr = mem_addr_by_symbolName_dict[symbolName]
-                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
-                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
-                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
-                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
-                    aN = match.group(8)
-                    optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{mem_addr}.w{mem_addr_ops},{aN}'
-
-        # move.l  #mem_address,aN   ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
-        elif match := move_canonical_mem_address_pattern.match(line):
-            mem_addr = match.group(4)
-            mem_addr_size = match.group(5)
-            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
-            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
-                mem_addr_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
-                if mem_addr.endswith('.l'):
-                    mem_addr = mem_addr[:-2]  # remove last 2 chars
-                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
-                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
-                mem_value = parseConstantUnsigned(mem_addr)  # mem_addr has already the 0x prefix
-                if mem_value <= 0x7fff or ((mem_value & 0xFFFF0000) == SGDK_RAM_START and (mem_value & 0xFFFF) >= 0x8000):
-                    aN = match.group(8)
-                    optimized_line = f'{match.group(1)}movea.w{match.group(3)}#{mem_addr}.w{mem_addr_ops},{aN}'
-
-        # Replace the original line with the its optimized version
-        if optimized_line != '':
-            modified_lines[i] = optimized_line
-            num_updated_lines_found += 1
-            num_patterns_found += 1
-            # Print findings?
-            if PRINT_OPTIMIZATION_LOG or True:
-                # Print starting or ending an inline asm block
-                if print_start_asm_block:
-                    print('[OPT_LOG] --> Start inline asm block')
-                    print_start_asm_block = False
-                    print_end_asm_block = True
-                # Print optimization log
-                print_optimized_diff([line], i, [optimized_line])
-
-    # Given that every reduced load instruction is now 2 bytes smaller we need to
-    # pad the code section with 0s as much as many reductions we made.
-    '''if num_patterns_found > 0:
-        exit_main_loop = False
-        for i in range(0, len(modified_lines)):  # forwards
-            line = modified_lines[i]
-            if match := OBJECT_DECLARATION_REGEX.match(line):
-                # Trace back until the last .size
-                for j in range(i-1, 0-1, -1):  # backwards
-                    line2 = modified_lines[j]
-                    if FUNCTION_SIZE_CALCULATION_REGEX.match(line2):
-                        # Create the padding object
-                        padding_object_rodata: list[str] = [
-                            "\t.section\t.rodata",
-                            "\t.align\t2",
-                            "\t.type\tpadding_object_rodata, @object",
-                            f"\t.size\tpadding_object_rodata, {2*num_patterns_found}",
-                            "padding_object_rodata:",
-                            f"\t.zero\t{2*num_patterns_found}"  # .zero N -> Reserves N bytes, zero-filled
-                        ]
-                        for linerodata in padding_object_rodata:
-                            print(linerodata)
-                        # Add the padding object
-                        modified_lines[j+1:j+1] = padding_object_rodata
-                        exit_main_loop = True
-                        break
-            if exit_main_loop:
-                break'''
-
-    return (modified_lines, num_updated_lines_found, num_patterns_found)
 
 add_sub_sp_pattern = re.compile(
     r'^\s*(add|sub)\S*\s+#(\d+|0[xX][0-9a-fA-F]+),\s*%sp'
@@ -9449,13 +9228,367 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
 
     return modified_lines_no_abi
 
+lea_canonical_symbol_pattern = re.compile(
+    r'^(\s*)lea(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
+lea_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)lea(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
+move_canonical_symbol_pattern = re.compile(
+    r'^(\s*)(move|movea)(\.[wl])(\s+)#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
+move_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)(move|movea)(\.[wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
+jmp_jsr_canonical_symbol_pattern = re.compile(
+    r'^(\s*)(jmp|jsr)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+)
+jmp_jsr_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)(jmp|jsr)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+)
 
-def mainf(input_filename: str, output_filename: str, symbols_filename: str):
+def reduce_load_and_branch_canonical_address_using_sign_extension(lines: list[str], symbols_filename: str) -> tuple[list[str], int, int]:
+    """
+    For every loading instruction lea/movea of a canonical address from a symbol or memory address 
+    into aN register, or every branch instruction jmp/jsr to a symbol or memory address, we can take 
+    advantage of the sign extension nature of lea/movea/jmp/jsr instructions over the high word of 
+    the canonical address:
+    - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOWER_ROM_END) -> we can use .w
+    - If higher word is 0xE0FF (SGDK's RAM start) and lower word >= 0x8000 (high half RAM) -> we can use .w
+    """
+
+    # Create a dictinary: symbolName -> memory address (ROM or RAM)
+    mem_addr_by_symbolName_dict: dict[str, str] = {}
+    with open(symbols_filename) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            mem_addr_s, t, symbolName = parts[:3]
+            mem_addr_by_symbolName_dict[symbolName] = "0x" + mem_addr_s
+
+    # Keep track of total number of updated lines and patterns
+    num_updated_lines_found = 0
+    num_patterns_found = 0
+
+    # Keep track of inline assembly blocks: #APP and #NO_APP
+    inside_inline_asm_block = False
+
+    # Keep track of the function name for logging purpose
+    func_name = ''
+
+    modified_lines: list[str] = []
+
+    for i_line in range(0, len(lines)):  # forwards
+        line = lines[i_line]
+
+        # Copy the line into destination array
+        modified_lines.append(line)
+
+        # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
+        stripped = line.lstrip()
+
+        # Track inline assembly blocks
+        if stripped.startswith("#APP"):
+            inside_inline_asm_block = True
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                print_start_asm_block = True
+                print_end_asm_block = False
+            continue
+        elif stripped.startswith("#NO_APP"):
+            inside_inline_asm_block = False
+            if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+                if print_end_asm_block:
+                    print('[OPT_LOG] <-- End inline asm block')
+            print_start_asm_block = False
+            print_end_asm_block = False
+            continue
+
+        # Skip inline assembly blocks?
+        if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+            continue
+
+        # Is a function declaration?
+        if match := FUNCTION_DECLARATION_REGEX.match(line):
+            # Save the function name for logging purpose
+            func_name = match.group(1)
+            continue
+
+        # End of function? Then continue the searching
+        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+            # Reset the tracking of function name
+            func_name = ''
+            continue
+
+        optimized_line = ''
+
+        # lea     symbolName,aN     ->   lea     mem_address.w,aN        ; Saves 4 cycles
+        if match := lea_canonical_symbol_pattern.match(line):
+            symbolName = match.group(3)
+            symbol_size = match.group(4)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                symbol_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address (0x prefix already included)
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOWER_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    aN = match.group(7)
+                    optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # lea     mem_address,aN    ->   lea     mem_address.w,aN        ; Saves 4 cycles
+        elif match := lea_canonical_mem_address_pattern.match(line):
+            mem_addr = match.group(3)
+            mem_addr_size = match.group(4)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOWER_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    aN = match.group(7)
+                    optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # move.l  #symbolName,aN    ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
+        elif match := move_canonical_symbol_pattern.match(line):
+            s = match.group(3)
+            symbolName = match.group(5)
+            symbol_size = match.group(6)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if s == '.l' and (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                symbol_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address (0x prefix already included)
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOWER_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    # NOT_WORKING: when on higher RAM
+                    if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                        continue
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    aN = match.group(9)
+                    optimized_line = f'{match.group(1)}movea.w{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # move.l  #mem_address,aN   ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
+        elif match := move_canonical_mem_address_pattern.match(line):
+            s = match.group(3)
+            mem_addr = match.group(5)
+            mem_addr_size = match.group(6)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if s == '.l' and (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOWER_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    # NOT_WORKING: when on higher RAM
+                    if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                        continue
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    aN = match.group(9)
+                    optimized_line = f'{match.group(1)}movea.w{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # jmp     symbolName     ->   jmp     symbolName.w               ; Saves 2 cycles
+        # jsr     symbolName     ->   jsr     symbolName.w               ; Saves 2 cycles
+        elif match := jmp_jsr_canonical_symbol_pattern.match(line):
+            instr = match.group(2)
+            symbolName = match.group(4)
+            symbol_size = match.group(5)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                symbol_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address (0x prefix already included)
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF (see SGDK_RAM_START) and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOWER_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    optimized_line = f'{match.group(1)}{instr}{match.group(3)}{symbolName}.w{symbol_ops}'
+
+        # jmp     mem_address    ->   jmp     mem_address.w              ; Saves 2 cycles
+        # jsr     mem_address    ->   jsr     mem_address.w              ; Saves 2 cycles
+        elif match := jmp_jsr_canonical_mem_address_pattern.match(line):
+            instr = match.group(2)
+            mem_addr = match.group(4)
+            mem_addr_size = match.group(5)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                # If higher word is 0x0000 and lower word <= 0x7fff -> we can use .w
+                # If higher word is 0xE0FF and lower word >= 0x8000 -> we can use .w
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOWER_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w'
+
+        # Replace the original line with the its optimized version
+        if optimized_line != '':
+            modified_lines[len(modified_lines)-1] = optimized_line
+            num_updated_lines_found += 1
+            num_patterns_found += 1
+            # Print findings?
+            if PRINT_OPTIMIZATION_LOG:
+                # Print starting or ending an inline asm block
+                if print_start_asm_block:
+                    print('[OPT_LOG] --> Start inline asm block')
+                    print_start_asm_block = False
+                    print_end_asm_block = True
+                # Print optimization log
+                print_optimized_diff([line], i_line, [optimized_line])
+
+    return (modified_lines, num_updated_lines_found, num_patterns_found)
+
+def accomodate_canonical_address(lines: list[str], symbols_opt_filename: str, symbols_canonical_filename: str) -> tuple[list[str], int, int]:
+    """
+    Given that previous phase of reducing load of canonical address into aN makes gcc to re allocate some symbols,
+    we have to re accomodate the new final address of every symbol we have use in the reduction.
+    """
+
+    # Create a dictinary: memory address (ROM or RAM) -> symbolName
+    symbolName_by_mem_value_OPT_dict: dict[int, str] = {}
+    with open(symbols_opt_filename) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            mem_addr_s, t, symbolName = parts[:3]
+            mem_value = parseConstantUnsigned("0x" + mem_addr_s)
+            symbolName_by_mem_value_OPT_dict[mem_value] = symbolName
+
+    # Create a dictinary: symbolName -> memory address (ROM or RAM)
+    mem_addr_by_symbolName_CANONICAL_dict: dict[str, str] = {}
+    with open(symbols_canonical_filename) as f:
+        for line in f:
+            parts = line.split()
+            if len(parts) < 3:
+                continue
+            mem_addr_s, t, symbolName = parts[:3]
+            mem_addr_by_symbolName_CANONICAL_dict[symbolName] = "0x" + mem_addr_s
+
+    # Keep track of total number of updated lines and patterns
+    num_updated_lines_found = 0
+    num_patterns_found = 0
+
+    modified_lines: list[str] = []
+
+    for i_line in range(0, len(lines)):  # forwards
+        line = lines[i_line]
+
+        # Copy the line into destination array
+        modified_lines.append(line)
+
+        accomodated_line = ''
+
+        # lea     mem_address.w,aN
+        if match := lea_canonical_mem_address_pattern.match(line):
+            mem_addr = match.group(3)
+            mem_addr_size = match.group(4)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.w' or mem_addr.endswith('.w')):
+                mem_addr_ops = ''.join(match.group(k) for k in range(5, 7) if match.group(k))
+                if mem_addr.endswith('.w'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                old_mem_value = parseConstantUnsigned(mem_addr)
+                if old_mem_value in symbolName_by_mem_value_OPT_dict:
+                    symbolName = symbolName_by_mem_value_OPT_dict[old_mem_value]
+                    if symbolName in mem_addr_by_symbolName_CANONICAL_dict:
+                        new_mem_addr = mem_addr_by_symbolName_CANONICAL_dict[symbolName]
+                        new_mem_value = parseConstantUnsigned(new_mem_addr)
+                        # if old mem address is different than new mem address then we have to update the instruction
+                        if old_mem_value != new_mem_value:
+                            new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
+                            new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                            aN = match.group(7)
+                            accomodated_line = f'{match.group(1)}lea{match.group(2)}{new_mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # move.w  #mem_address.w,aN
+        elif match := move_canonical_mem_address_pattern.match(line):
+            s = match.group(3)
+            mem_addr = match.group(5)
+            mem_addr_size = match.group(6)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if s == '.w' and (not mem_addr_size or mem_addr_size == '.w' or mem_addr.endswith('.w')):
+                mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                if mem_addr.endswith('.w'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                old_mem_value = parseConstantUnsigned(mem_addr)
+                if old_mem_value in symbolName_by_mem_value_OPT_dict:
+                    symbolName = symbolName_by_mem_value_OPT_dict[old_mem_value]
+                    if symbolName in mem_addr_by_symbolName_CANONICAL_dict:
+                        new_mem_addr = mem_addr_by_symbolName_CANONICAL_dict[symbolName]
+                        new_mem_value = parseConstantUnsigned(new_mem_addr)
+                        # if old mem address is different than new mem address then we have to update the instruction
+                        if old_mem_value != new_mem_value:
+                            new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
+                            new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                            aN = match.group(9)
+                            accomodated_line = f'{match.group(1)}movea.w{match.group(4)}#{new_mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # Replace the original line with the its optimized version
+        if accomodated_line != '':
+            modified_lines[len(modified_lines)-1] = accomodated_line
+            num_updated_lines_found += 1
+            num_patterns_found += 1
+            # Print findings?
+            if PRINT_OPTIMIZATION_LOG:
+                # Print optimization log
+                print_optimized_diff([line], i_line, [accomodated_line])
+
+    return (modified_lines, num_updated_lines_found, num_patterns_found)
+
+
+def mainf(input_filename: str, output_filename: str, symbols_opt_filename: str, symbols_canonical_filename: str):
+    global PRINT_OPTIMIZATION_LOG
 
     print(f'[OPT_LOG] Optimizing {input_filename}')
 
-    if symbols_filename:
-        print(f'[OPT_LOG] Symbols file: {symbols_filename}')
+    if symbols_opt_filename:
+        print(f'[OPT_LOG] Symbols opt file: {symbols_opt_filename}')
+
+    if symbols_canonical_filename:
+        # Super dupped fix for a mega weird bug where symbols_opt_filename is empty even when the c plugin is setting it correctly
+        if not symbols_opt_filename:
+            symbols_opt_filename = symbols_canonical_filename.replace("symbol_canonical.txt", "symbol_opt.txt", 1)
+            print(f'[OPT_LOG] Symbols opt file: {symbols_opt_filename}')
+        print(f'[OPT_LOG] Symbols canonical file: {symbols_canonical_filename}')
+
+    # Disable printing log if we are in one of the symbols phase
+    old_state_printing_flag = PRINT_OPTIMIZATION_LOG
+    if PRINT_OPTIMIZATION_LOG and (symbols_opt_filename or symbols_canonical_filename):
+        PRINT_OPTIMIZATION_LOG = False
 
     with open(input_filename, 'r', encoding='utf-8') as infile:
         lines = infile.readlines()
@@ -9466,35 +9599,66 @@ def mainf(input_filename: str, output_filename: str, symbols_filename: str):
     # Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading
     modified_lines = applyGccConversions(lines)
 
-    if symbols_filename:
-        # Loading a canonical address into aN register can be reduced to its lower word .w taking advantage of sign extension.
+    # Collect all the functions declared in this assembly unit and store them into a global variable
+    collect_declared_functions(modified_lines)
+
+    # Print non used functions
+    non_used_functions(modified_lines)
+
+    # Remove ABI when possible
+    #print('[OPT_LOG] -- Simple ABI removal pass --')
+    #modified_lines = remove_simple_abi(modified_lines)
+
+    # 1st pass
+    print('[OPT_LOG] -- FIRST pass --')
+    modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, 1)
+    num_updated_lines_found += num_updated_lines_found_1st_pass
+    num_patterns_found += num_patterns_found_1st_pass
+
+    # 2nd pass: catch new opportunities and optimize branches
+    print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
+    modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
+    num_updated_lines_found += num_updated_lines_found_2nd_pass
+    num_patterns_found += num_patterns_found_2nd_pass
+
+    if symbols_opt_filename:
+        # Rollback to its original value only if symbols_canonical_filename is not set
+        if not symbols_canonical_filename:
+            PRINT_OPTIMIZATION_LOG = old_state_printing_flag
+
+        # Loading a canonical address into aN register or branching with j/jmp/jsr can be reduced to its lower 
+        # word .w taking advantage of the sign extension the instruction does.
         # It needs the latest symbols file generated in a previous compilation stage.
-        print('[OPT_LOG] -- Reduce load canonical address into aN using sign extension --')
-        #modified_lines, num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = reduce_load_canonical_address_using_sign_extension(modified_lines, symbols_filename)
+        print('[OPT_LOG] -- Reduce load and branch of a canonical address using sign extension --')
+
+        print('[OPT_LOG] Single line patterns (use .w on symbol or address)')
+        modified_lines, num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass = reduce_load_and_branch_canonical_address_using_sign_extension(modified_lines, symbols_opt_filename)
         num_updated_lines_found += num_updated_lines_found_canon_addr_pass
         num_patterns_found += num_patterns_found_canon_addr_pass
-    else:
-        # Collect all the functions declared in this assembly unit and store them into a global variable
-        collect_declared_functions(modified_lines)
 
-        # Print non used functions
-        non_used_functions(modified_lines)
+        # Let's try to shorten branches now that at least one reduction was applied
+        if num_patterns_found_canon_addr_pass > 0:
+            # Empty map for tracking original lines since current lines position are matching
+            line_number_map: dict[int, int] = {}
+            modified_lines, num_updates_shorten_branhces = process_single_lines_helper(
+                modified_lines, 
+                optimizeSingleLine_ShortenBranches, 
+                line_number_map, 
+                "Single line patterns (shorten branch instructions)"
+            )
+            num_updated_lines_found += num_updates_shorten_branhces
+            num_patterns_found += num_updates_shorten_branhces
 
-        # Remove ABI when possible
-        #print('[OPT_LOG] -- Simple ABI removal pass --')
-        #modified_lines = remove_simple_abi(modified_lines)
+    if symbols_canonical_filename:
+        # Rollback to its original value
+        PRINT_OPTIMIZATION_LOG = old_state_printing_flag
 
-        # 1st pass
-        print('[OPT_LOG] -- FIRST pass --')
-        modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, 1)
-        num_updated_lines_found += num_updated_lines_found_1st_pass
-        num_patterns_found += num_patterns_found_1st_pass
+        # Given that previous step forces gcc to relocate some symbols we have used in the optimization,
+        # now we have to read from updated symbols_canonical_filename and accomodate the symbols having an updated mem address
+        print('[OPT_LOG] -- Accomodate canonical address from previous step --')
 
-        # 2nd pass: catch new opportunities and optimize branches
-        print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
-        modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
-        num_updated_lines_found += num_updated_lines_found_2nd_pass
-        num_patterns_found += num_patterns_found_2nd_pass
+        print('[OPT_LOG] Single line patterns (re map re-located symbols)')
+        modified_lines, num_updated_lines_accomodated_canon_addr_pass, num_patterns_accomodated_canon_addr_pass = accomodate_canonical_address(modified_lines, symbols_opt_filename, symbols_canonical_filename)
 
     patterns_label = "pattern" if num_patterns_found == 1 else "patterns"
     if not SAVE_OPTIMIZATIONS:
@@ -9517,20 +9681,25 @@ def mainf(input_filename: str, output_filename: str, symbols_filename: str):
 
     with open(output_filename, 'w', encoding='utf-8') as outfile:
         for line in modified_lines:
-            outfile.write(line + '\n')
+            outfile.write(line)
+            outfile.write('\n')
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3 and len(sys.argv) != 4:
-        print("Usage: python optimize_lst.py <file.ext> <file.opt.ext> <optional_symbols_file>")
+    args_len = len(sys.argv)
+    if args_len != 3 and args_len != 4 and args_len != 5:
+        print("Usage: python optimize_lst.py <file.ext> <file.opt.ext> <optional_symbols_opt_file> <optional_symbols_canonical_file>")
         sys.exit(1)
 
     input_filename: str = sys.argv[1]
     output_filename: str = sys.argv[2]
-    symbols_filename: str = ""
-    if len(sys.argv) == 4:
-        symbols_filename: str = sys.argv[3]
+    symbols_opt_filename: str = ""
+    if args_len == 4:
+        symbols_opt_filename = sys.argv[3]
+    symbols_canonical_filename: str = ""
+    if args_len == 5:
+        symbols_canonical_filename = sys.argv[4]
 
-    mainf(input_filename, output_filename, symbols_filename)
+    mainf(input_filename, output_filename, symbols_opt_filename, symbols_canonical_filename)
 
 # Export decorated functions and classes
 __all__ = _PUBLIC_FUNCS_AND_CLASSES

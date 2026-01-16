@@ -38,7 +38,8 @@ int plugin_is_GPL_compatible;
 
 typedef struct {
 	bool keep_files;
-	char* symbols_path;
+	char* symbols_opt_path;
+	char* symbols_canonical_path;
 } my_callback_params_t;
 
 // Peephole function: Read file, modify, write back
@@ -114,13 +115,20 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 
     // Execute python program named optimize_lst.py with arguments
     char command[1024];
-	if (my_params->symbols_path != NULL) {
-		// Execute with symbols file
-		snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" \"%s\" 1>&2", 
-			filename, filename_optimized, my_params->symbols_path);
+	if (my_params->symbols_opt_path != NULL) {
+		// Execute with symbols opt file and symbols canonical file
+		if (my_params->symbols_canonical_path != NULL) {
+			snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" \"%s\" \"%s\" 1>&2", 
+				filename, filename_optimized, my_params->symbols_opt_path, my_params->symbols_canonical_path);
+		}
+		// Execute with symbols opt file
+		else {
+			snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" \"%s\" 1>&2", 
+				filename, filename_optimized, my_params->symbols_opt_path);
+		}
 	}
 	else {
-		// Execute with no symbols file
+		// Execute with no symbols files
 		snprintf(command, sizeof(command), "python3 $GDK/tools/optimize_lst.py \"%s\" \"%s\" 1>&2", 
 			filename, filename_optimized);
 	}
@@ -188,7 +196,8 @@ int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version 
 	// Allocate space for user params data struct
 	my_callback_params_t *my_params = (my_callback_params_t *) xmalloc(sizeof(my_callback_params_t));
 	my_params->keep_files = false;
-	my_params->symbols_path = NULL;
+	my_params->symbols_opt_path = NULL;
+	my_params->symbols_canonical_path = NULL;
 
 	for (int i=0; i < plugin_info->argc; i++)
     {
@@ -207,11 +216,19 @@ int plugin_init(struct plugin_name_args *plugin_info, struct plugin_gcc_version 
 			my_params->keep_files = true;
 		}
 
-		// -fplugin-arg-optimizer_plugin-symbols-path=<path_to_symbols_file>
-		if (strcmp(plugin_info->argv[i].key, "symbols-path") == 0) {
+		// -fplugin-arg-optimizer_plugin-symbols-opt-path=<path_to_symbols_opt_file>
+		if (strcmp(plugin_info->argv[i].key, "symbols-opt-path") == 0) {
 			// Ensure the value is not missing
 			if (plugin_info->argv[i].value != NULL && strcmp(plugin_info->argv[i].value, "") != 0) {
-				my_params->symbols_path = plugin_info->argv[i].value;
+				my_params->symbols_opt_path = plugin_info->argv[i].value;
+			}
+		}
+
+		// -fplugin-arg-optimizer_plugin-symbols-canonical-path=<path_to_symbols_canonical_file>
+		if (strcmp(plugin_info->argv[i].key, "symbols-canonical-path") == 0) {
+			// Ensure the value is not missing
+			if (plugin_info->argv[i].value != NULL && strcmp(plugin_info->argv[i].value, "") != 0) {
+				my_params->symbols_canonical_path = plugin_info->argv[i].value;
 			}
 		}
     }
