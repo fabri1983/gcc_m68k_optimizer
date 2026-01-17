@@ -3266,6 +3266,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
             # Note that gcc might use (disp,aM)
             matchA = re.match(r'^(\s*)moveq(\.[wl])?(\s+)#0,\s*(%d[0-7])', line_A)
             if matchA:
+                s = matchA.group(2)
                 dN = matchA.group(4)
                 matchB = re.match(r'^\s*move\.w\s+(%a[0-7]),\s*(%d[0-7])', line_B)
                 if matchB and dN == matchB.group(2):
@@ -3294,7 +3295,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                                     if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, multi_limit):
                                         if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, multi_limit):
                                             optimized_lines = [
-                                                f'{matchA.group(1)}moveq.{s}{matchA.group(3)}#0,{dN}',
+                                                f'{matchA.group(1)}moveq{s}{matchA.group(3)}#0,{dN}',
                                                 f'{matchA.group(1)}move.w{matchA.group(3)}{aN},{dN}',
                                                 f'{matchA.group(1)}{alu_1}.l  {matchA.group(3)}#{val},{dN}',
                                                 f'{matchA.group(1)}{alu_2}.l  {matchA.group(3)}{dN},{dM}',

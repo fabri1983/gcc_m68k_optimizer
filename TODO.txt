@@ -1,4 +1,18 @@
+Installing Cython on WSL and compile python script into c
+---------------------------------------------------------
+sudo apt install python3-full
+sudo apt install cython3
+cython --3str optimize_lst.py -o optimize_lst.c
+cython --3str optimize_mul_patterns.py -o optimize_mul_patterns.c
+
+Then to compile into a module:
+gcc -shared -pthread -fPIC -fwrapv -O2 -Wall -fno-strict-aliasing \
+    -I/usr/include/python3.10 -o myscript.so myscript.c
+
+
+
 Examples of ABI calls:
+----------------------
 Case 1:
 	move.l %d1,-(%sp)
 	eor.w %d1,%d2
@@ -60,8 +74,8 @@ SGDK SAMPLES:
 
 TODO
 ====
-When generating an int with int(string) or parseConstantUnsigned(string) and then comparing against an hex value 0xAACCEE00:
-    Use & 0xFFFFFFFF over the int value
+When generating an int with int(string) or parseConstantXXX(string) and then comparing against an hex value 0xAACCEE00:
+    Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
 
 Reg expressions catching a symbol or mem address along with its size (\.[bwl])?
     Make sure the size is not part of the symbolName or the mem address.
