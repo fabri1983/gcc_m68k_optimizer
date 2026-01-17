@@ -67,6 +67,7 @@ except ImportError:
     print("ERROR: Please install Colorama module with 'pip install colorama'")
     exit(1)
 
+
 SGDK_LOWER_ROM_END = 0x00007FFF
 SGDK_HIGH_RAM_START = 0xE0FF8000
 
@@ -9570,8 +9571,8 @@ def accomodate_canonical_address(lines: list[str], symbols_opt_filename: str, sy
 
     return (modified_lines, num_updated_lines_found, num_patterns_found)
 
-
-def mainf(input_filename: str, output_filename: str, symbols_opt_filename: str, symbols_canonical_filename: str):
+@export_func
+def optimize_file(input_filename: str, output_filename: str, symbols_opt_filename: str | None, symbols_canonical_filename: str | None):
     global PRINT_OPTIMIZATION_LOG
 
     print(f'[OPT_LOG] Optimizing {input_filename}')
@@ -9693,14 +9694,14 @@ if __name__ == "__main__":
 
     input_filename: str = sys.argv[1]
     output_filename: str = sys.argv[2]
-    symbols_opt_filename: str = ""
+    symbols_opt_filename: str | None = None
     if args_len == 4:
         symbols_opt_filename = sys.argv[3]
-    symbols_canonical_filename: str = ""
+    symbols_canonical_filename: str | None = None
     if args_len == 5:
         symbols_canonical_filename = sys.argv[4]
 
-    mainf(input_filename, output_filename, symbols_opt_filename, symbols_canonical_filename)
+    optimize_file(input_filename, output_filename, symbols_opt_filename, symbols_canonical_filename)
 
 # Export decorated functions and classes
 __all__ = _PUBLIC_FUNCS_AND_CLASSES

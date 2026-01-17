@@ -2,12 +2,21 @@ Installing Cython on WSL and compile python script into c
 ---------------------------------------------------------
 sudo apt install python3-full
 sudo apt install cython3
+cython --3str optimize_lst_wrapper.pyx -o optimize_lst_wrapper.c
 cython --3str optimize_lst.py -o optimize_lst.c
 cython --3str optimize_mul_patterns.py -o optimize_mul_patterns.c
 
-Then to compile into a module:
-gcc -shared -pthread -fPIC -fwrapv -O2 -Wall -fno-strict-aliasing \
-    -I/usr/include/python3.10 -o myscript.so myscript.c
+Edit optimizer_plugin.c accordingly:
+#include "optimize_lst_c_wrapper.h"
+...
+    int result = c_optimize_file("input.txt", "output.txt", symbols_opt_file or NULL, symbols_canonical_file or NULL);
+
+Edit build_plugin.sh accordingly:
+g++ -I"$PLUGIN_INCLUDE" -I"$GCC_INC" -I/usr/include/python3.10 -DIN_GCC \
+    -shared -fPIC -fno-rtti -fpermissive -Wno-pointer-arith -Wno-unused-result \
+    -fwrapv -pthread -O2 -Wall -fno-strict-aliasing \
+    optimizer_plugin.c optimize_lst.c optimize_mul_patterns.c -o optimizer_plugin.so \
+    -lcc1 -lpython3.10
 
 
 
