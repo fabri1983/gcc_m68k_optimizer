@@ -9,8 +9,7 @@
 #include <stdbool.h>
 #include <sys/stat.h>        // For file size
 #include <libgen.h>          // For dirname/basename
-#include <stdlib.h>          // For system()
-#include "optimizer_plugin_cython_wrapper.h"
+#include <stdlib.h>          // For system() and getenv()
 
 // ANSI color codes
 #define COLOR_RED     "\033[1;31m"
@@ -114,8 +113,37 @@ static void my_optimize_func(const char *filename, my_callback_params_t *my_para
 		fclose(fp_copy);
 	}
 
-    // Call the optimizer function from cython
-    int ret = optimize_file_cython_wrapper(filename, filename_optimized, my_params->symbols_opt_path, my_params->symbols_canonical_path);
+	const char *gdk_path = getenv("GDK");
+
+	// Handle GDK environment variable
+	if (gdk_path == NULL) {
+		PRINT_ERROR("GDK environment variable not set\n");
+		free(filename_optimized);
+		free(filename_copy);
+        return;
+	}
+
+    // Execute the c program named optimize_lst_exe with arguments
+    char command[1024];
+	if (my_params->symbols_opt_path != NULL) {
+		// Execute with symbols opt file and symbols canonical file
+		if (my_params->symbols_canonical_path != NULL) {
+			snprintf(command, sizeof(command), "%s/tools/optimize_lst_exe \"%s\" \"%s\" \"%s\" \"%s\" 1>&2", 
+				gdk_path, filename, filename_optimized, my_params->symbols_opt_path, my_params->symbols_canonical_path);
+		}
+		// Execute with symbols opt file
+		else {
+			snprintf(command, sizeof(command), "%s/tools/optimize_lst_exe \"%s\" \"%s\" \"%s\" 1>&2", 
+				gdk_path, filename, filename_optimized, my_params->symbols_opt_path);
+		}
+	}
+	else {
+		// Execute with no symbols files
+		snprintf(command, sizeof(command), "%s/tools/optimize_lst_exe \"%s\" \"%s\" 1>&2", 
+			gdk_path, filename, filename_optimized);
+	}
+
+    int ret = system(command);
 
     if (ret != 0) {
         PRINT_ERROR("Optimizer failed with code %d\n", ret);

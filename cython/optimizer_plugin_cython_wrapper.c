@@ -1,5 +1,6 @@
 #include <Python.h>
-#include "optimizer_plugin_cython_wrapper.h"
+#include <stdio.h>
+#include <stdlib.h>
 #include "optimize_lst_c_wrapper.h"
 
 int optimize_file_cython_wrapper(const char *input_filename,
@@ -16,4 +17,47 @@ int optimize_file_cython_wrapper(const char *input_filename,
 	Py_Finalize();
 
 	return ret;
+}
+
+/*
+ * Executable entry point
+ *
+ * Supported invocations:
+ *   optimize_lst_exe <input> <output>
+ *   optimize_lst_exe <input> <output> <symbols_opt>
+ *   optimize_lst_exe <input> <output> <symbols_opt> <symbols_canonical>
+ */
+int main(int argc, char **argv)
+{
+    const char *input = NULL;
+    const char *output = NULL;
+    const char *symbols_opt = NULL;
+    const char *symbols_canonical = NULL;
+
+    if (argc < 3 || argc > 5) {
+        fprintf(stderr,
+                "Usage:\n"
+                "  %s <input> <output>\n"
+                "  %s <input> <output> <symbols_opt>\n"
+                "  %s <input> <output> <symbols_opt> <symbols_canonical>\n",
+                argv[0], argv[0], argv[0]);
+        return 1;
+    }
+
+    input  = argv[1];
+    output = argv[2];
+
+    if (argc >= 4) {
+        symbols_opt = argv[3];
+    }
+    if (argc == 5) {
+        symbols_canonical = argv[4];
+    }
+
+    return optimize_file_cython_wrapper(
+        input,
+        output,
+        symbols_opt,
+        symbols_canonical
+    );
 }
