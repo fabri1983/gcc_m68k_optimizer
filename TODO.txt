@@ -1,30 +1,3 @@
-From Tails8521:
-ADD.L Dx, Dx
-ADD.L Dx, Dx
--> LSL.L #2, Dx (weird that gcc doesn't figure that one out already)
-
-LSL #1, Dx
--> ADD Dx, Dx (ditto for this one)
-
-ORI #$80, Dx
--> TAS Dx
-
-(addr).l -> addr(pc) (if possible)
-
-I fuse two consecutive move.w #imm, disp16(Ax) into a single move.l #imm disp16(Ax) when their destination is 2 bytes apart
-
-The last two I do at the end because they can increase function size (I apply them only until the function gets back to its original size)
-CLR.L -(A7) -> PEA 0.W
-CLR.W -(A7) -> MOVE.W #0, -(A7)
-
-From ctr001:
-move.b ea,dn; and.b #xx,dn -> moveq #xx,dn; and.b ea,dn
-
-From Gigasoft:
-You can replace adda/suba.w as well with lea, as it is faster
-Ori #$80 and tas affect ccr differently, so be careful with that
-
-
 
 Examples of ABI calls:
 ----------------------
@@ -77,7 +50,7 @@ UNLK aN must be treated as: move.l  aN,sp
 
 SGDK SAMPLES:
 	Crash or Fail:
-		benchmark -> Crash after Horizontal Scrolling (alternative/alternate). I think it was test 7
+		benchmark -> Crash after Horizontal Scrolling (alternative/alternate). I think it was test 7th
 		flash-save -> Gives HW Error text on display
 		game/sonic -> Crash when pressing start
 		snd/xgm-player -> Crash when loading rom
@@ -89,6 +62,8 @@ SGDK SAMPLES:
 
 TODO
 ====
+When matching specifically with a symbolName use [a-zA-Z_\.][0-9a-zA-Z_\.]+
+
 When generating an int with int(string) or parseConstantXXX(string) and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
 
@@ -107,6 +82,9 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 
 Single instruction
 ==================
+From Tails8521:
+(addr).l -> addr(pc)  if possible
+
 Clear upper word of dN where we know for sure dN holds: 0 <= val <= 0x7FFF (32767)
 and.l   #0xFFFF,d0   ->   ext.l   d0                 ; Saves 12 cycles
 
