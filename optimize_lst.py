@@ -6367,18 +6367,19 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         # TODO: Only if dN is then used with .w or .b accessor before is overwritten/cleared.
         matchA = move_ea_into_dN_pattern.match(line_A)
         if matchA and matchA.group(2) == 'w':
-            xN = matchA.group(4)
+            ea = next((matchA.group(i) for i in range(4, 12) if matchA.group(i)), None)
             dN = matchA.group(12)
-            matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
-            if matchB and dN == matchB.group(4):
-                ea = next((matchA.group(i) for i in range(4, 12) if matchA.group(i)), None)
-                mask = parseConstantUnsigned(matchB.group(2))
-                if mask & 0xFFFFFFFF == 0xFF:
-                    optimized_lines = [
-                        f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
-                        f'{matchA.group(1)}move.b{matchA.group(3)}{ea},{dN}'
-                    ]
-                    return (optimized_lines, multi_limit)
+            # TODO: We have to adjust by +1 any displacement, symbolName or mem address
+            if ea.startswith(("%d","%a","%sp")):
+                matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
+                if matchB and dN == matchB.group(4):
+                    mask = parseConstantUnsigned(matchB.group(2))
+                    if mask & 0xFFFFFFFF == 0xFF:
+                        optimized_lines = [
+                            f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                            f'{matchA.group(1)}move.b{matchA.group(3)}{ea},{dN}'
+                        ]
+                        return (optimized_lines, multi_limit)
 
         if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
