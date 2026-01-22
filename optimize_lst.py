@@ -69,7 +69,7 @@ except ImportError:
 
 
 SGDK_LOWER_ROM_END = 0x00007FFF
-SGDK_HIGH_RAM_START = 0xE0FF8000
+SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 
 # NOT_WORKING
 # Those lines in this script marked with NOT_WORKING keyword are mean to be skipped from optimization.
@@ -3078,21 +3078,21 @@ lea_label_or_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
 move_ea_into_dN_pattern = re.compile(
     r'^(\s*)move\.([bwl])(\s+)'
     r'(?:'
-    r'(%d[0-7]|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN or (aN) or -(aN) or (aN)+
+    r'(%d[0-7]|%a[0-7]|%sp|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN/aN or (aN) or -(aN) or (aN)+
     r'|'
-    r'(#?[0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label or symbol[.s] or #symbol[.s].
+    r'(#?[a-zA-Z_\.][0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label or symbol[.s] or #symbol[.s].
     r'|'
     r'(#?(?:-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?)'  # ABS[.s] or imm[.s] or #imm[.s]
     r'|'
     r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/PC,xN.s)
     r'|'
-    r'((?:[0-9a-zA-Z_\.]+|-?\d+(?:[\-\+\*]\d+)?)\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
     r'|'
-    r'(\((?:[0-9a-zA-Z_\.]+|-?\d+(?:[\-\+\*]\d+)?),(?:%a[0-7]|%sp|%pc)\))'  # (label_or_disp[+-*N],aN/PC)
+    r'(\((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?,(?:%a[0-7]|%sp|%pc)\))'  # (label_or_disp[+-*N],aN/PC)
     r'|'
-    r'((?:[0-9a-zA-Z_\.]+|-?\d+(?:[\-\+\*]\d+)?)\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/PC,xN.s)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/PC,xN.s)
     r'|'
-    r'(\((?:[0-9a-zA-Z_\.]+|-?\d+(?:[\-\+\*]\d+)?),(?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (label_or_disp[+-*N],aN/PC,xN.s)
+    r'(\((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?,(?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (label_or_disp[+-*N],aN/PC,xN.s)
     r')'
     r',\s*(%d[0-7])\b'
 )
@@ -5408,7 +5408,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
 
         # Apply a mask where -128 <= mask <= 127
         # move.s   <ea>,dN    ->    moveq   #mask,dN      ; Saves 4 cycles. Top bits of dN different
-        # andi.s   #mask,dN         and.s   <ea>,dN
+        # and.s    #mask,dN         and.s   <ea>,dN
         # <ea>: effective address valid for AND instruction:
         #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l   d(PC)   d(PC,xN.s)   imm
         # Where s in xN.s is: b,w,l
@@ -5418,19 +5418,21 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         if matchA:
             s = matchA.group(2)
             dN = matchA.group(12)
-            matchB = re.match(r'^\s*(andi|and)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
+            matchB = re.match(r'^\s*(and|andi)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
             if matchB and dN == matchB.group(4):
                 ea = next((matchA.group(i) for i in range(4, 12) if matchA.group(i)), None)
-                mask = parseConstantSigned(matchB.group(3), 8)
-                if -128 <= mask <= 127 and not ea.startswith(('%a','%sp')):
-                    # if ea is #symbolName then remove the '#'
-                    #if re.match(r'^#[a-zA-Z_\.][0-9a-zA-Z_\.]+$', ea):
-                    #    ea = ea[1:]
-                    optimized_lines = [
-                        f'{matchA.group(1)}moveq{matchA.group(3)}#{mask},{dN}',
-                        f'{matchA.group(1)}and.{s}{matchA.group(3)}{ea},{dN}'
-                    ]
-                    return (optimized_lines, multi_limit)
+                # An and SP are not valid sources for 'and' instruction
+                if not ea.startswith(("%a","%sp")):
+                    mask = parseConstantSigned(matchB.group(3), 8)
+                    if -128 <= mask <= 127 and not ea.startswith(('%a','%sp')):
+                        # if ea is #symbolName then remove the '#'
+                        #if re.match(r'^#[a-zA-Z_\.][0-9a-zA-Z_\.]+$', ea):
+                        #    ea = ea[1:]
+                        optimized_lines = [
+                            f'{matchA.group(1)}moveq{matchA.group(3)}#{mask},{dN}',
+                            f'{matchA.group(1)}and.{s}{matchA.group(3)}{ea},{dN}'
+                        ]
+                        return (optimized_lines, multi_limit)
 
         # move.l  aN,sp      ->    unlk    aN       ; Saves 4 cycles
         # move.l  (sp)+,aN
@@ -6369,17 +6371,60 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         if matchA and matchA.group(2) == 'w':
             ea = next((matchA.group(i) for i in range(4, 12) if matchA.group(i)), None)
             dN = matchA.group(12)
-            # TODO: We have to adjust by +1 any displacement, symbolName or mem address
-            if ea.startswith(("%d","%a","%sp")):
-                matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
-                if matchB and dN == matchB.group(4):
-                    mask = parseConstantUnsigned(matchB.group(2))
-                    if mask & 0xFFFFFFFF == 0xFF:
-                        optimized_lines = [
-                            f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
-                            f'{matchA.group(1)}move.b{matchA.group(3)}{ea},{dN}'
-                        ]
-                        return (optimized_lines, multi_limit)
+            # An and SP are not valid sources for 'and' instruction
+            if not ea.startswith(("%a","%sp")):
+                # NOTE: We have to adjust <ea> by +1 byte if <ea> uses a displacement, symbolName or mem address access
+                ea_adjusted = ''
+                # dN
+                if match_ea := re.match(r'^(%d[0-7])$', ea):
+                    ea_adjusted = ea
+                # (aN)
+                # -(aN) and (aN)+ can't be handled because we'd need access the lower byte after dec/inc the pointer by 2 bytes which is not possible
+                elif match_ea := re.match(r'^\(%a[0-7]|%sp\)$', ea):
+                    ea_adjusted = "1" + ea
+                # label or symbol[.s] or #symbol[.s]
+                # ABS[.s] or imm[.s] or #imm[.s]
+                elif matchA.group(5) or matchA.group(6):
+                    ea_adjusted = ea + "+1"
+                # (aN/PC,xN.s)
+                elif matchA.group(7):
+                    ea_adjusted = "1" + ea
+                # label_or_disp[+-*N](aN/PC)
+                # (label_or_disp[+-*N],aN/PC)
+                elif match_ea := (re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea) 
+                                or re.match(r'^\((-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?,(%a[0-7]|%sp|%pc)\)$', ea)):
+                    label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                    label_or_disp_updated = label_or_disp
+                    if isValue(label_or_disp):
+                        disp = parseConstantSigned(label_or_disp, 16)
+                        label_or_disp_updated = str(disp + 1)
+                    else:
+                        label_or_disp_updated += "1"
+                    ea_adjusted = f'{label_or_disp_updated}({match_ea.group(3)})'
+                # label_or_disp[+-*N](aN/PC,xN.s)
+                # (label_or_disp[+-*N],aN/PC,xN.s)
+                elif match_ea := (re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea) 
+                                or re.match(r'^\((-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?,(%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea)):
+                    label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                    label_or_disp_updated = label_or_disp
+                    if isValue(label_or_disp):
+                        disp = parseConstantSigned(label_or_disp, 8)
+                        label_or_disp_updated = str(disp + 1)
+                    else:
+                        label_or_disp_updated += "1"
+                    aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                    ea_adjusted = f'{label_or_disp_updated}({aN_with_xN_s})'
+                # Check on adjusted <ea>
+                if ea_adjusted:
+                    matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
+                    if matchB and dN == matchB.group(4):
+                        mask = parseConstantUnsigned(matchB.group(2))
+                        if mask & 0xFFFFFFFF == 0xFF:
+                            optimized_lines = [
+                                f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                                f'{matchA.group(1)}move.b{matchA.group(3)}{ea_adjusted},{dN}'
+                            ]
+                            return (optimized_lines, multi_limit)
 
         if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
