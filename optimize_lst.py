@@ -1833,13 +1833,14 @@ def is_reg_used_as_word_or_byte_afterwards(xN: str, i_line: int, lines: list[str
     if len(matching_lines) == 0:
         return False
 
-    # The moment both conditions are not met for at least one line then the criteria is not met
+    # When a matching line doesn't satisfy the criteria it means that the path flow of that line is the culprit.
     for matching_line in matching_lines:
-        # Let's check if the register is used in any indirection: 'xN.s)'
-        if f'{xN}.b)' in matching_line or f'{xN}.w)' in matching_line:
-             continue  # This line meets the condition, check next line
 
-        # Let's check for the instruction size
+        # Condition 1: Check if the register is used in any indirection: 'xN.s)'
+        if xN+".b)" in matching_line or xN+".w)" in matching_line:
+             continue  # This line meets this condition, check next line
+
+        # Condition 2: Check for the instruction size
         match_instr_size = INSTRUCTION_WITH_SIZE_REGEX.match(matching_line)
         if match_instr_size:
             s = match_instr_size.group(2)
@@ -6366,58 +6367,58 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         # Clear higher byte of lower word with 0xFF (255)
         # move.w  <ea>,dN    ->   moveq   #0,dN       ; Saves 4 cycles. Top bits of dN different
         # and.w   #255,dN         move.b  <ea>,dN
-        # TODO: Only if dN is then used with .w or .b accessor before is overwritten/cleared.
+        # Only if dN is then used with .w or .b accessor before is overwritten/cleared.
         matchA = move_ea_into_dN_pattern.match(line_A)
         if matchA and matchA.group(2) == 'w':
-            ea = next((matchA.group(i) for i in range(4, 12) if matchA.group(i)), None)
             dN = matchA.group(12)
-            # An and SP are not valid sources for 'and' instruction
-            if not ea.startswith(("%a","%sp")):
-                # NOTE: We have to adjust <ea> by +1 byte if <ea> uses a displacement, symbolName or mem address access
-                ea_adjusted = ''
-                # dN
-                if match_ea := re.match(r'^(%d[0-7])$', ea):
-                    ea_adjusted = ea
-                # (aN)
-                # -(aN) and (aN)+ can't be handled because we'd need access the lower byte after dec/inc the pointer by 2 bytes which is not possible
-                elif match_ea := re.match(r'^\(%a[0-7]|%sp\)$', ea):
-                    ea_adjusted = "1" + ea
-                # label or symbol[.s] or #symbol[.s]
-                # ABS[.s] or imm[.s] or #imm[.s]
-                elif matchA.group(5) or matchA.group(6):
-                    ea_adjusted = ea + "+1"
-                # (aN/PC,xN.s)
-                elif matchA.group(7):
-                    ea_adjusted = "1" + ea
-                # label_or_disp[+-*N](aN/PC)
-                # (label_or_disp[+-*N],aN/PC)
-                elif match_ea := (re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea) 
-                                or re.match(r'^\((-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?,(%a[0-7]|%sp|%pc)\)$', ea)):
-                    label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
-                    label_or_disp_updated = label_or_disp
-                    if isValue(label_or_disp):
-                        disp = parseConstantSigned(label_or_disp, 16)
-                        label_or_disp_updated = str(disp + 1)
-                    else:
-                        label_or_disp_updated += "1"
-                    ea_adjusted = f'{label_or_disp_updated}({match_ea.group(3)})'
-                # label_or_disp[+-*N](aN/PC,xN.s)
-                # (label_or_disp[+-*N],aN/PC,xN.s)
-                elif match_ea := (re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea) 
-                                or re.match(r'^\((-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?,(%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea)):
-                    label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
-                    label_or_disp_updated = label_or_disp
-                    if isValue(label_or_disp):
-                        disp = parseConstantSigned(label_or_disp, 8)
-                        label_or_disp_updated = str(disp + 1)
-                    else:
-                        label_or_disp_updated += "1"
-                    aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
-                    ea_adjusted = f'{label_or_disp_updated}({aN_with_xN_s})'
-                # Check on adjusted <ea>
-                if ea_adjusted:
-                    matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
-                    if matchB and dN == matchB.group(4):
+            matchB = re.match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%d[0-7])', line_B)
+            if matchB and dN == matchB.group(4):
+                ea = next((matchA.group(i) for i in range(4, 12) if matchA.group(i)), None)
+                # An and SP are not valid sources for 'and' instruction
+                if not ea.startswith(("%a","%sp")):
+                    # NOTE: We have to adjust <ea> by +1 byte if <ea> uses a displacement, symbolName or mem address access
+                    ea_adjusted = ''
+                    # dN
+                    if match_ea := re.match(r'^(%d[0-7])$', ea):
+                        ea_adjusted = ea
+                    # (aN)
+                    # -(aN) and (aN)+ can't be handled because we'd need access the lower byte after dec/inc the pointer by 2 bytes which is not possible
+                    elif match_ea := re.match(r'^\(%a[0-7]|%sp\)$', ea):
+                        ea_adjusted = "1" + ea
+                    # label or symbol[.s] or #symbol[.s]
+                    # ABS[.s] or imm[.s] or #imm[.s]
+                    elif matchA.group(5) or matchA.group(6):
+                        ea_adjusted = ea + "+1"
+                    # (aN/PC,xN.s)
+                    elif matchA.group(7):
+                        ea_adjusted = "1" + ea
+                    # label_or_disp[+-*N](aN/PC)
+                    # (label_or_disp[+-*N],aN/PC)
+                    elif match_ea := (re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea) 
+                                    or re.match(r'^\((-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?,(%a[0-7]|%sp|%pc)\)$', ea)):
+                        label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                        label_or_disp_updated = label_or_disp
+                        if isValue(label_or_disp):
+                            disp = parseConstantSigned(label_or_disp, 16)
+                            label_or_disp_updated = str(disp + 1)
+                        else:
+                            label_or_disp_updated += "1"
+                        ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                    # label_or_disp[+-*N](aN/PC,xN.s)
+                    # (label_or_disp[+-*N],aN/PC,xN.s)
+                    elif match_ea := (re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea) 
+                                    or re.match(r'^\((-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?,(%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea)):
+                        label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                        label_or_disp_updated = label_or_disp
+                        if isValue(label_or_disp):
+                            disp = parseConstantSigned(label_or_disp, 8)
+                            label_or_disp_updated = str(disp + 1)
+                        else:
+                            label_or_disp_updated += "1"
+                        aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                        ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                    # Check on adjusted <ea>
+                    if ea_adjusted and is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
                         mask = parseConstantUnsigned(matchB.group(2))
                         if mask & 0xFFFFFFFF == 0xFF:
                             optimized_lines = [
