@@ -64,7 +64,8 @@ TODO
 ====
 When matching specifically with a symbolName use [a-zA-Z_\.][0-9a-zA-Z_\.]+
 
-When generating an int with int(string) or parseConstantXXX(string) and then comparing against an hex value 0xAACCEE00:
+When generating an int with int(string) or parseConstantSigned(string) or evaluate_instr_math_expression() 
+and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
 
 Reg expressions catching a symbol or mem address along with its size (\.[bwl])?
@@ -83,7 +84,11 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 Single instruction
 ==================
 From Tails8521:
-(addr).l -> addr(pc)  if possible
+(addr).l -> addr(pc)  where addr has to be in the range -32k to +32k from pc.
+Also note that this addressing mode only works as source, not destination.
+Update on reduce_load_and_branch_canonical_address_using_sign_extension()
+and accomodate_canonical_address()
+NOTE: if using this optimization then I need to add support for symbol_or_mem(pc) in reg exps.
 
 Clear upper word of dN where we know for sure dN holds: 0 <= val <= 0x7FFF (32767)
 and.l   #0xFFFF,d0   ->   ext.l   d0                 ; Saves 12 cycles

@@ -294,11 +294,11 @@ def parseConstantUnsigned(s_value: str) -> int:
              Otherwise Signed integer for decimal representation
     """
     if s_value.startswith(('0x','0X','$')):
-        return int(s_value[2:], 16)
+        return int(s_value[2:], 16) & 0xFFFFFFFF
     elif s_value.startswith(('0b','0B','%')):
-        return int(s_value[2:], 2)
+        return int(s_value[2:], 2) & 0xFFFFFFFF
     else:
-        return int(s_value)
+        return int(s_value) & 0xFFFFFFFF
 
 def parseConstantSigned(s_value: str, bit_depth: int=32) -> int:
     """
@@ -332,7 +332,7 @@ def parseConstantSigned(s_value: str, bit_depth: int=32) -> int:
 
     return result
 
-def find_bset_bit(n: int) -> int:
+def find_bset_bit(n: int) -> int | None:
     """
     Finds the only bit position 'b' at which is 1.
     Returns None if 'n' is not a valid single-bit mask.
@@ -352,8 +352,19 @@ def find_bset_bit(n: int) -> int:
         b += 1
     return b
 
-def find_bclr_bit(n: int) -> int:
-    return find_bset_bit(~n)  # NOT n
+def find_bclr_bit(n: int) -> int | None:
+    """
+    Finds the only bit position 'b' at which is 0.
+    Returns None if 'n' is not a valid single-bit mask.
+    """
+    inverted = 0
+    if 0 <= n <= 255:
+        inverted = ~n & 0xFF
+    elif 0 <= n <= 65535:
+        inverted = ~n & 0xFFFF
+    else:
+        inverted = ~n & 0xFFFFFFFF
+    return find_bset_bit(inverted)  # NOT n
 
 # Set of mapings valid only for move.l #n optimizations
 n_to_m: dict[int, int] = {
@@ -901,7 +912,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
 
     # Set excluded indexes as not available candidates
     for reg_index in exclude_indexes:
-        candidate_mask &= ~(1 << reg_index)  # Set reg_index as unavailable
+        candidate_mask &= ~(1 << reg_index) & 0xFF  # Set reg_index as unavailable
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
@@ -941,7 +952,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                 if reg_str.startswith(reg_type):
                     reg_index = int(reg_str[2])  # Extract the digit after '%x'
                     if reg_index not in exclude_indexes:
-                        candidate_mask |= (1 << reg_index)  # Mark candidate as available
+                        candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
         # If poping from stack then extract the registers
         elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
             regs_list = extract_registers(pop_match.group(3), POP_OP)
@@ -949,7 +960,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                 if reg_str.startswith(reg_type):
                     reg_index = int(reg_str[2])  # Extract the digit after '%x'
                     if reg_index not in exclude_indexes:
-                        candidate_mask |= (1 << reg_index)  # Mark candidate as available
+                        candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
         # It's a source or indirect operand?
         elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
             regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
@@ -957,13 +968,13 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                 if reg_str.startswith(reg_type):
                     reg_index = int(reg_str[2])  # Extract digit after '%x'
                     if reg_index not in exclude_indexes:
-                        candidate_mask |= 1 << reg_index  # Mark candidate as available
+                        candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
         # It's a target operand?
         elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
             if match.group(1).startswith(reg_type):
                 reg_index = int(match.group(1)[2])  # Extract digit after '%x'
                 if reg_index not in exclude_indexes:
-                    candidate_mask |= 1 << reg_index  # Mark candidate as available
+                    candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
 
         # All registers available? Then no need to keep scanning
         if candidate_mask == 0xFF:
@@ -1082,7 +1093,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                         # Check reg is not one of the excluded and if not already overwritten/cleared
                         if (reg_index not in exclude_indexes) and not (overwritten_or_cleared_mask & (1 << reg_index)):
                             used_before_overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as used before overwritten/cleared
-                            candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+                            candidate_mask &= ~(1 << reg_index) & 0xFF  # Mark candidate as unavailable
 
             # If poping from stack then consider the regs as overwritten
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
@@ -1129,7 +1140,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                         # Check reg is not one of the excluded and if not already overwritten/cleared
                         if (reg_index not in exclude_indexes) and not (overwritten_or_cleared_mask & (1 << reg_index)):
                             used_before_overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as used before overwritten/cleared
-                            candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+                            candidate_mask &= ~(1 << reg_index) & 0xFF  # Mark candidate as unavailable
 
         # No more available candidates?
         if candidate_mask == 0:
@@ -1203,7 +1214,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
 
     # Set excluded indexes as not available candidates
     for reg_index in exclude_indexes:
-        candidate_mask &= ~(1 << reg_index)  # Set reg_index as unavailable
+        candidate_mask &= ~(1 << reg_index) & 0xFF  # Set reg_index as unavailable
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
@@ -1328,7 +1339,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
                 if match.group(1).startswith(reg_type):
                     reg_index = int(match.group(1)[2])  # Extract digit after '%x'
                     if reg_index not in exclude_indexes:
-                        candidate_mask &= ~(1 << reg_index)  # Mark candidate as unavailable
+                        candidate_mask &= ~(1 << reg_index) & 0xFF  # Mark candidate as unavailable
 
         # No more available candidates?
         if candidate_mask == 0:
@@ -5140,7 +5151,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                         ]
                         return (optimized_lines, multi_limit)
 
-        # bset.l #7,dN
+        # Use tas instruction to set bit 7th
         matchA = re.match(r'^(\s*)bset\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
         if matchA:
 
@@ -6420,7 +6431,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                     # Check on adjusted <ea>
                     if ea_adjusted and is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
                         mask = parseConstantUnsigned(matchB.group(2))
-                        if mask & 0xFFFFFFFF == 0xFF:
+                        if mask == 0xFF:
                             optimized_lines = [
                                 f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                                 f'{matchA.group(1)}move.b{matchA.group(3)}{ea_adjusted},{dN}'
@@ -7470,7 +7481,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 ]
                 return (optimized_lines, True)
 
-    # move.b   #-1,dN      ->    st.b    dN        ; Saves 4 cycles
+    # move.b   #-1,dN     ->   st.b    dN          ; Saves 4 cycles
     match = re.match(r'^(\s*)move\.b(\s+)#-1,\s*(%d[0-7])', line)
     if match:
         dN = match.group(3)
@@ -7490,7 +7501,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
     # Push constant val into sp
     # If -32767 <= val <= 32767, ie: val = 0x0000NNNN
-    # move.l   #val,-(sp)   ->   pea   val.w     ; Saves 4 cycles
+    # move.l   #val,-(sp)   ->   pea   val.w       ; Saves 4 cycles
     match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*-\(%sp\)', line)
     if match:
         val = parseConstantUnsigned(match.group(3))
@@ -7568,27 +7579,28 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
         # Clear lower word with mask 0xFFFF0000 (-65536)
         # and.l   #-65536,dN   ->     clr.w  dN          ; Saves 12 cycles
-        if val == 0xffff0000:  # use this due to unsigned parseing of val
+        if val == 0xffff0000:  # use this due to unsigned parsing of val
             optimized_line = f'{match.group(1)}clr.w{match.group(3)}{dN}'
             return ([optimized_line], True)
 
     # Byte or Word constant mask
     # and.[bwl]  #val,dN   ->   bclr.[bl]  #b,dN         ; Saves [2,4,12] cycles
     # Where not(val) = 2^b (only 1 bit set and is at position b)
-    match = re.match(r'^(\s*)(andi|and)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
-    if match:
-        s = match.group(3)
-        val = parseConstantUnsigned(match.group(5))
-        dN = match.group(6)
-        bit_to_clear = find_bclr_bit(val)
-        if bit_to_clear is not None:
-            s_bclr = 'l'
-            if bit_to_clear < 8:
-                s_bclr = 'b'
-            # If s_bclr is bigger than s then skip from optimize
-            if not (s_bclr == 'l' and (s == 'w' or s == 'b')):
-                optimized_line = f'{match.group(1)}bclr.{s_bclr}{match.group(4)}#{bit_to_clear},{dN}'
-                return ([optimized_line], True)
+    #match = re.match(r'^(\s*)(andi|and)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    #if match:
+    #    s = match.group(3)
+    #    val = parseConstantUnsigned(match.group(5))
+    #    dN = match.group(6)
+    #    bit_to_clear = find_bclr_bit(val)
+    #    if bit_to_clear is not None:
+    #        s_bclr = 'l'
+    #        if bit_to_clear < 8:
+    #            s_bclr = 'b'
+    #        # If s_bclr is bigger than s then skip from optimize
+    #        if not (s_bclr == 'l' and (s == 'w' or s == 'b')):
+    #            optimized_line = f'{match.group(1)}bclr.{s_bclr}{match.group(4)}#{bit_to_clear},{dN}'
+    #            print_optimized_diff([line], i_line, [optimized_line])
+    #            return ([optimized_line], True)
 
     # If val = 0x80 (128)
     # ori.b   #0x80,dN   ->   tas   dN          ; Saves 4 cycles. Status flags wrong
@@ -7634,9 +7646,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if 0 <= val <= 15:
             dN = match.group(4)
             m = 2**val
-            if dM:
-                optimized_line = f'{match.group(1)}ori.w{match.group(2)}#{m},{dN}'
-                return ([optimized_line], True)
+            optimized_line = f'{match.group(1)}ori.w{match.group(2)}#{m},{dN}'
+            return ([optimized_line], True)
 
     # If 0 <= val <= 15
     # bclr.l #val,dN   ->    andi.w #m,dN      ; Saves 6 cycles. Status flags wrong
@@ -7647,9 +7658,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if 0 <= val <= 15:
             dN = match.group(4)
             m = 65535-(2**val)
-            if dM:
-                optimized_line = f'{match.group(1)}andi.w{match.group(2)}#{m},{dN}'
-                return ([optimized_line], True)
+            optimized_line = f'{match.group(1)}andi.w{match.group(2)}#{m},{dN}'
+            return ([optimized_line], True)
 
     # If 0 <= val <= 15
     # bchg.l #val,dN   ->    eor.w #m,dN       ; Saves 6 cycles. Status flags wrong
@@ -7660,9 +7670,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if 0 <= val <= 15:
             dN = match.group(4)
             m = 65535-(2**val)
-            if dM:
-                optimized_line = f'{match.group(1)}eor.w{match.group(2)}#{m},{dN}'
-                return ([optimized_line], True)
+            optimized_line = f'{match.group(1)}eor.w{match.group(2)}#{m},{dN}'
+            return ([optimized_line], True)
 
     # move.b   #0,dN   ->    clr.b   dN        ; Saves 4 cycles
     match = re.match(r'^(\s*)move\.b(\s+)#0,\s*(%d[0-7])', line)
@@ -8035,10 +8044,10 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     match = re.match(r'^(\s*)lea(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
         aN =  match.group(5)
-        val = parseConstantUnsigned(match.group(3))
+        val_str = match.group(3)
+        val = parseConstantUnsigned(val_str)
         if 0 < val <= 65535:
             if not match.group(4) or match.group(4) != '.w':
-                val_str = match.group(3)
                 optimized_line = f'{match.group(1)}movea.w{match.group(2)}#{val_str},{aN}'
                 return ([optimized_line], True)
 
