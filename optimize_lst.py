@@ -7586,21 +7586,21 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Byte or Word constant mask
     # and.[bwl]  #val,dN   ->   bclr.[bl]  #b,dN         ; Saves [2,4,12] cycles
     # Where not(val) = 2^b (only 1 bit set and is at position b)
-    #match = re.match(r'^(\s*)(andi|and)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
-    #if match:
-    #    s = match.group(3)
-    #    val = parseConstantUnsigned(match.group(5))
-    #    dN = match.group(6)
-    #    bit_to_clear = find_bclr_bit(val)
-    #    if bit_to_clear is not None:
-    #        s_bclr = 'l'
-    #        if bit_to_clear < 8:
-    #            s_bclr = 'b'
-    #        # If s_bclr is bigger than s then skip from optimize
-    #        if not (s_bclr == 'l' and (s == 'w' or s == 'b')):
-    #            optimized_line = f'{match.group(1)}bclr.{s_bclr}{match.group(4)}#{bit_to_clear},{dN}'
-    #            print_optimized_diff([line], i_line, [optimized_line])
-    #            return ([optimized_line], True)
+    # bclr bit position is 0 based
+    match = re.match(r'^(\s*)(andi|and)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    if match:
+        s = match.group(3)
+        val = parseConstantUnsigned(match.group(5))
+        dN = match.group(6)
+        bit_to_clear = find_bclr_bit(val)
+        if bit_to_clear is not None:
+            s_bclr = 'l'
+            if bit_to_clear < 8:
+                s_bclr = 'b'
+            # Check if the size of the instruction matches with the bit we want to clear
+            if (s == 'b' and bit_to_clear < 8) or (s == 'w' and 8 <= bit_to_clear < 16) or (s == 'l' and 16 <= bit_to_clear < 32):
+                optimized_line = f'{match.group(1)}bclr.{s_bclr}{match.group(4)}#{bit_to_clear},{dN}'
+                return ([optimized_line], True)
 
     # If val = 0x80 (128)
     # ori.b   #0x80,dN   ->   tas   dN          ; Saves 4 cycles. Status flags wrong
