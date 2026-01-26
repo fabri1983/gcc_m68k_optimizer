@@ -49,8 +49,9 @@ UNLK aN must be treated as: move.l  aN,sp
 
 
 SGDK SAMPLES:
+Tested on Blastem nightly build
 	Crash or Fail:
-		benchmark -> Crash after Horizontal Scrolling (alternative/alternate). I think it was test 7th
+		benchmark -> Crash after Horizontal Scrolling (alternative/alternate). I think it was test 7th.
 		flash-save -> Gives HW Error text on display
 		game/sonic -> Crash when pressing start
 		snd/xgm-player -> Crash when loading rom

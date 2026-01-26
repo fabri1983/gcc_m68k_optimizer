@@ -7583,7 +7583,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             optimized_line = f'{match.group(1)}clr.w{match.group(3)}{dN}'
             return ([optimized_line], True)
 
-    # Byte or Word constant mask
+    # Masking bits where in reality it clears one bit
     # and.[bwl]  #val,dN   ->   bclr.[bl]  #b,dN         ; Saves [2,4,12] cycles
     # Where not(val) = 2^b (only 1 bit set and is at position b)
     # bclr bit position is 0 based
@@ -7597,7 +7597,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             s_bclr = 'l'
             if bit_to_clear < 8:
                 s_bclr = 'b'
-            # Check if the size of the instruction matches with the bit we want to clear
+            # Check if the size of the instruction matches with the bit position we want to clear
             if (s == 'b' and bit_to_clear < 8) or (s == 'w' and 8 <= bit_to_clear < 16) or (s == 'l' and 16 <= bit_to_clear < 32):
                 optimized_line = f'{match.group(1)}bclr.{s_bclr}{match.group(4)}#{bit_to_clear},{dN}'
                 return ([optimized_line], True)
@@ -7628,7 +7628,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 optimized_line = f'{match.group(1)}tas{match.group(2)}{mem_address}'
                 return ([optimized_line], True)
 
-    # bset.l  #7,dN    ->    tas   dN          ; Saves 4 cycles. Status flags wrong
+    # bset.l  #7,dN    ->    tas   dN          ; Saves 8 cycles. Status flags wrong
     match = re.match(r'^(\s*)bset\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantUnsigned(match.group(3))
