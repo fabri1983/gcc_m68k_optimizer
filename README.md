@@ -61,13 +61,15 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
 	ifneq ($(PLUGIN_PEEPHOLES_PARAMS),)
     $(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ $(LIBMD)
 		@$(MKDIR) -p $(dir $@)
+		@$(RM) -f $(OUT_DIR)/symbol_opt.txt
+		@$(RM) -f $(OUT_DIR)/symbol_canonical.txt
 		$(CC) $(PLUGIN_PEEPHOLES_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
 		$(NM) $(LTO_PLUGIN) -n -l $(OUT_DIR)/rom.out > $(OUT_DIR)/symbol_opt.txt
 		$(CC) $(PLUGIN_SYMBOLS_OPTIMIZED_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
 		$(NM) $(LTO_PLUGIN) -n -l $(OUT_DIR)/rom.out > $(OUT_DIR)/symbol_canonical.txt
 		$(CC) $(PLUGIN_SYMBOLS_CANONICAL_OPTIMIZED_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
-		@$(RM) $(OUT_DIR)/symbol_opt.txt
-		@$(RM) $(OUT_DIR)/symbol_canonical.txt
+		@$(RM) -f $(OUT_DIR)/symbol_opt.txt
+		@$(RM) -f $(OUT_DIR)/symbol_canonical.txt
 		@$(RM) $(OUT_DIR)/cmd_
     else
     $(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ $(LIBMD)
