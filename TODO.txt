@@ -63,8 +63,6 @@ Tested on Blastem nightly build
 
 TODO
 ====
-When matching specifically with a symbolName use [a-zA-Z_\.][0-9a-zA-Z_\.]+
-
 When generating an int with int(string) or parseConstantSigned(string) or evaluate_instr_math_expression() 
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit

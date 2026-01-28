@@ -476,7 +476,7 @@ def extract_registers(regs_encoded: str, operation_type: int) -> list[str]:
         # Remember that regs are read from x7 to x0 when pushed into stack.
         # That's why GCC reverses the bits of the encoded value.
         if operation_type == PUSH_OP:
-            # Extract the i-th bit and place it at the (15-i)-th position
+            # Reverse the bits layout: extract the i-th bit and place it at the (15-i)-th position
             value = sum(((value >> i) & 1) << (15 - i) for i in range(16))
         # d0–d7 are bits 0–7
         for i in range(8):
@@ -570,9 +570,9 @@ CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
 UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
     r'^\s*(jmp|bra|jra|bsr|jsr)(?:\.[bsw])?\s+'
     r'('
-        r'(?:[0-9a-zA-Z_\.]+)(?:\.[bwl])?'  # label[.s], symbolName[.s], mem[.s]
+        r'(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?'  # label[.s], symbolName[.s], mem[.s]
         r'|'
-        r'\((?:%a[0-7])\)'  # (%aN)
+        r'\((?:%a[0-7])\)'  # (aN)
         r'|'
         r'(?:[0-9a-zA-Z_\.]+\(%pc,%[ad][0-7](?:\.[bwl])?\))'  # label_or_disp(pc,xN[.s])
     r')'
@@ -634,14 +634,14 @@ def collect_declared_functions(lines: list[str]):
         if match := FUNCTION_DECLARATION_REGEX.match(line):
             declared_functions_set.add(match.group(1))
 
-# pea <value|symbolName>[.wl][+-*N][.bwl]
+# pea symbol_or_mem[.wl][+-*N][.bwl]
 PEA_REGEX = re.compile(
-    r'^\s*pea\s+(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?'
+    r'^\s*pea\s+(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?'
 )
 
-# move.[wl] <#value|symbolName>[.wl][+-*N][.bwl],-(sp)
+# move.[wl] #symbol_or_mem[.wl][+-*N][.bwl],-(sp)
 PUSH_OTHER_INTO_STACK_REGEX = re.compile(
-    r'^\s*move\.([wl])\s+#?(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)'
+    r'^\s*move\.([wl])\s+#?(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)'
 )
 
 # Labels: 1:, .L37:, _loc1:, abcABC:, xlt_all.0:
@@ -652,7 +652,10 @@ forward_number_labels = {'0f','1f','2f','3f','4f','5f','6f','7f','8f','9f'}
 number_labels = {'0','1','2','3','4','5','6','7','8','9'}
 
 def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
-
+    """
+    Converts local lables of the type 0,1,..,9 where branching instruction use them with prefix 'b' of 'f'.
+    This way we made it easier for the creation of the control flow dictionary.
+    """
     global_label_prefix = '.ulbl_'
     global_label_counter = 1
 
@@ -2633,11 +2636,11 @@ RE_paren_d8_An_Xn = re.compile(r'^\(([0-9a-zA-Z_\.]+|-?\d+([\-\+\*]\d+)?),(%a[0-
 # (value[.s])
 RE_paren_ABS_value = re.compile(r'^\((-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?\)$')
 # (symbolName[.s][+-N][.s]). ie: (context3D+12.l)
-RE_paren_ABS_sym = re.compile(r'^\([0-9a-zA-Z_\.]+(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\)$')
+RE_paren_ABS_symbol = re.compile(r'^\([a-zA-Z_\.][0-9a-zA-Z_\.]+(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\)$')
 # Any label, function, or symbolName. ie: 1b, .L37, _loc1, memsetU16, xlt_all.0, context3D+12.l
 RE_label_function_symbol = re.compile(r'^[0-9a-zA-Z_\.]+(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?$')
-# #symbolName. ie: #xlt_all.0, #context3D+12.l
-RE_imm_symbol = re.compile(r'^#[0-9a-zA-Z_\.]+(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?$')
+# #symbolName[.s] ie: #xlt_all.0, #context3D+12.l
+RE_imm_symbol = re.compile(r'^#[a-zA-Z_\.][0-9a-zA-Z_\.]+(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?$')
 # value.s
 RE_value_size = re.compile(r'^(-?\d+|0[xX][0-9a-fA-F]+)(\.[bwl])?$')
 # #value.s
@@ -2650,69 +2653,72 @@ bcc_or_jcc_instructions = {
 
 unconditional_short_instructions = {'bra','jra','bsr'}
 
-def classify_operand(op: str, op_base: str, op_size: str) -> str | None:
+def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
     """
     Classify operand into addressing mode key for MODE_EXTRA_SIZES_IN_WORDS
     """
-    op = op.strip()
+    operator = operator.strip()
 
-    if RE_Dn.match(op):
+    if RE_Dn.match(operator):
         return 'Dn'
-    if RE_An.match(op):
+    if RE_An.match(operator):
         return 'An'
-    if RE_An_paren.match(op):
+    if RE_An_paren.match(operator):
         return '(An)'
-    if RE_An_paren_plus.match(op):
+    if RE_An_paren_plus.match(operator):
         return '(An)+'
-    if RE_An_minus_paren.match(op):
+    if RE_An_minus_paren.match(operator):
         return '-(An)'
     # Match (An,Xn[.bwl])
-    if RE_An_Xn.match(op):
+    if RE_An_Xn.match(operator):
         return '(An,Xn)'
     # Match d16(aN)
-    if RE_d16_An.match(op):
+    if RE_d16_An.match(operator):
         return '(d16,An)'
     # Match (d16,aN)
-    if RE_paren_d16_An.match(op):
+    if RE_paren_d16_An.match(operator):
         return '(d16,An)'
     # Match d8(An,Xn[.bwl])
-    if RE_d8_An_Xn.match(op):
+    if RE_d8_An_Xn.match(operator):
         return '(d8,An,Xn)'
     # Match (d8,An,Xn[.bwl])
-    if RE_paren_d8_An_Xn.match(op):
+    if RE_paren_d8_An_Xn.match(operator):
         return '(d8,An,Xn)'
     # (ABS[.bwl])
-    if RE_paren_ABS_value.match(op):
-        if op.endswith(('.b','.w')):
+    if RE_paren_ABS_value.match(operator):
+        if operator.endswith(('.b','.w')):
             return '(ABS.w)'
         return '(ABS.l)'
     # (symbol[.bwl])
-    if RE_paren_ABS_sym.match(op):
-        if op.endswith(('.b','.w')):
+    if RE_paren_ABS_symbol.match(operator):
+        if operator.endswith(('.b','.w')):
             return '(ABS.w)'
         return '(ABS.l)'
-    # Labels, functions, and symbols. gcc might add +N[.l] or -N[.l]. Ie: ammoInventory[.bwl][+-N][.l]
-    if RE_label_function_symbol.match(op):
+    # Labels, functions, and symbols. gcc might add +-*N[.wl]. Ie: ammoInventory[.bwl][+N][.l]
+    if RE_label_function_symbol.match(operator):
         if op_size == 's':
             return 'encoded'  # The label is encoded inside the op_base so is free
         elif op_base.startswith('db') or op_base in bcc_or_jcc_instructions or op_base in unconditional_short_instructions:
             return 'ABS.w'
         return 'ABS.l'
-    # Symbol with starting #. gcc might add +N[.l] or -N[.l]. Ie:  #ammoInventory[.bwl][+-N][.l]
-    if RE_imm_symbol.match(op):
+    # Symbol with starting #. gcc might add +-*N[.wl]. Ie: #ammoInventory[.bwl][+N][.l]
+    if RE_imm_symbol.match(operator):
         return 'ABS.l'
     # Value with size (ie: pea  1.w)
-    if RE_value_size.match(op):
-        if op.endswith(('.b','.w')):
+    if RE_value_size.match(operator):
+        if operator.endswith(('.b','.w')):
             return 'ABS.w'
         return 'ABS.l'
     # Immediate value
-    if match := RE_imm_value.match(op):
+    if match := RE_imm_value.match(operator):
         if op_base in ('addq','moveq','subq','movem'):
+            # TODO: weird fix: the size should be different than 0, otherwise it fails with out of range
+            if op_base == 'moveq':
+                return '#imm.w'
             return 'encoded'  # The immediate operand is encoded inside the op_base so is free
-        elif op.endswith(('.b','.w')):
+        elif operator.endswith(('.b','.w')):
             return '#imm.w'
-        elif op.endswith('.l'):
+        elif operator.endswith('.l'):
             return '#imm.l'
         if op_size in ('b','w'):
             return '#imm.w'
@@ -2726,7 +2732,7 @@ def classify_operand(op: str, op_base: str, op_size: str) -> str | None:
     # Not considered:
     #   xN/xM... and xN-xM... which are part of movem
     # But they are encoded into the op_base so returning None won't add up in size.
-    #print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {op}")
+    #print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {operator}")
     return None
 
 def split_operands(operand_field: str) -> list[str]:
@@ -2777,7 +2783,7 @@ def instruction_size(line_stripped: str) -> int:
     # Parse operands
     if operands:
         for op in operands:
-            mode = classify_operand(op, op_base, op_size)
+            mode = classify_operand(op_base, op_size, op)
             if mode:
                 size_words += MODE_EXTRA_SIZES_IN_WORDS.get(mode, 0)
 
@@ -3094,7 +3100,7 @@ move_ea_into_dN_pattern = re.compile(
     r'|'
     r'(#?[a-zA-Z_\.][0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label or symbol[.s] or #symbol[.s].
     r'|'
-    r'(#?(?:-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?)'  # ABS[.s] or imm[.s] or #imm[.s]
+    r'(#?(?:-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?)'  # imm[.s] or #imm[.s]
     r'|'
     r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/PC,xN.s)
     r'|'
@@ -3140,21 +3146,21 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         if USE_FABRI1983_OPTIMIZATIONS:
 
             # Pushing word memory values into stack with word adjustments for ABI long args compliance
-            # move.w  symbol[+/-N],-(sp)   ->   move.w    symbol[+/-N],-(sp)     ; Saves 4 cycles
-            # sub*.s  #2,sp                     subq.s    #2,sp
-            # move.w  symbol[+/-M],-(sp)        move.w    symbol[+/-M],-(sp)
-            # sub*.s  #2,sp                     move.w    symbol[+/-L],-8(sp)
-            # move.w  symbol[+/-L],-(sp)        subq.s    #6,sp
+            # move.w  symbol_or_mem[+-*N],-(sp)   ->   move.w    symbol_or_mem[+-*N],-(sp)     ; Saves 4 cycles
+            # sub*.s  #2,sp                            subq.s    #2,sp
+            # move.w  symbol_or_mem[+-*M],-(sp)        move.w    symbol_or_mem[+-*M],-(sp)
+            # sub*.s  #2,sp                            move.w    symbol_or_mem[+-*L],-8(sp)
+            # move.w  symbol_or_mem[+-*L],-(sp)        subq.s    #6,sp
             # sub*.s  #2,sp
-            matchA = re.match(r'^(\s*)move\.w(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
+            matchA = re.match(r'^(\s*)move\.w(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
             if matchA:
                 matchB = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_B)
                 if matchB:
-                    matchC = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
+                    matchC = re.match(r'^\s*move\.w\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
                     if matchC:
                         matchD = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_D)
                         if matchD:
-                            matchE = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_E)
+                            matchE = re.match(r'^\s*move\.w\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_E)
                             if matchE:
                                 matchF = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_F)
                                 if matchF:
@@ -3233,11 +3239,11 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
             # moveq[.l]  #0,dN              ->    move.w     disp(sp),dN       ; Saves 8 cycles
             # move.w     disp(sp),dN              move.w     dN,dM
             # move.l     dN,dM                    add/sub.w  dN,dM
-            # add/sub.l  dN,dM                    lea        symbolName1,aN
-            # lea        symbolName1,aN           move.[wl]  (aN,dM.w),dP
+            # add/sub.l  dN,dM                    lea        symbol_or_mem,aN
+            # lea        symbol_or_mem,aN         move.[wl]  (aN,dM.w),dP
             # move.[wl]  (aN,dM.[wl]),dP
             # Where:
-            # symbolName1[.wl][-+*N][.bwl]
+            # symbol_or_mem[.wl][-+*N][.bwl]
             # dP can be dN
             matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
             if matchA:
@@ -3251,9 +3257,9 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                         matchD = re.match(r'^\s*(add|sub)\.l\s+(%d[0-7]),\s*(%d[0-7])', line_D)
                         if matchD and dN == matchD.group(2) and dM == matchD.group(3):
                             alu = matchD.group(1)
-                            matchE = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_E)
+                            matchE = re.match(r'^\s*lea\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_E)
                             if matchE:
-                                symbolName_1_full = ''.join(matchE.group(i) for i in range(1, 5) if matchE.group(i))
+                                symbol_or_mem_full = ''.join(matchE.group(i) for i in range(1, 5) if matchE.group(i))
                                 aN = matchE.group(5)
                                 matchF = re.match(r'^\s*move\.([wl])\s+\((%a[0-7]),(%d[0-7])(\.[wl])?\),\s*(%d[0-7])', line_F)
                                 if matchF and aN == matchF.group(2) and dM == matchF.group(3):
@@ -3263,7 +3269,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                                         f'{matchA.group(1)}move.w{matchA.group(3)}{disp}(%sp),{dN}',
                                         f'{matchA.group(1)}move.w{matchA.group(3)}{dN},{dM}',
                                         f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dN},{dM}',
-                                        f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
+                                        f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
                                         f'{matchA.group(1)}move.{sF}{matchA.group(3)}({aN},{dM}.w),{dP}'
                                     ]
                                     return (optimized_lines, multi_limit)
@@ -3655,48 +3661,48 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                                     return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
-            # moveq[.l]  #0,dN              ->    move.w     symbolName1,dN        ; Saves 8 cycles
-            # move.w     symbolName1,dN           add/sub.w  dN,dN
-            # add/sub.l  dN,dN                    lea        symbolName2,aN
-            # lea        symbolName2,aN           move.[wl]  (aN,dN.w),dP
+            # moveq[.l]  #0,dN                ->    move.w     symbol_or_mem_1,dN        ; Saves 8 cycles
+            # move.w     symbol_or_mem_1,dN         add/sub.w  dN,dN
+            # add/sub.l  dN,dN                      lea        symbol_or_mem_2,aN
+            # lea        symbol_or_mem_2,aN         move.[wl]  (aN,dN.w),dP
             # move.[wl]  (aN,dN.[wl]),dP
             # Where:
-            # symbolName1[.w][-+*N][.bwl]
-            # symbolName2[.wl][-+*N][.bwl]
+            # symbol_or_mem_1[.wl][-+*N][.bwl]
+            # symbol_or_mem_2[.wl][-+*N][.bwl]
             # dP can be dN
             matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
             if matchA:
                 dN = matchA.group(4)
-                matchB = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.w)?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])', line_B)
+                matchB = re.match(r'^\s*move\.w\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])', line_B)
                 if matchB and dN == matchB.group(5):
-                    symbolName_1_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
+                    symbol_or_mem_1_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
                     matchC = re.match(r'^\s*(add|sub)\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
                     if matchC and dN == matchC.group(2) and dN == matchC.group(3):
                         alu = matchC.group(1)
-                        matchD = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_D)
+                        matchD = re.match(r'^\s*lea\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_D)
                         if matchD:
-                            symbolName_2_full = ''.join(matchD.group(i) for i in range(1, 5) if matchD.group(i))
+                            symbol_or_mem_2_full = ''.join(matchD.group(i) for i in range(1, 5) if matchD.group(i))
                             aN = matchD.group(5)
                             matchE = re.match(r'^\s*move\.([wl])\s+\((%a[0-7]),(%d[0-7])(\.[wl])?\),\s*(%d[0-7])', line_E)
                             if matchE and aN == matchE.group(2) and dN == matchE.group(3):
                                 sE = matchE.group(1)
                                 dP = matchE.group(5)
                                 optimized_lines = [
-                                    f'{matchA.group(1)}move.w{matchA.group(3)}{symbolName_1_full},{dN}',
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{symbol_or_mem_1_full},{dN}',
                                     f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dN},{dN}',
-                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_2_full},{aN}',
+                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_2_full},{aN}',
                                     f'{matchA.group(1)}move.{sE}{matchA.group(3)}({aN},{dN}.w),{dP}'
                                 ]
                                 return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays. The offset at dN has already the correct stride.
-            # moveq[.l]  #0,dN             ->   move.w     disp1(sp),dN            ; Saves 16 cycles
-            # move.w     disp1(sp),dN           move.l     disp2(sp),aN
-            # move.l     disp2(sp),aN           lea        symbolName1(aN,dN.w),aN
-            # add/sub.l  #symbolName1,aN        move.[wl]  (aN),dP
+            # moveq[.l]  #0,dN               ->   move.w     disp1(sp),dN            ; Saves 16 cycles
+            # move.w     disp1(sp),dN             move.l     disp2(sp),aN
+            # move.l     disp2(sp),aN             lea        symbol_or_mem(aN,dN.w),aN
+            # add/sub.l  #symbol_or_mem,aN        move.[wl]  (aN),dP
             # move.[wl]  (aN,dN.[wl]),dP
             # Where:
-            # symbolName1[.wl][-+*N][.bwl]
+            # symbol_or_mem[.wl][-+*N][.bwl]
             # dP can be dN
             matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
             if matchA:
@@ -3708,10 +3714,10 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                     if matchC:
                         disp2 = matchC.group(1)
                         aN = matchC.group(2)
-                        matchD = re.match(r'^\s*(add|adda|sub|suba)\.l\s+#([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_D)
+                        matchD = re.match(r'^\s*(add|adda|sub|suba)\.l\s+#(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_D)
                         if matchD and aN == matchD.group(6) and isValue(matchD.group(2)):
                             alu = matchD.group(1)
-                            symbolName_1_full = ''.join(matchD.group(i) for i in range(2, 6) if matchD.group(i))
+                            symbol_or_mem_full = ''.join(matchD.group(i) for i in range(2, 6) if matchD.group(i))
                             matchE = re.match(r'^\s*move\.([wl])\s+\((%a[0-7]),(%d[0-7])(\.[wl])?\),\s*(%d[0-7])', line_E)
                             if matchE and aN == matchE.group(2) and dN == matchE.group(3):
                                 sE = matchE.group(1)
@@ -3719,26 +3725,26 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                                 optimized_lines = [
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{disp1}(sp),{dN}',
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{disp2}(sp),{aN}',
-                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full}({aN},{dN}.w),{aN}',
+                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full}({aN},{dN}.w),{aN}',
                                     f'{matchA.group(1)}move.{sE}{matchA.group(3)}({aN}),{dP}'
                                 ]
                                 return (optimized_lines, multi_limit)
 
             # Calculates jump offsets is always a word length operation.
-            # moveq[.wl] #0,dN              ->    move.w  symbolName1,dN       ; Saves 8 cycles
-            # move.w     symbolName1,dN           add.w   dN,dN
-            # add.[wl]   dN,dN                    move.w  label(pc,dN.w),dP
-            # move.w     label(pc,dN.[wl]),dP     jmp     disp(pc,dP.w)
+            # moveq[.wl] #0,dN                 ->    move.w  symbol_or_mem,dN       ; Saves 8 cycles
+            # move.w     symbol_or_mem,dN            add.w   dN,dN
+            # add.[wl]   dN,dN                       move.w  label(pc,dN.w),dP
+            # move.w     label(pc,dN.[wl]),dP        jmp     disp(pc,dP.w)
             # jmp        disp(pc,dP.w)
             # Where:
-            # symbolName1[.w][-+*N][.bwl]
+            # symbol_or_mem[.wl][-+*N][.bwl]
             # dP can be dN
             matchA = re.match(r'^(\s*)moveq(\.[wl])?(\s+)#0,\s*(%d[0-7])', line_A)
             if matchA:
                 dN = matchA.group(4)
-                matchB = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.w)?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])', line_B)
+                matchB = re.match(r'^\s*move\.w\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])', line_B)
                 if matchB and dN == matchB.group(5):
-                    symbolName_1_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
+                    symbol_or_mem_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
                     matchC = re.match(r'^\s*add\.([wl])\s+(%d[0-7]),\s*(%d[0-7])', line_C)
                     if matchC and dN == matchC.group(2) and dN == matchC.group(3):
                         matchD = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)\(%pc,(%d[0-7])(\.[wl])?\),\s*(%d[0-7])', line_D)
@@ -3749,7 +3755,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                             if matchE and dP == matchE.group(2):
                                 disp = matchE.group(1)
                                 optimized_lines = [
-                                    f'{matchA.group(1)}move.w{matchA.group(3)}{symbolName_1_full},{dN}',
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{symbol_or_mem_full},{dN}',
                                     f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{label}(%pc,{dN}.w),{dP}',
                                     f'{matchA.group(1)}jmp   {matchA.group(3)}{disp}(%pc,{dP}.w)'
@@ -4313,15 +4319,16 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         if USE_FABRI1983_OPTIMIZATIONS:
 
             # Pushing word memory values into stack with word adjustments for ABI long args compliance
-            # move.w  symbol[+/-N],-(sp)   ->   move.w    symbol[+/-N],-(sp)     ; Saves 4 cycles
-            # sub*.s  #2,sp                     move.w    symbol[+/-M],-4(sp)
-            # move.w  symbol[+/-M],-(sp)        subq.s    #6,sp
+            # move.w  symbol_or_mem[.wl][+-*N],-(sp)    ->   move.w    symbol_or_mem[.wl][+-*N],-(sp)     ; Saves 4 cycles
+            # sub*.s  #2,sp                                  move.w    symbol_or_mem[.wl][+-*M],-4(sp)
+            # move.w  symbol_or_mem[.wl][+-*M],-(sp)         subq.s    #6,sp
             # sub*.s  #2,sp
-            matchA = re.match(r'^(\s*)move\.w(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
+            # Where:
+            matchA = re.match(r'^(\s*)move\.w(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
             if matchA:
                 matchB = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_B)
                 if matchB:
-                    matchC = re.match(r'^\s*move\.w\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
+                    matchC = re.match(r'^\s*move\.w\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
                     if matchC:
                         matchD = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_D)
                         if matchD:
@@ -4334,12 +4341,12 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                             return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
-            # and.l      #65535,dN       ->    add.w      dN,dN            ; Saves 20 cycles (16 cycles saved from removed and.l)
-            # add.l      dN,dN                 lea        symbolName1,aN
-            # lea        symbolName1,aN        move.[wl]  disp(sp),(aN,dN.w)
+            # and.l      #65535,dN         ->    add.w      dN,dN              ; Saves 20 cycles (16 cycles saved from removed and.l)
+            # add.l      dN,dN                   lea        symbol_or_mem,aN
+            # lea        symbol_or_mem,aN        move.[wl]  disp(sp),(aN,dN.w)
             # move.[wl]  disp(sp),(aN,dN.[wl])
             # Where:
-            # symbolName1[.wl][-+*N][.bwl]
+            # symbol_or_mem[.wl][+-*N][.bwl]
             # Displacement in disp(sp) is optional
             matchA = re.match(r'^(\s*)(andi|and)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
             if matchA:
@@ -4348,9 +4355,9 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                 if mask == 65535:
                     matchB = re.match(r'^\s*add\.l\s+(%d[0-7]),\s*(%d[0-7])', line_B)
                     if matchB and dN == matchB.group(1) and dN == matchB.group(2):
-                        matchC = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_C)
+                        matchC = re.match(r'^\s*lea\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_C)
                         if matchC:
-                            symbolName_1_full = ''.join(matchC.group(i) for i in range(1, 5) if matchC.group(i))
+                            symbol_or_mem_full = ''.join(matchC.group(i) for i in range(1, 5) if matchC.group(i))
                             aN = matchC.group(5)
                             matchD = re.match(r'^\s*move\.([wl])\s+(-?\d+)?\(%sp\),\s*\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_D)
                             if matchD and aN == matchD.group(3) and dN == matchD.group(4):
@@ -4358,7 +4365,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                                 disp = matchD.group(2) if matchD.group(2) else ''
                                 optimized_lines = [
                                     f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
-                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
+                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
                                     f'{matchA.group(1)}move.{sD}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
                                 ]
                                 return (optimized_lines, multi_limit)
@@ -4756,20 +4763,20 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         if USE_FABRI1983_OPTIMIZATIONS:
 
             # Calculates offset indexes for accessing arrays.
-            # add/sub.l  dM,dN           ->    add/sub.w  dM,dN            ; Saves 4 cycles
-            # lea        symbolName1,aN        lea        symbolName1,aN
-            # move.[wl]  dP,(aN,dN.[wl])       move.[wl]  dP,(aN,dN.w)
+            # add/sub.l  dM,dN                ->    add/sub.w  dM,dN            ; Saves 4 cycles
+            # lea        symbol_or_mem,aN           lea        symbol_or_mem,aN
+            # move.[wl]  dP,(aN,dN.[wl])            move.[wl]  dP,(aN,dN.w)
             # Where:
-            # symbolName1[.wl][-+*N][.bwl]
+            # symbol_or_mem[.wl][+-*N][.bwl]
             # dM can be dN
             matchA = re.match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
             if matchA:
                 alu = matchA.group(2)
                 dM = matchA.group(4)
                 dN = matchA.group(5)
-                matchB = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_B)
+                matchB = re.match(r'^\s*lea\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_B)
                 if matchB:
-                    symbolName_1_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
+                    symbol_or_mem_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
                     aN = matchB.group(5)
                     matchC = re.match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_C)
                     if matchC and aN == matchC.group(3) and dN == matchC.group(4):
@@ -4777,17 +4784,17 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                         dP = matchC.group(2)
                         optimized_lines = [
                             f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dM},{dN}',
-                            f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
+                            f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
                             f'{matchA.group(1)}move.{sC}{matchA.group(3)}{dP},({aN},{dN}.w)'
                         ]
                         return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
-            # add/sub.l  dM,dN           ->    add/sub.w  dM,dN            ; Saves 4 cycles
-            # lea        symbolName1,aN        lea        symbolName1,aN
-            # move.[wl]  d(sp),(aN,dN.[wl])    move.[wl]  d(sp),(aN,dN.w)
+            # add/sub.l  dM,dN                ->    add/sub.w  dM,dN            ; Saves 4 cycles
+            # lea        symbol_or_mem,aN           lea        symbol_or_mem,aN
+            # move.[wl]  d(sp),(aN,dN.[wl])         move.[wl]  d(sp),(aN,dN.w)
             # Where:
-            # symbolName1[.wl][-+*N][.bwl]
+            # symbol_or_mem[.wl][-+*N][.bwl]
             # dM can be dN
             # Displacement d in d(sp) is optional
             matchA = re.match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
@@ -4795,9 +4802,9 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                 alu = matchA.group(2)
                 dM = matchA.group(4)
                 dN = matchA.group(5)
-                matchB = re.match(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_B)
+                matchB = re.match(r'^\s*lea\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_B)
                 if matchB:
-                    symbolName_1_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
+                    symbol_or_mem_full = ''.join(matchB.group(i) for i in range(1, 5) if matchB.group(i))
                     aN = matchB.group(5)
                     matchC = re.match(r'^\s*move\.([wl])\s+(-?\d+)?\(%sp\),\s*\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_C)
                     if matchC and aN == matchC.group(3) and dN == matchC.group(4):
@@ -4805,7 +4812,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                         disp = '' if not matchC.group(2) else matchC.group(2)
                         optimized_lines = [
                             f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dM},{dN}',
-                            f'{matchA.group(1)}lea   {matchA.group(3)}{symbolName_1_full},{aN}',
+                            f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
                             f'{matchA.group(1)}move.{sC}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
                         ]
                         return (optimized_lines, multi_limit)
@@ -5425,7 +5432,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l   d(PC)   d(PC,xN.s)   imm
         # Where s in xN.s is: b,w,l
         # Note that gcc might put the displacement like next: (d,aN)   (d,aN,xN.s)   (d,PC)   (d,PC,xN.s)
-        # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName
+        # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName or #symbolName
         matchA = move_ea_into_dN_pattern.match(line_A)
         if matchA:
             s = matchA.group(2)
@@ -5593,39 +5600,46 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                         return (optimized_lines, multi_limit)
 
             # Calculates offset indexes for accessing arrays.
-            # lea     symbolName1,aN    ->   move.l  *,aN                    ; Saves [6,8] cycles
-            # add.l   *,aN                   lea     symbolName1(aN),aN
-            matchA = re.match(r'^(\s*)lea(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
+            # lea     symbol_or_mem,aN    ->   move.l  *,aN                    ; Saves [6,8] cycles
+            # add.l   *,aN                     lea     symbol_or_mem(aN),aN
+            matchA = re.match(r'^(\s*)lea(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
             if matchA:
-                symbolName_1_full = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
+                symbol_or_mem_full = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
                 aN = matchA.group(7)
                 matchB = re.match(r'^\s*(add|adda)\.l\s+([^,]+),\s*(%a[0-7]|%sp);?$', line_B)
                 if matchB and aN == matchB.group(3):
                     src_B = matchB.group(2)
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(2)}{src_B},{aN}',
-                        f'{matchA.group(1)}lea   {matchA.group(2)}{symbolName_1_full}({aN}),{aN}'
+                        f'{matchA.group(1)}lea   {matchA.group(2)}{symbol_or_mem_full}({aN}),{aN}'
                     ]
                     return (optimized_lines, multi_limit)
 
             # Load a memory value with an offset into a data register
-            # lea     symbolName1,aN       ->   lea     symbolName1,aN       ; Saves 4 cycles
-            # move.s  symbolName1+/-N,dN        move.s  N(aN),dN
-            matchA = re.match(r'^(\s*)lea(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7]|%sp)', line_A)
+            # lea     symbol_or_mem,aN       ->   lea     symbol_or_mem,aN       ; Saves 4 cycles
+            # move.s  symbol_or_mem[+-]N,dN       move.s  N(aN),dN
+            matchA = re.match(r'^(\s*)lea(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7]|%sp)', line_A)
             if matchA:
-                symbolName_1_full = ''.join(matchA.group(i) for i in range(3, 5) if matchA.group(i))
+                symbol_or_mem_A = matchA.group(3)
+                # Note: sometimes the match doesn't skip the symbol or mem size and it ends being part of the symbol or mem
+                if symbol_or_mem_A.endswith(('.w','.l')):
+                    symbol_or_mem_A = symbol_or_mem_A[:-2]  # remove last 2 chars
+                symbol_or_mem_A_full = ''.join(matchA.group(i) for i in range(3, 5) if matchA.group(i))
                 aN = matchA.group(5)
-                matchB = re.match(r'^\s*move\.([bwl])\s+([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)(\.[bwl])?,\s*(%d[0-7])', line_B)
+                matchB = re.match(r'^\s*move\.([bwl])\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)(\.[bwl])?,\s*(%d[0-7])', line_B)
                 if matchB:
-                    symbolName_1_full_B = ''.join(matchB.group(i) for i in range(2, 4) if matchB.group(i))
-                    if symbolName_1_full == symbolName_1_full_B:
+                    symbol_or_mem_B = matchB.group(2)
+                    # Note: sometimes the match doesn't skip the symbol or mem size and it ends being part of the symbol or mem
+                    if symbol_or_mem_B.endswith(('.w','.l')):
+                        symbol_or_mem_B = symbol_or_mem_B[:-2]  # remove last 2 chars
+                    if symbol_or_mem_A == symbol_or_mem_B:
                         s = matchB.group(1)
                         op_N = matchB.group(4)
                         if op_N.startswith('+'):
                             op_N = op_N[1:]
                         dN = matchB.group(6)
                         optimized_lines = [
-                            f'{matchA.group(1)}lea   {matchA.group(2)}{symbolName_1_full},{aN}',
+                            f'{matchA.group(1)}lea   {matchA.group(2)}{symbol_or_mem_A_full},{aN}',
                             f'{matchA.group(1)}move.{s}{matchA.group(2)}{op_N}({aN}),{dN}'
                         ]
                         return (optimized_lines, multi_limit)
@@ -6158,22 +6172,22 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
         # add/sub.s   symbol_or_mem,dM          add/sub.s  dP,dN
         #                                       add/sub.s  dP,dM
         # Needs free data register dP
-        add_mem_value_to_dn_pattern = r'^(\s*)(add|sub)\.([wl])(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])'
+        add_mem_value_to_dn_pattern = r'^(\s*)(add|sub)\.([wl])(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%d[0-7])'
         matchA = re.match(add_mem_value_to_dn_pattern, line_A)
         if matchA:
             alu_1, s_A, dN = matchA.group(2, 3, 9)
-            symbol_or_mem_full_1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
+            symbol_or_mem_1_full = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
             matchB = re.match(add_mem_value_to_dn_pattern, line_B)
             if matchB:
                 alu_2, s_B, dM = matchB.group(2, 3, 9)
-                symbol_or_mem_full_2 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
-                if symbol_or_mem_full_1 == symbol_or_mem_full_2 and s_A == s_B:
+                symbol_or_mem_2_full = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
+                if symbol_or_mem_1_full == symbol_or_mem_2_full and s_A == s_B:
                     dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines)[0]
                     if dP is None:
                         dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines)[0]
                     if dP is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
                         optimized_lines = [
-                            f'{matchA.group(1)}move.{s}{matchA.group(4)}{symbol_or_mem_full_1},{dP}',
+                            f'{matchA.group(1)}move.{s}{matchA.group(4)}{symbol_or_mem_1_full},{dP}',
                             f'{matchA.group(1)}{alu_1}.{s} {matchA.group(4)}{dP},{dN}',
                             f'{matchA.group(1)}{alu_2}.{s} {matchA.group(4)}{dP},{dM}'
                         ]
@@ -6252,7 +6266,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                     return (optimized_lines, multi_limit)
 
         # Clearing consecutive memory from same symbolName
-        clr_mem_from_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)([0-9a-zA-Z_\.]+)(\.[wl])?(\+\d+)?(\.[bwl])?;?$'
+        clr_mem_from_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?(\+\d+)?(\.[bwl])?;?$'
         matchA = re.match(clr_mem_from_symbol_pattern, line_A)
         if matchA:
             matchB = re.match(clr_mem_from_symbol_pattern, line_B)
@@ -6397,7 +6411,7 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                     elif match_ea := re.match(r'^\(%a[0-7]|%sp\)$', ea):
                         ea_adjusted = "1" + ea
                     # label or symbol[.s] or #symbol[.s]
-                    # ABS[.s] or imm[.s] or #imm[.s]
+                    # imm[.s] or #imm[.s]
                     elif matchA.group(5) or matchA.group(6):
                         ea_adjusted = ea + "+1"
                     # (aN/PC,xN.s)
@@ -7511,12 +7525,12 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             return ([optimized_line], True)
 
     # Push memory address into sp
-    # move.l   #mem_addr,-(sp)   ->   pea   mem_addr   ; Saves 8 cycles
-    # Examples for mem_addr: #-520158600[.bwl][+-*N], #0xFFFFFFFF[.bwl][+-*N], #symbolName[.bwl][+-*N]
-    match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+|[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
+    # move.l   #symbol_or_mem,-(sp)   ->   pea   symbol_or_mem   ; Saves 8 cycles
+    # Examples for symbol_or_mem: #-520158600[.bwl][+-*N], #0xE0FF8002[.bwl][+-*N], #symbolName[.bwl][+-*N]
+    match = re.match(r'^(\s*)move\.l(\s+)#(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
     if match:
-        mem_address = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
-        optimized_line = f'{match.group(1)}pea{match.group(2)}{mem_address}'
+        symbol_or_mem = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
+        optimized_line = f'{match.group(1)}pea{match.group(2)}{symbol_or_mem}'
         return ([optimized_line], True)
 
     # Push constant val into <ea>, where -128 <= val <= 127
@@ -8915,20 +8929,20 @@ def convert_gcc_movem_encoded_regs(line: str) -> str:
 
     return line
 
-# (symbolName[.s])[.s]
-symbolName_or_imm_dereference_pattern = re.compile(
-    r'\('                            # Matches '('
-    r'(?!%[ad][0-7]|%sp|%pc)'        # Negative lookahead: avoid dN, aN, sp, pc
-    r'([0-9a-zA-Z_\.]+(?:\.[wl])?)'  # symbolName[.wl]
-    r'\)'                            # Matches ')'
-    r'(?:\.[wl])?'                   # [.wl]
+# (symbol_or_mem[.s])[.s]
+symbol_or_mem_dereference_pattern = re.compile(
+    r'\('                              # Matches '('
+    r'(?!%[ad][0-7]|%sp|%pc)'          # Negative lookahead: avoid dN, aN, sp, pc
+    r'(-?[0-9a-zA-Z_\.]+(?:\.[wl])?)'  # symbol_or_mem[.wl]
+    r'\)'                              # Matches ')'
+    r'(?:\.[wl])?'                     # [.wl]
 )
 
-def remove_gcc_dereference_symbolName_and_immediate(line: str) -> str:
+def remove_gcc_dereference_symbol_or_memory(line: str) -> str:
     """
-    Remove chars '(' and ')' containing a symbolName or an immediate value.
+    Remove chars '(' and ')' containing a symbol or a memory value.
     """
-    return symbolName_or_imm_dereference_pattern.sub(r'\1', line)
+    return symbol_or_mem_dereference_pattern.sub(r'\1', line)
 
 def applyGccConversions(lines: list[str]) -> list[str]:
     """
@@ -8958,7 +8972,7 @@ def applyGccConversions(lines: list[str]) -> list[str]:
         # Replace gcc encoded list of regs by a human readable format
         line = convert_gcc_movem_encoded_regs(line)
         # Remove dereference over symbol names. Eg: lea (PAL_setPalette.constprop.0),%a3 -> lea PAL_setPalette.constprop.0,%a3
-        line = remove_gcc_dereference_symbolName_and_immediate(line)
+        line = remove_gcc_dereference_symbol_or_memory(line)
 
         modified_lines.append(line)
 
@@ -8969,11 +8983,11 @@ def applyGccConversions(lines: list[str]) -> list[str]:
 
 # move.l #symbolName[.wl],aN
 move_symbolName_into_an_pattern = re.compile(
-    r'^\s*move\.l\s+#([0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
+    r'^\s*move\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
 )
 # lea symbolName[.wl],aN
 lea_symbolName_into_an_pattern = re.compile(
-    r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
+    r'^\s*lea\s+([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
 )
 
 def search_backwards_for_lea_or_move_symbolName_into_aN(aN: str, lines: list[str], i_start: int, i_end: int) -> str:
@@ -9065,19 +9079,19 @@ add_sub_sp_pattern = re.compile(
 )
 
 move_into_disp_sp_pattern = re.compile(
-    r'^(\s*)(move|movea)\.([wl])(\s+)'  # move.[w/l] or movea.[w/l]
+    r'^(\s*)(move|movea)\.([wl])(\s+)'
     r'(?:'                              # Non-capturing group
     r'(%[ad][0-7])'                     # xN
     r'|'
     r'(-?\(%a[0-7]\)\+?)'               # (aN) or -(aN) or (aN)+
     r'|'
-    r'(#?-?\d+|#?0[xX][0-9a-fA-F]+|#?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?'  # #val or #symbolName or symbolName, with [.bwl][+-*N][.bwl]
+    r'(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?'  # [#]symbol_or_mem[.bwl][+-*N][.bwl]
     r')'                                # End non-capturing group
     r',\s*(-?\d+)?\(%sp\);?$'           # disp(sp) or (sp)
 )
 
 move_disp_sp_into_xn_pattern = re.compile(
-    r'^(\s*)(move|movea)\.([wl])(\s+)'  # move.[w/l] or movea.[w/l]
+    r'^(\s*)(move|movea)\.([wl])(\s+)'
     r'(-?\d+)?\(%sp\)'                  # disp(sp) or (sp)
     r',\s*(?:.+);?$'
 )
