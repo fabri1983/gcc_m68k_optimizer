@@ -574,7 +574,7 @@ UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
         r'|'
         r'\((?:%a[0-7])\)'  # (aN)
         r'|'
-        r'(?:[0-9a-zA-Z_\.]+\(%pc,%[ad][0-7](?:\.[bwl])?\))'  # label_or_disp(pc,xN[.s])
+        r'(?:-?[0-9a-zA-Z_\.]+\(%pc,%[ad][0-7](?:\.[bwl])?\))'  # label_or_disp(pc,xN[.s])
     r')'
     r'\b'
 )
@@ -582,9 +582,9 @@ UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
 REG_AS_SOURCE_OR_INDIRECT_USE_REGEX = re.compile(
     r'-?\((%a[0-7])\)\+?'              # Indirect decrement/increment addressing register as "[-](aN)[+]"    
     r'|'
-    r'(?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?)\((%[ad][0-7])\)'  # Addressing register as "label_or_disp(xN)"
+    r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?)\((%[ad][0-7])\)'  # Addressing register as "label_or_disp(xN)"
     r'|'
-    r'\((?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?),(%[ad][0-7])\)'  # Addressing register as "(label_or_disp,xN)"
+    r'\((?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?),(%[ad][0-7])\)'  # Addressing register as "(label_or_disp,xN)"
     r'|'
     r'[,\(]%pc,(%[ad][0-7])\.[bwl]\)'  # Indirect addressing register as "[,(]pc,xN.s)"
     r'|'
@@ -601,15 +601,15 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'(?:'                            # Non-capturing group for alternatives
         r'(move|moveq|movea|movep|lea|sub|suba|eor)(\.[bwl])?\s+'  # Capture overwrite instructions and size
         r'('                          # Capturing group for every alternative
-            r'(?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
+            r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
             r'|'
-            r'(?:\((?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?,(?:%a[0-7]|%sp|%pc)\))'  # (label_or_disp[+-*N],aN/PC)
+            r'(?:\((?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?,(?:%a[0-7]|%sp|%pc)\))'  # (label_or_disp[+-*N],aN/PC)
             r'|'
-            r'(?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/PC,xN.s)
+            r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/PC,xN.s)
             r'|'
-            r'(?:\((?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?,(?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (label_or_disp[+-*N],aN/PC,xN.s)
+            r'(?:\((?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?,(?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (label_or_disp[+-*N],aN/PC,xN.s)
             r'|'
-            r'(?:(?:[0-9a-zA-Z_\.]+|-?\d+)(?:\.[bwl])?(?:[\-\+\*]\d+)?)'  # label_or_disp[+-*N]
+            r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?)'  # label_or_disp[+-*N]
             r'|'
             r'(?:[^,]*)'              # Considers every other case by capturing everything before comma
         r')'                          # End capturing group of alternatives
@@ -2310,7 +2310,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
 jsr_aN_pattern = re.compile(r'^\s*jsr\s+\((%a[0-7])\)')
 
 lea_subroutine_into_aN_pattern = re.compile(r'^\s*lea\s+([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])')
-move_subroutine_into_aN_pattern = re.compile(r'^\s*move[a]?\.l\s+#([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])')
+move_subroutine_into_aN_pattern = re.compile(r'^\s*move[a]?\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])')
         
 def count_replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modified_lines: list[str], subr: str, new_line: str, ignore_N_previous_lines: int) -> int:
     """
@@ -3076,9 +3076,9 @@ move_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
 lea_label_or_disp_aN_or_pc_into_aM_pattern = re.compile(
     r'^(\s*)lea(\s+)'                        # Instruction
     r'(?:'                                   # Non-capturing group
-        r'([0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?|-?\d+(?:[\-\+\*]\d+)?)?\('    # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
+        r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
         r'|'                                 # OR
-        r'\(([0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?,|-?\d+(?:[\-\+\*]\d+)?,)?'  # "(label_or_disp," or just "(". Considers [.bwl][+-*N]
+        r'\((-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?,)?'  # "(label_or_disp," or just "(". Considers [.bwl][+-*N]
     r')'                                     # End non-capturing group
     r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # aN),aM
 )
@@ -3086,9 +3086,9 @@ lea_label_or_disp_aN_or_pc_into_aM_pattern = re.compile(
 lea_label_or_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
     r'^(\s*)lea(\s+)'                      # Instruction
     r'(?:'                                 # Non-capturing group
-        r'([0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?|-?\d+(?:[\-\+\*]\d+)?)?\('    # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
+        r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
         r'|'                               # OR
-        r'\(([0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?,|-?\d+(?:[\-\+\*]\d+)?,)?'  # "(label_or_disp," or just "(". Considers [.bwl][+-*N]
+        r'\((-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?,)?'  # "(label_or_disp," or just "(". Considers [.bwl][+-*N]
     r')'                                   # End non-capturing group
     r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # aN,dN.s),aM
 )
@@ -3098,7 +3098,7 @@ move_ea_into_dN_pattern = re.compile(
     r'(?:'
     r'(%d[0-7]|%a[0-7]|%sp|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN/aN or (aN) or -(aN) or (aN)+
     r'|'
-    r'(#?[a-zA-Z_\.][0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label or symbol[.s] or #symbol[.s].
+    r'(#?[a-zA-Z_\.][0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label[.s] or symbol[.s] or #symbol[.s].
     r'|'
     r'(#?(?:-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?)'  # imm[.s] or #imm[.s]
     r'|'
@@ -9333,12 +9333,10 @@ jmp_jsr_canonical_mem_address_pattern = re.compile(
     r'^(\s*)(jmp|jsr)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
 )
 
-def reduce_load_and_branch_canonical_address_using_sign_extension(lines: list[str], symbols_filename: str) -> tuple[list[str], int, int, dict[int, tuple[str, str]]]:
+def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_filename: str) -> tuple[list[str], int, int, dict[int, tuple[str, str]]]:
     """
-    For every loading instruction lea/movea of a canonical address from a symbol or memory address 
-    into aN register, or every branch instruction jmp/jsr to a symbol or memory address, we can take 
-    advantage of the sign extension nature of lea/movea/jmp/jsr instructions over the high word of 
-    the canonical address:
+    We can take advantage of the sign extension nature of lea/movea/jmp/jsr instructions over the high word of 
+    the canonical address to reduce its size:
     - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOW_ROM_END) -> we can use .w
     - If higher word is 0xE0FF (SGDK's RAM start) and lower word >= 0x8000 (high half RAM) -> we can use .w
     """
@@ -9413,7 +9411,7 @@ def reduce_load_and_branch_canonical_address_using_sign_extension(lines: list[st
 
         optimized_line = ''
 
-        # lea     symbolName,aN     ->   lea     mem_address.w,aN        ; Saves 4 cycles
+        # lea     symbolName,aN     ->   lea     symbol_or_mem.w,aN        ; Saves 4 cycles
         if match := lea_canonical_symbol_pattern.match(line):
             symbolName = match.group(3)
             symbol_size = match.group(4)
@@ -9463,7 +9461,7 @@ def reduce_load_and_branch_canonical_address_using_sign_extension(lines: list[st
                     # NOTE: gcc doesn't allow lea mem_address.w +/-/* N
                     optimized_line = f'{match.group(1)}lea{match.group(2)}{mem_value_eval_ops_hex_str}.w,{aN}'
 
-        # move.l  #symbolName,aN    ->   move.w  #mem_address.w,aN       ; Saves 4 cycles
+        # move.l  #symbolName,aN    ->   move.w  #symbol_or_mem.w,aN       ; Saves 4 cycles
         elif match := move_canonical_symbol_pattern.match(line):
             s = match.group(3)
             symbolName = match.group(5)
@@ -9762,13 +9760,13 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
         if not symbols_canonical_filename:
             PRINT_OPTIMIZATION_LOG = old_state_printing_flag
 
-        # Loading a canonical address into aN register with lea/movea, or branching with jmp/jsr can be reduced
+        # Loading a canonical address into aN register on instructions lea/movea/jmp/jsr can be reduced
         # to its lower word .w, therefor taking advantage of the sign extension the instruction does.
         # It needs the symbols file generated in a previous compilation stage.
         print('[OPT_LOG] -- Reduce load and branch of a canonical address using sign extension --')
 
         print('[OPT_LOG] Single line patterns (use .w on symbol or address when possible)')
-        result_func = reduce_load_and_branch_canonical_address_using_sign_extension(modified_lines, symbols_opt_filename)
+        result_func = reduce_canonical_address_using_sign_extension(modified_lines, symbols_opt_filename)
         modified_lines, num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass, symbol_with_additional_ops_by_mem_address = result_func
         num_updated_lines_found += num_updated_lines_found_canon_addr_pass
         num_patterns_found += num_patterns_found_canon_addr_pass
