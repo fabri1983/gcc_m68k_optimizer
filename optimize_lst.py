@@ -9316,6 +9316,18 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
 
     return modified_lines_no_abi
 
+move_canonical_symbol_pattern = re.compile(
+    r'^(\s*)(move|movea)\.([wl])(\s+)#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
+)
+move_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)(move|movea)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
+)
+clr_canonical_symbol_pattern = re.compile(
+    r'^(\s*)(clr)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+)
+clr_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)(clr)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+)
 lea_canonical_symbol_pattern = re.compile(
     r'^(\s*)(lea)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
 )
@@ -9327,12 +9339,6 @@ pea_canonical_symbol_pattern = re.compile(
 )
 pea_canonical_mem_address_pattern = re.compile(
     r'^(\s*)(pea)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
-)
-move_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(move|movea)\.([wl])(\s+)#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
-)
-move_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(move|movea)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
 )
 add_sub_canonical_symbol_pattern = re.compile(
     r'^(\s*)(add|adda|addq|sub|suba|subq)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
@@ -9435,9 +9441,83 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
 
         optimized_line = ''
 
+        # move.s  #symbolName,aN    ->   move.s  #symbol_or_mem.w,aN       ; Saves 4 cycles
+        # clr.s   symbolName    ->    clr.s   symbol_or_mem.w      ; Saves 4 cycles
+        # clr: Only if symbolName >= SGDK_HIGH_RAM_START, since the clr instruction operates on writable RAM
+        if match := (move_canonical_symbol_pattern.match(line) or clr_canonical_symbol_pattern.match(line)):
+            instr = match.group(2)
+            s = match.group(3)
+            symbolName = match.group(5)
+            symbol_size = match.group(6)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                symbol_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address (0x prefix already included)
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    aN = '' if instr == 'clr' else match.group(9)
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    if symbol_ops:
+                        symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
+
+                    # NOTE: gcc doesn't allow movea.s/clr.s symbolName.w +/-/* N
+                    # NOTE: gcc doesn't allow movea.s/clr.s symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
+                    if instr == 'clr':
+                        # clr instruction operates on writable RAM
+                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                            if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w'
+                            else:
+                                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w'
+                    else:  # move
+                        # NOT_WORKING: when on higher RAM
+                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                            continue
+                        if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w,{aN}'
+                        else:
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
+
+        # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN       ; Saves 4 cycles
+        # clr.s   mem_address   ->    clr.s   mem_address.w        ; Saves 4 cycles
+        # clr: Only if mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates on writabble RAM
+        elif match := (move_canonical_mem_address_pattern.match(line) or clr_canonical_mem_address_pattern.match(line)):
+            instr = match.group(2)
+            s = match.group(3)
+            mem_addr = match.group(5)
+            mem_addr_size = match.group(6)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    aN = '' if instr == 'clr' else match.group(9)
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+
+                    # NOTE: gcc doesn't allow movea.s/clr.s mem_address.w +/-/* N
+                    if instr == 'clr':
+                        # clr instruction operates on writable RAM
+                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w'
+                    else:  # move
+                        # NOT_WORKING: when on higher RAM
+                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                            continue
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
+
         # lea     symbolName,aN     ->   lea     symbol_or_mem.w,aN        ; Saves 4 cycles
         # pea     symbolName        ->   pea     symbol_or_mem.w           ; Saves 4 cycles
-        if match := (lea_canonical_symbol_pattern.match(line) or pea_canonical_symbol_pattern.match(line)):
+        elif match := (lea_canonical_symbol_pattern.match(line) or pea_canonical_symbol_pattern.match(line)):
             instr = match.group(2)
             symbolName = match.group(4)
             symbol_size = match.group(5)
@@ -9464,12 +9544,12 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         if instr == 'pea':
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{symbolName}.w'
-                        else:
+                        else:  # lea
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{symbolName}.w,{aN}'
                     else:
                         if instr == 'pea':
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w'
-                        else:
+                        else:  # lea
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w,{aN}'
 
         # lea     mem_address,aN    ->   lea     mem_address.w,aN        ; Saves 4 cycles
@@ -9495,63 +9575,8 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     # NOTE: gcc doesn't allow lea/pea mem_address.w +/-/* N
                     if instr == 'pea':
                         optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w'
-                    else:
+                    else:  # lea
                         optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w,{aN}'
-
-        # move.s  #symbolName,aN    ->   move.s  #symbol_or_mem.w,aN       ; Saves 4 cycles
-        elif match := move_canonical_symbol_pattern.match(line):
-            s = match.group(3)
-            symbolName = match.group(5)
-            symbol_size = match.group(6)
-            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
-            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
-                symbol_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
-                if symbolName.endswith('.l'):
-                    symbolName = symbolName[:-2]  # remove last 2 chars
-                # Ensure we are dealing with a symbol and not a code label
-                if not symbolName in mem_addr_by_symbolName_dict:
-                    continue
-                # Replace the symbol name by its mem address (0x prefix already included)
-                mem_addr = mem_addr_by_symbolName_dict[symbolName]
-                mem_value = parseConstantUnsigned(mem_addr)
-                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
-                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM
-                    if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                        continue
-                    aN = match.group(9)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
-                    if symbol_ops:
-                        symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
-
-                    # NOTE: gcc doesn't allow movea.s symbolName.w +/-/* N
-                    # NOTE: gcc doesn't allow movea.s symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
-                    if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                        optimized_line = f'{match.group(1)}movea.w{match.group(4)}#{symbolName}.w,{aN}'
-                    else:
-                        optimized_line = f'{match.group(1)}movea.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
-
-        # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN       ; Saves 4 cycles
-        elif match := move_canonical_mem_address_pattern.match(line):
-            s = match.group(3)
-            mem_addr = match.group(5)
-            mem_addr_size = match.group(6)
-            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
-            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
-                mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
-                if mem_addr.endswith('.l'):
-                    mem_addr = mem_addr[:-2]  # remove last 2 chars
-                mem_value = parseConstantUnsigned(mem_addr)
-                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
-                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM
-                    if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                        continue
-                    aN = match.group(9)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
-
-                    # NOTE: gcc doesn't allow movea.w mem_address.w +/-/* N
-                    optimized_line = f'{match.group(1)}movea.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
 
         # add*/sub*.s   symbolName,aN   ->   add*/sub*.s   symbol_or_mem.w,aN      ; Saves 4 cycles
         # Only for add/adda/addq and sub/suba/subq
@@ -9580,8 +9605,8 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     if symbol_ops:
                         symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
 
-                    # NOTE: gcc doesn't allow add/sub symbolName.w +/-/* N
-                    # NOTE: gcc doesn't allow add/sub symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
+                    # NOTE: gcc doesn't allow add*/sub*/cmp*.s symbolName.w +/-/* N
+                    # NOTE: gcc doesn't allow add*/sub*/cmp*.s symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
                     if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         optimized_line = f'{match.group(1)}{instr}{match.group(4)}{symbolName}.w,{aN_or_ea}'
                     else:
@@ -9610,7 +9635,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     aN_or_ea = match.group(9)
                     mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
 
-                    # NOTE: gcc doesn't allow add/sub mem_address.w +/-/* N
+                    # NOTE: gcc doesn't allow add*/sub*/cmp*.s mem_address.w +/-/* N
                     optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
 
         # jmp     symbolName     ->   jmp     symbolName.w               ; Saves 2 cycles
@@ -9709,9 +9734,50 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
 
         accomodated_line = ''
 
+        # move.s  #mem_address.w,aN
+        # clr.s   mem_address.w
+        if match := (move_canonical_mem_address_pattern.match(line) or clr_canonical_mem_address_pattern.match(line)):
+            instr = match.group(2)
+            s = match.group(3)
+            mem_addr = match.group(5)
+            mem_addr_size = match.group(6)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.w' or mem_addr.endswith('.w')):
+                mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                # If this mem address contains additional ops then is not one of our reduced instructions
+                if mem_addr_ops:
+                    continue
+                # Reset the mem address ops so we can use it for one of the mapa
+                mem_addr_ops = ''
+
+                if mem_addr.endswith('.w'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                old_mem_value = parseConstantUnsigned(mem_addr)
+
+                symbolName = ''
+                # Check if the old mem value was previously originated from: symbolName +/-/* N
+                if old_mem_value in symbol_with_additional_ops_by_mem_address:
+                    symbolName, mem_addr_ops = symbol_with_additional_ops_by_mem_address[old_mem_value]
+                # Check if it exists in the first symbols map
+                elif old_mem_value in symbolName_by_mem_value_OPT_dict:
+                    symbolName = symbolName_by_mem_value_OPT_dict[old_mem_value]
+
+                if symbolName and symbolName in mem_addr_by_symbolName_CANONICAL_dict:
+                    new_mem_addr = mem_addr_by_symbolName_CANONICAL_dict[symbolName]
+                    new_mem_value = parseConstantUnsigned(new_mem_addr)
+                    # if old mem address is different than new mem address then we have to update the instruction
+                    if old_mem_value != new_mem_value:
+                        aN = '' if instr == 'clr' else match.group(9)
+                        new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
+                        new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                        if instr == 'clr':
+                            accomodated_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{new_mem_value_eval_ops_hex_str}.w'
+                        else:  # move
+                            accomodated_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{new_mem_value_eval_ops_hex_str}.w,{aN}'
+
         # lea     mem_address.w,aN
         # pea     mem_address.w
-        if match := (lea_canonical_mem_address_pattern.match(line) or pea_canonical_mem_address_pattern.match(line)):
+        elif match := (lea_canonical_mem_address_pattern.match(line) or pea_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
             mem_addr = match.group(4)
             mem_addr_size = match.group(5)
@@ -9746,44 +9812,8 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                         new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
                         if instr == 'pea':
                             accomodated_line = f'{match.group(1)}{instr}{match.group(3)}{new_mem_value_eval_ops_hex_str}.w'
-                        else:
+                        else:  # lea
                             accomodated_line = f'{match.group(1)}{instr}{match.group(3)}{new_mem_value_eval_ops_hex_str}.w,{aN}'
-
-        # move.s  #mem_address.w,aN
-        elif match := move_canonical_mem_address_pattern.match(line):
-            s = match.group(3)
-            mem_addr = match.group(5)
-            mem_addr_size = match.group(6)
-            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
-            if (not mem_addr_size or mem_addr_size == '.w' or mem_addr.endswith('.w')):
-                mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
-                # If this mem address contains additional ops then is not one our reduced instructions
-                if mem_addr_ops:
-                    continue
-                # Reset the mem address ops so we can use it for one of the mapa
-                mem_addr_ops = ''
-
-                if mem_addr.endswith('.w'):
-                    mem_addr = mem_addr[:-2]  # remove last 2 chars
-                old_mem_value = parseConstantUnsigned(mem_addr)
-
-                symbolName = ''
-                # Check if the old mem value was previously originated from: symbolName +/-/* N
-                if old_mem_value in symbol_with_additional_ops_by_mem_address:
-                    symbolName, mem_addr_ops = symbol_with_additional_ops_by_mem_address[old_mem_value]
-                # Check if it exists in the first symbols map
-                elif old_mem_value in symbolName_by_mem_value_OPT_dict:
-                    symbolName = symbolName_by_mem_value_OPT_dict[old_mem_value]
-
-                if symbolName and symbolName in mem_addr_by_symbolName_CANONICAL_dict:
-                    new_mem_addr = mem_addr_by_symbolName_CANONICAL_dict[symbolName]
-                    new_mem_value = parseConstantUnsigned(new_mem_addr)
-                    # if old mem address is different than new mem address then we have to update the instruction
-                    if old_mem_value != new_mem_value:
-                        aN = match.group(9)
-                        new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
-                        new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
-                        accomodated_line = f'{match.group(1)}movea.{s}{match.group(4)}#{new_mem_value_eval_ops_hex_str}.w,{aN}'
 
         # add*/sub*.s   mem_address.w,aN
         # Valid for add/adda/addq and sub/suba/subq
@@ -9823,7 +9853,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                         aN_or_ea = match.group(9)
                         new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
                         new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
-                        accomodated_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{new_mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
+                        accomodated_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{new_mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
 
         # Replace the original line with the its optimized version
         if accomodated_line != '':
@@ -9901,22 +9931,22 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
 
         print('[OPT_LOG] Single line patterns (use .w on symbol or address when possible)')
         result_func = reduce_canonical_address_using_sign_extension(modified_lines, symbols_opt_filename)
-        num_updated_lines_found_canon_addr_pass, num_patterns_found_canon_addr_pass, line_indexes_updated, symbol_with_additional_ops_by_mem_address = result_func
-        num_updated_lines_found += num_updated_lines_found_canon_addr_pass
-        num_patterns_found += num_patterns_found_canon_addr_pass
+        num_reduced_lines, num_reduced_patterns, line_indexes_updated, symbol_with_additional_ops_by_mem_address = result_func
+        num_updated_lines_found += num_reduced_lines
+        num_patterns_found += num_reduced_patterns
 
         # Let's try to shorten branches now that at least one reduction was applied
-        if num_patterns_found_canon_addr_pass > 0:
+        if num_reduced_lines > 0:
             # Empty map for tracking original lines since current lines position are matching
             line_number_map: dict[int, int] = {}
-            modified_lines, num_updates_shorten_branhces = process_single_lines_helper(
+            modified_lines, num_updates_shorten_branches = process_single_lines_helper(
                 modified_lines, 
                 optimizeSingleLine_ShortenBranches, 
                 line_number_map, 
                 "Single line patterns (shorten branch instructions)"
             )
-            num_updated_lines_found += num_updates_shorten_branhces
-            num_patterns_found += num_updates_shorten_branhces
+            num_updated_lines_found += num_updates_shorten_branches
+            num_patterns_found += num_updates_shorten_branches
 
         if symbols_canonical_filename:
             # Rollback to its original value
@@ -9926,8 +9956,10 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
             # now we have to read from updated symbols_canonical_filename and accomodate the symbols having an updated mem address
             print('[OPT_LOG] -- Accomodate canonical address from previous step --')
 
-            print('[OPT_LOG] Single line patterns (re map re-located symbols)')
-            accomodate_canonical_address(modified_lines, line_indexes_updated, symbol_with_additional_ops_by_mem_address, symbols_opt_filename, symbols_canonical_filename)
+            print('[OPT_LOG] Single line patterns (remap relocated symbols)')
+            result_func = accomodate_canonical_address(modified_lines, line_indexes_updated, symbol_with_additional_ops_by_mem_address, symbols_opt_filename, symbols_canonical_filename)
+            num_accomodated_lines, num_accomodated_patterns = result_func
+            print('[OPT_LOG] Remapped symbols: ' + str(num_accomodated_lines))
 
     patterns_label = "pattern" if num_patterns_found == 1 else "patterns"
     if not SAVE_OPTIMIZATIONS:

@@ -69,14 +69,6 @@ Reg expressions catching a symbol or mem address along with its size:  [0-9a-zA-
 
 reduce_canonical_address_using_sign_extension()
 Explore which other instructions can be reduced.
-
-    # Only if symbolName >= SGDK_HIGH_RAM_START, since the clr instruction operates over writabble RAM
-    # clr.s   symbolName    ->    clr.s   symbol_or_mem.w      ; Saves 4 cycles
-    Requires the symbol be replaced by its mem address, and doesn't accept additional ops +-*N.
-    # Only if mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates over writabble RAM
-    # clr.s   mem_address   ->    clr.s   mem_address.w        ; Saves 4 cycles
-    Doesn't accept additional ops +-*N.
-
     # cmpi.s   #value,symbolName   ->   cmpi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
     Same than lea symbolName,aN
     # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN      ; Saves 4 cycles
