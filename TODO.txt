@@ -63,36 +63,28 @@ Tested on Blastem nightly build
 
 TODO
 ====
+Add ;?$ at the end of the reg exp having at least a comma, and see if the number of patterns found increases or decreases.
+
 reduce_canonical_address_using_sign_extension()
 Explore which other instructions can be reduced.
 
     # Only for symbolName >= SGDK_HIGH_RAM_START, since the clr instruction operates over writabble RAM
     # clr.s   symbolName    ->    clr.s   symbol_or_mem.w      ; Saves 4 cycles
     Requires the symbol be replaced by its mem address, and doesn't accept additional ops +-*N.
-    
     # Only for mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates over writabble RAM
     # clr.s   mem_address   ->    clr.s   mem_address.w        ; Saves 4 cycles
     Doesn't accept additional ops +-*N.
-    
-    # add/sub.[wl]   symbolName,aN   ->   add*/sub*.[wl]   symbol_or_mem.w,aN      ; Saves 4 cycles
-    # Valid for add/adda/addq and sub/suba/subq
-    Same than lea symbolName,aN
-    # add/sub.[wl]   mem_address,aN   ->   add*/sub*.[wl]   mem_address.w,aN      ; Saves 4 cycles
-    # Valid for add/adda/addq and sub/suba/subq
-    Same than lea mem_address,aN
-    
-    # cmpa.[wl]   symbolName,aN   ->   cmpa.[wl]   symbol_or_mem.w,aN      ; Saves 4 cycles
-    Same than lea symbolName,aN
-    # cmpa.[wl]   mem_address,aN   ->   cmpa.[wl]   mem_address.w,aN      ; Saves 4 cycles
-    Same than lea mem_address,aN
 
-    pea like lea
+    # cmpi.s   #value,symbolName   ->   cmpi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
+    Same than lea symbolName,aN
+    # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN      ; Saves 4 cycles
+    Same than lea mem_address,aN
 
 When generating an int with int(string) or parseConstantSigned(string) or evaluate_instr_math_expression() 
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
 
-Reg expressions catching a symbol or mem address along with its size (\.[bwl])?
+Reg expressions catching a symbol or mem address along with its size:  [0-9a-zA-Z_\.]+)(\.[bwl])?
     Make sure the size is not part of the symbolName or the mem address.
     See reduce_load_and_branch_canonical_address_using_sign_extension()
 
