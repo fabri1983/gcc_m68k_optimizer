@@ -9356,7 +9356,13 @@ cmpi_canonical_symbol_pattern = re.compile(
     r'^(\s*)(cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
 )
 cmpi_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(cmpi)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+)
+andi_canonical_symbol_pattern = re.compile(
+    r'^(\s*)(andi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+)
+andi_canonical_mem_address_pattern = re.compile(
+    r'^(\s*)(andi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
 )
 jmp_jsr_canonical_symbol_pattern = re.compile(
     r'^(\s*)(jmp|jsr)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
@@ -9441,8 +9447,8 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
 
         optimized_line = ''
 
-        # move.s  #symbolName,aN    ->   move.s  #symbol_or_mem.w,aN       ; Saves 4 cycles
-        # clr.s   symbolName    ->    clr.s   symbol_or_mem.w      ; Saves 4 cycles
+        # move.s  #symbolName,aN   ->   move.s  #symbol_or_mem.w,aN       ; Saves 4 cycles
+        # clr.s   symbolName   ->   clr.s   symbol_or_mem.w      ; Saves 4 cycles
         # clr: Only if symbolName >= SGDK_HIGH_RAM_START, since the clr instruction operates on writable RAM
         if match := (move_canonical_symbol_pattern.match(line) or clr_canonical_symbol_pattern.match(line)):
             instr = match.group(2)
@@ -9486,7 +9492,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
 
         # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN       ; Saves 4 cycles
-        # clr.s   mem_address   ->    clr.s   mem_address.w        ; Saves 4 cycles
+        # clr.s   mem_address   ->   clr.s   mem_address.w        ; Saves 4 cycles
         # clr: Only if mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates on writabble RAM
         elif match := (move_canonical_mem_address_pattern.match(line) or clr_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
@@ -9608,7 +9614,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     # NOTE: gcc doesn't allow add*/sub*/cmp*.s symbolName.w +/-/* N
                     # NOTE: gcc doesn't allow add*/sub*/cmp*.s symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
                     if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                        optimized_line = f'{match.group(1)}{instr}{match.group(4)}{symbolName}.w,{aN_or_ea}'
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w,{aN_or_ea}'
                     else:
                         optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
 
@@ -9637,6 +9643,62 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
 
                     # NOTE: gcc doesn't allow add*/sub*/cmp*.s mem_address.w +/-/* N
                     optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
+
+        # cmpi.s   #value,symbolName   ->   cmpi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
+        # andi.s   #value,symbolName   ->   andi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
+        elif match := (cmpi_canonical_symbol_pattern.match(line) or andi_canonical_symbol_pattern.match(line)):
+            instr = match.group(2)
+            s = match.group(3)
+            imm = match.group(5)
+            symbolName = match.group(6)
+            symbol_size = match.group(7)
+            # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
+            if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
+                symbol_ops = ''.join(match.group(k) for k in range(8, 10) if match.group(k))
+                if symbolName.endswith('.l'):
+                    symbolName = symbolName[:-2]  # remove last 2 chars
+                # Ensure we are dealing with a symbol and not a code label
+                if not symbolName in mem_addr_by_symbolName_dict:
+                    continue
+                # Replace the symbol name by its mem address (0x prefix already included)
+                mem_addr = mem_addr_by_symbolName_dict[symbolName]
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    if symbol_ops:
+                        symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
+
+                    # NOTE: gcc doesn't allow cmpi/andi.s symbolName.w +/-/* N
+                    # NOTE: gcc doesn't allow cmpi/andi.s symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
+                    if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{symbolName}.w'
+                    else:
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_hex_str}.w'
+
+        # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN      ; Saves 4 cycles
+        # andi.s   #value,mem_address   ->   andi.s   mem_address.w,aN      ; Saves 4 cycles
+        elif match := (cmpi_canonical_mem_address_pattern.match(line) or andi_canonical_mem_address_pattern.match(line)):
+            instr = match.group(2)
+            s = match.group(3)
+            imm = match.group(5)
+            mem_addr = match.group(6)
+            mem_addr_size = match.group(7)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
+                mem_addr_ops = ''.join(match.group(k) for k in range(8, 10) if match.group(k))
+                if mem_addr.endswith('.l'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                mem_value = parseConstantUnsigned(mem_addr)
+                mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
+                if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                    # NOT_WORKING: when on higher RAM
+                    if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                        continue
+                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+
+                    # NOTE: gcc doesn't allow cmpi/andi.s mem_address.w +/-/* N
+                    optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_hex_str}.w'
 
         # jmp     symbolName     ->   jmp     symbolName.w               ; Saves 2 cycles
         # jsr     symbolName     ->   jsr     symbolName.w               ; Saves 2 cycles
@@ -9854,6 +9916,44 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                         new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
                         new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
                         accomodated_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{new_mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
+
+        # cmpi.s   #value,mem_address
+        # andi.s   #value,mem_address
+        elif match := (cmpi_canonical_mem_address_pattern.match(line) or andi_canonical_mem_address_pattern.match(line)):
+            instr = match.group(2)
+            s = match.group(3)
+            imm = match.group(5)
+            mem_addr = match.group(6)
+            mem_addr_size = match.group(7)
+            # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
+            if (not mem_addr_size or mem_addr_size == '.w' or mem_addr.endswith('.w')):
+                mem_addr_ops = ''.join(match.group(k) for k in range(8, 10) if match.group(k))
+                # If this mem address contains additional ops then is not one our reduced instructions
+                if mem_addr_ops:
+                    continue
+                # Reset the mem address ops so we can use it for one of the mapa
+                mem_addr_ops = ''
+
+                if mem_addr.endswith('.w'):
+                    mem_addr = mem_addr[:-2]  # remove last 2 chars
+                old_mem_value = parseConstantUnsigned(mem_addr)
+
+                symbolName = ''
+                # Check if the old mem value was previously originated from: symbolName +/-/* N
+                if old_mem_value in symbol_with_additional_ops_by_mem_address:
+                    symbolName, mem_addr_ops = symbol_with_additional_ops_by_mem_address[old_mem_value]
+                # Check if it exists in the first symbols map
+                elif old_mem_value in symbolName_by_mem_value_OPT_dict:
+                    symbolName = symbolName_by_mem_value_OPT_dict[old_mem_value]
+
+                if symbolName and symbolName in mem_addr_by_symbolName_CANONICAL_dict:
+                    new_mem_addr = mem_addr_by_symbolName_CANONICAL_dict[symbolName]
+                    new_mem_value = parseConstantUnsigned(new_mem_addr)
+                    # if old mem address is different than new mem address then we have to update the instruction
+                    if old_mem_value != new_mem_value:
+                        new_mem_value_eval_ops = evaluate_instr_math_expression(str(new_mem_value) + mem_addr_ops)
+                        new_mem_value_eval_ops_hex_str = f'0x{new_mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                        accomodated_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{new_mem_value_eval_ops_hex_str}.w'
 
         # Replace the original line with the its optimized version
         if accomodated_line != '':

@@ -67,13 +67,6 @@ Reg expressions catching a symbol or mem address along with its size:  [0-9a-zA-
     Make sure the size is not part of the symbolName or the mem address.
     See reduce_load_and_branch_canonical_address_using_sign_extension()
 
-reduce_canonical_address_using_sign_extension()
-Explore which other instructions can be reduced.
-    # cmpi.s   #value,symbolName   ->   cmpi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
-    Same than lea symbolName,aN
-    # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN      ; Saves 4 cycles
-    Same than lea mem_address,aN
-
 When generating an int with int(string) or parseConstantSigned(string) or evaluate_instr_math_expression() 
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
