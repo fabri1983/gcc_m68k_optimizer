@@ -65,7 +65,12 @@ TODO
 ====
 Reg expressions catching a symbol or mem address along with its size:  [0-9a-zA-Z_\.]+)(\.[bwl])?
     Make sure the size is not part of the symbolName or the mem address.
-    See reduce_load_and_branch_canonical_address_using_sign_extension()
+        # Remove the size if it ended up being part of the symbol
+        if symbolName.endswith(('.l','.w','.b')):
+            symbolName = symbolName[:-2]  # remove last 2 chars
+        # Remove the size if it ended up being part of the mem address
+        if mem_addr.endswith(('.l','.w','.b')):
+            mem_addr = mem_addr[:-2]  # remove last 2 chars
 
 When generating an int with int(string) or parseConstantSigned(string) or evaluate_instr_math_expression() 
 and then comparing against an hex value 0xAACCEE00:
@@ -89,7 +94,8 @@ Update on reduce_load_and_branch_canonical_address_using_sign_extension()
 and accomodate_canonical_address()
 NOTE: if using this optimization then I need to add support for symbol_or_mem(pc) in reg exps.
 
-Clear upper word of dN where we know for sure dN holds: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
+Clear upper word of dN.
+We must know for sure dN holds: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
 and.l   #0xFFFF,d0   ->   ext.l   d0                 ; Saves 12 cycles
 
 Clearing memory using existent dN already holding 0 value.
@@ -110,9 +116,9 @@ Next optimization only valid for 3 or more disp(SP).
 Adding same immediate value into subsequent memory by indirect access.
 Needs a free An register
     addq.w #1,44(sp)
-    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN not sp)
+    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN != sp)
     addq.w #1,46(sp)
-    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN not sp)
+    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN != sp)
     addq.w #1,48(sp)
 ; Saves 4 cycles
     lea 44(sp),a0

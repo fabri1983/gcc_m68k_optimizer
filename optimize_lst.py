@@ -4472,7 +4472,8 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                                 return (optimized_lines, multi_limit)
 
         # Tail recursion for BSR/JSR or exploiting PEA opportunities
-        matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+);?$', line_A)
+        bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+        matchA = re.match(bsr_jsr_routine, line_A)
         if matchA:
 
             # Tail recursion. Replace many BSR/JSR+RTS by many PEA+BRA/JMP
@@ -4482,13 +4483,13 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
             # rts
             matchD = re.match(r'^\s*rts\b', line_D)
             if matchD:
-                bsr_jsr_routine = r'^\s*(bsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)'
+                
                 matchB = re.match(bsr_jsr_routine, line_B)
                 matchC = re.match(bsr_jsr_routine, line_C)
                 if matchB and matchC:
-                    subr1 = matchA.group(5)
-                    subr2 = matchB.group(3)
-                    subr3 = matchC.group(3)
+                    subr1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
+                    subr2 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
+                    subr3 = ''.join(matchC.group(i) for i in range(5, 9) if matchC.group(i))
                     last_instr = "jmp  "
                     if not matchA.group(2) == "jsr":
                         last_instr = "bra  "
@@ -4706,7 +4707,8 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                             return (optimized_lines, multi_limit)
 
         # Tail recursion for BSR/JSR or exploiting PEA opportunities
-        matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+);?$', line_A)
+        bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+        matchA = re.match(bsr_jsr_routine, line_A)
         if matchA:
 
             # Tail recursion. Replace many BSR/JSR+RTS by many PEA+BRA/JMP
@@ -4715,10 +4717,10 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
             # rts
             matchC = re.match(r'^\s*rts\b', line_C)
             if matchC:
-                matchB = re.match(r'^\s*(bsr|jsr)(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+                matchB = re.match(bsr_jsr_routine, line_B)
                 if matchB:
-                    subr1 = matchA.group(5)
-                    subr2 = matchB.group(3)
+                    subr1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
+                    subr1 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
                     last_instr = "jmp  "
                     if not matchA.group(2) == "jsr":
                         last_instr = "bra  "
@@ -5279,32 +5281,28 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
                         optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
                         return ([optimized_line], multi_limit)
 
-        # Tail recursion for BSR or exploiting PEA opportunities
+        # Tail recursion for JSR/BSR or exploiting PEA opportunities
         matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$', line_A)
         if matchA:
             s_branch = '  ' if not matchA.group(3) else matchA.group(3)
             subr = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
 
-            # Tail recursion. Replace BSR+RTS by BRA
-            # bsr subr         ->    bra   subr         ; Saves 24 cycles. Different stack depth
-            # rts
             matchB = re.match(r'^\s*rts\b', line_B)
             if matchB:
-                optimized_line = f'{matchA.group(1)}bra{s_branch}{matchA.group(4)}{subr}'
-                return ([optimized_line], multi_limit)
 
-        # Tail recursion for JSR or exploiting PEA opportunities
-        matchA = re.match(r'^(\s*)jsr(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$', line_A)
-        if matchA:
-            subr = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
+                # Tail recursion. Replace BSR+RTS by BRA
+                # bsr subr         ->    bra   subr         ; Saves 24 cycles. Different stack depth
+                # rts
+                if matchA.group(2) == 'bsr':
+                    optimized_line = f'{matchA.group(1)}bra{s_branch}{matchA.group(4)}{subr}'
+                    return ([optimized_line], multi_limit)
 
-            # Tail recursion. Replace JSR+RTS
-            # jsr subr         ->    jmp   subr         ; Saves 24 cycles. Different stack depth
-            # rts
-            matchB = re.match(r'^\s*rts\b', line_B)
-            if matchB:
-                optimized_line = f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
-                return ([optimized_line], multi_limit)
+                # Tail recursion. Replace JSR+RTS by JMP
+                # jsr subr         ->    jmp   subr         ; Saves 24 cycles. Different stack depth
+                # rts
+                if matchA.group(2) == 'jsr':                
+                    optimized_line = f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
+                    return ([optimized_line], multi_limit)
 
         if USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY:
 
@@ -9154,34 +9152,30 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
                     # Consider only single register push with move, not movem
                     if push_match := PUSH_REGS_INTO_STACK_REGEX.match(prev_line):
                         if push_match.group(1) == 'move':
-                            arg = push_match.group(3)
                             arg_size = push_match.group(2)
                             if arg_size == 'w':
                                 total_sp_adjustment += 2
                             elif arg_size == 'l':
                                 total_sp_adjustment += 4
+                            arg = push_match.group(3)
                             args.append(f'{arg}.{arg_size}')
                     # Consider pea <value|symbolName>[.wl][+-*N][.bwl]
                     elif pea_match := PEA_REGEX.match(prev_line):
-                        groups = pea_match.groups()
-                        # Skip the first .s after the argument (if any)
-                        arg = ''.join(groups[i] for i in [0, 2, 3] if groups[i])
                         arg_size = 'l' if not pea_match.group(2) else pea_match.group(2)[1:]  # remove initial '.'
                         if arg_size == 'w':
                             total_sp_adjustment += 2
                         elif arg_size == 'l':
                             total_sp_adjustment += 4
+                        arg = ''.join(pea_match.group(i) for i in range(1, 5) if pea_match.group(i))
                         args.append(f'{arg}.{arg_size}')
                     # Consider pushing a symbol or an immediate value
                     elif push_other_match := PUSH_OTHER_INTO_STACK_REGEX.match(prev_line):
-                        groups = push_other_match.groups()
-                        # Skip the first .s after the argument (if any)
-                        arg = ''.join(groups[i] for i in [1, 3, 4] if groups[i])
-                        arg_size = push_match.group(1)
+                        arg_size = push_other_match.group(1)
                         if arg_size == 'w':
                             total_sp_adjustment += 2
                         elif arg_size == 'l':
                             total_sp_adjustment += 4
+                        arg = ''.join(push_other_match.group(i) for i in range(2, 6) if push_other_match.group(i))
                         args.append(f'{arg}.{arg_size}')
 
                 # Reverse the list so the arguments are in the order they are popped from stack in the target function
@@ -9272,7 +9266,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
                         modified_lines_no_abi[k] = ''  # This way we keep the original line numbering for following analysis
                     # Consider pushing a symbol or an immediate value
                     elif push_other_match := PUSH_OTHER_INTO_STACK_REGEX.match(next_line):
-                        arg_size = push_match.group(1)
+                        arg_size = push_other_match.group(1)
                         if arg_size == 'w':
                             accum_sp_adjustment += 2
                         elif arg_size == 'l':
@@ -9458,6 +9452,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
             if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
                 symbol_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                # Remove the size if it ended up being part of the symbol
                 if symbolName.endswith('.l'):
                     symbolName = symbolName[:-2]  # remove last 2 chars
                 # Ensure we are dealing with a symbol and not a code label
@@ -9502,6 +9497,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
             if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
                 mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.l'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 mem_value = parseConstantUnsigned(mem_addr)
@@ -9530,6 +9526,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
             if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
                 symbol_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                # Remove the size if it ended up being part of the symbol
                 if symbolName.endswith('.l'):
                     symbolName = symbolName[:-2]  # remove last 2 chars
                 # Ensure we are dealing with a symbol and not a code label
@@ -9567,6 +9564,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
             if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
                 mem_addr_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.l'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 mem_value = parseConstantUnsigned(mem_addr)
@@ -9596,6 +9594,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
             if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
                 symbol_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                # Remove the size if it ended up being part of the symbol
                 if symbolName.endswith('.l'):
                     symbolName = symbolName[:-2]  # remove last 2 chars
                 # Ensure we are dealing with a symbol and not a code label
@@ -9630,6 +9629,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
             if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
                 mem_addr_ops = ''.join(match.group(k) for k in range(7, 9) if match.group(k))
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.l'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 mem_value = parseConstantUnsigned(mem_addr)
@@ -9655,6 +9655,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
             if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
                 symbol_ops = ''.join(match.group(k) for k in range(8, 10) if match.group(k))
+                # Remove the size if it ended up being part of the symbol
                 if symbolName.endswith('.l'):
                     symbolName = symbolName[:-2]  # remove last 2 chars
                 # Ensure we are dealing with a symbol and not a code label
@@ -9687,6 +9688,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the mem address size and it ends being part of mem_addr
             if (not mem_addr_size or mem_addr_size == '.l' or mem_addr.endswith('.l')) and not mem_addr.endswith('.w'):
                 mem_addr_ops = ''.join(match.group(k) for k in range(8, 10) if match.group(k))
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.l'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 mem_value = parseConstantUnsigned(mem_addr)
@@ -9709,6 +9711,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             # Note: sometimes the match doesn't skip the symbol name size and it ends being part of symbolName
             if (not symbol_size or symbol_size == '.l' or symbolName.endswith('.l')) and not symbolName.endswith('.w'):
                 symbol_ops = ''.join(match.group(k) for k in range(6, 8) if match.group(k))
+                # Remove the size if it ended up being part of the symbol
                 if symbolName.endswith('.l'):
                     symbolName = symbolName[:-2]  # remove last 2 chars
                 # Ensure we are dealing with a symbol and not a code label
@@ -9811,7 +9814,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                     continue
                 # Reset the mem address ops so we can use it for one of the mapa
                 mem_addr_ops = ''
-
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.w'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 old_mem_value = parseConstantUnsigned(mem_addr)
@@ -9851,7 +9854,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                     continue
                 # Reset the mem address ops so we can use it for one of the mapa
                 mem_addr_ops = ''
-
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.w'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 old_mem_value = parseConstantUnsigned(mem_addr)
@@ -9894,7 +9897,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                     continue
                 # Reset the mem address ops so we can use it for one of the mapa
                 mem_addr_ops = ''
-
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.w'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 old_mem_value = parseConstantUnsigned(mem_addr)
@@ -9933,7 +9936,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
                     continue
                 # Reset the mem address ops so we can use it for one of the mapa
                 mem_addr_ops = ''
-
+                # Remove the size if it ended up being part of the mem address
                 if mem_addr.endswith('.w'):
                     mem_addr = mem_addr[:-2]  # remove last 2 chars
                 old_mem_value = parseConstantUnsigned(mem_addr)
