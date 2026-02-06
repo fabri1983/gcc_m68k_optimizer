@@ -76,6 +76,14 @@ When generating an int with int(string) or parseConstantSigned(string) or evalua
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
 
+A new optimization after reduce_canonical_address_using_sign_extension() could be next:
+    lea  symbol,aN
+    lea  disp(aN),aN|aM
+    (or with move instructions but same idea)
+Saves 8 cycles:
+    lea  mem_addres_of_symbol+disp,aN|aM
+And it also needs to be accomodated
+
 Ver los TODO en el optimizer script.
 
 Test the new division optimization.

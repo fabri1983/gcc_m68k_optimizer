@@ -7886,8 +7886,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Add/Sub/Lea on Address register
     ############################################################################
 
-    # TODO: create method to check if we are inside a loop and find which reg is the counter, so next condition can be removed
     if USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION:
+        # TODO: create method to check if we are inside a loop and find which reg is the counter, so next condition can be removed
 
         # addq.l  #val,aN     ->   addq.w   #val,aN    ; Saves 4 cycles
         # Only if you know before hand the upper word won't be affected, which is true for loops.
