@@ -95,15 +95,8 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 
 Single instruction
 ==================
-From Tails8521:
-(addr).l -> addr(pc)  where addr is in the range -32k to +32k from pc.
-Also note that this addressing mode only works as source, not destination.
-Update on reduce_load_and_branch_canonical_address_using_sign_extension()
-and accomodate_canonical_address()
-NOTE: if using this optimization then I need to add support for symbol_or_mem(pc) in reg exps.
-
 Clear upper word of dN.
-We must know for sure dN holds: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
+We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
 and.l   #0xFFFF,d0   ->   ext.l   d0                 ; Saves 12 cycles
 
 Clearing memory using existent dN already holding 0 value.
@@ -120,6 +113,16 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+Calculation of indirection offset.
+    neg.s      d0
+    addi.s     #val,d0
+    move.[wl]  d1,(a0,d0.[wl])
+; Saves [2, 12] cycles
+    suba.s     d0,a0
+    lea        val(a0),a0
+    move.[wl]  d1,(a0)
+Ensure a0 is not used afterwards before being overwritten or cleared
+
 Next optimization only valid for 3 or more disp(SP).
 Adding same immediate value into subsequent memory by indirect access.
 Needs a free An register
@@ -248,7 +251,7 @@ hint_enqueueTiles:
 	rts
 
 My version:
-I can't use this version as inline asm because the use of the stack sp is unpredictable.
+I can't use this version in an inline asm because the offsets to stack pointer sp are unpredictable.
 190 cycles (178 cycles if using .w for the lea instructions, optimization made by the optimizer if ram symbols are at high mem >= 0xE0FF8000)
 hint_enqueueTiles:
     lea     tiles_elems,a0     ;// tiles_elems base address

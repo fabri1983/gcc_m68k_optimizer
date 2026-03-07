@@ -259,6 +259,13 @@ def containsCompilerDirective(line: str) -> bool:
     first_word = line.lstrip().split(None, 1)[0] if line.lstrip() else ""
     return first_word in compilerDirectiveEntries
 
+BSS_SECTION_REGEX = re.compile(
+    r'^\s*'                # Optional leading whitespace
+    r'\.section\s+'        # .section followed by at least one whitespace
+    r'\.bss$'              # ending with .bss
+    # Eg:    .section    .bss
+)
+
 def isValue(s: str) -> bool:
     """
     Check if a string is a valid number: integer, hexadecimal, binary.
@@ -630,6 +637,9 @@ def collect_declared_functions(lines: list[str]):
     
     for i in range(0, len(lines)):
         line = lines[i]
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
         # Is a function declaration?
         if match := FUNCTION_DECLARATION_REGEX.match(line):
             declared_functions_set.add(match.group(1))
@@ -661,7 +671,11 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
 
     for i in range(0, len(lines)):  # forwards
         line = lines[i]
-        
+
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
+
         # Is a label definition?
         if match_label := LABEL_REGEX.match(line):
             number_label = match_label.group(1)
@@ -3115,7 +3129,7 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
-def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, bool]:
+def optimizeMultiLines(multi_limit: int, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, bool]:
     """
     Detect optimization opportunities that span multiple lines.
     Returns a tuple of (optimized_lines, lines_to_remove) if pattern matches, (None, 0) otherwise.
@@ -7243,6 +7257,200 @@ def optimizeMultipleLines(multi_limit: int, i_line: int, lines: list[str], modif
 
     return (None, 0)
 
+lea_move_symbol_or_mem_into_an_pattern = re.compile(
+    r'^(\s*)(lea|move|movea)(\.[wl])?(\s+)(#?-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+)
+
+def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolName_dict: dict[str, str], line_number_map: dict[int, int]) -> int:
+    """
+    Iterate over different amount of multiple lines and try to exploit the offset between symbols loaded into aN
+    """
+
+    if len(mem_addr_by_symbolName_dict) == 0:
+        return 0
+
+    # Keep track of inline assembly blocks: #APP and #NO_APP
+    inside_inline_asm_block = False
+    print_start_asm_block = False
+    print_end_asm_block = False
+
+    # Keep track of total number of updated lines and patterns
+    num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
+
+    window_max_size = 32
+
+    window_start = 0
+    window_span = 2
+    while (window_start + window_span) < len(lines):
+
+        line = lines[window_start]
+
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
+
+        # Track inline assembly blocks
+        if line.startswith("#APP"):
+            inside_inline_asm_block = True
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                print_start_asm_block = True
+                print_end_asm_block = False
+            # Advance the window starting point and reset the window span
+            window_start += 1
+            window_span = 2
+            continue
+        elif line.startswith("#NO_APP"):
+            if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+                if print_end_asm_block:
+                    print('[OPT_LOG] <-- End inline asm block')
+            print_start_asm_block = False
+            print_end_asm_block = False
+            inside_inline_asm_block = False
+            # Advance the window starting point and reset the window span
+            window_start += 1
+            window_span = 2
+            continue
+
+        # Check for compiler info or directive entries first
+        if containsCompilerInfo(line) or containsCompilerDirective(line):
+            # Advance the window starting point and reset the window span
+            window_start += 1
+            window_span = 2
+            continue
+
+        # Skip inline assembly blocks?
+        if not OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
+            # Advance the window starting point and reset the window span
+            window_start += 1
+            window_span = 2
+            continue
+
+        while window_span < window_max_size:
+
+            window_end = window_start + window_span - 1
+            # Update window stepping for next iteration
+            window_span += 1
+
+            line_top = lines[window_start]
+            lines_inbetween_to_check = lines[window_start + 1:window_end]
+            line_end = lines[window_end]
+
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                if line_end.endswith(SKIP_OPTIMIZATION_FLAG):
+                    continue
+
+            # Let's check if line at window_end ends inside an inline asm block before it exits the block
+            if not OPTIMIZE_INLINE_ASM_BLOCKS:
+                ends_inside_inline_asm = False
+                for line_X in lines_inbetween_to_check:
+                    # Entering an inline asm block
+                    if line_X.startswith("#APP"):
+                        ends_inside_inline_asm = True
+                    # Exiting an inline asm block
+                    elif line_X.startswith("#NO_APP"):
+                        ends_inside_inline_asm = False
+
+                if ends_inside_inline_asm:
+                    continue
+
+            # Loading a symbol or mem by an offset of previous loaded symbol or mem
+            # lea  symbol_or_mem_1,aN    ->    lea  symbol_or_mem_1,aN             ; Saves [4,8] cycles
+            # any N instructions               any N instructions
+            # lea  symbol_or_mem_2,aM          lea  symbol_or_mem_2-symbol_or_mem_1(aN),aM
+            # Where aN can be aM.
+            # Only if -32768 <= (symbol_or_mem_1 - symbol_or_mem_2) <= 32767.
+            # Only if 4 inner instructions are not branching, not function exit, not overriding aN.
+            # The lea instr can be:  move.[wl] #symbol_or_mem,aN
+            match_top = lea_move_symbol_or_mem_into_an_pattern.match(line_top)
+            if match_top:
+                match_end = lea_move_symbol_or_mem_into_an_pattern.match(line_end)
+                if match_end:
+                    instr1 = match_top.group(2)
+                    symbol_or_mem_1 = match_top.group(5)
+                    symbol_or_mem_1_ops = ''.join(match_top.group(k) for k in range(7, 9) if match_top.group(k))
+                    # Remove the size if it ended up being part of the symbol
+                    if symbol_or_mem_1.endswith(('.l','.w','.b')):
+                        symbol_or_mem_1 = symbol_or_mem_1[:-2]  # remove last 2 chars
+                    instr1_is_ok = False
+                    # if instruction is move/movea then we expect the occurrence of '#'
+                    if instr1.startswith('lea') or (instr1.startswith('move') and symbol_or_mem_1.startswith('#')):
+                        instr1_is_ok = True
+                    aN = match_top.group(9)
+
+                    instr2 = match_end.group(2)
+                    symbol_or_mem_2 = match_end.group(5)
+                    symbol_or_mem_2_ops = ''.join(match_end.group(k) for k in range(7, 9) if match_end.group(k))
+                    # Remove the size if it ended up being part of the symbol
+                    if symbol_or_mem_2.endswith(('.l','.w','.b')):
+                        symbol_or_mem_2 = symbol_or_mem_2[:-2]  # remove last 2 chars
+                    instr2_is_ok = False
+                    # if instruction is move/movea then we expect the occurrence of '#'
+                    if instr2.startswith('lea') or (instr2.startswith('move') and symbol_or_mem_2.startswith('#')):
+                        instr2_is_ok = True
+                    aM = match_end.group(9)
+
+                    # Check no branching nor exit fuction is used by any of the remaining lines
+                    any_branching_or_exit = False
+                    aN_overwritten = False
+                    for line_X in lines_inbetween_to_check:
+                        if (
+                            CONDITIONAL_CONTROL_FLOW_REGEX.match(line_X) or CONDITIONAL_DBCC_FLOW_REGEX.match(line_X) or 
+                            UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line_X) or FUNCTION_EXIT_REGEX.match(line_X) or
+                            FUNCTION_DECLARATION_REGEX.match(line_X) or FUNCTION_SIZE_CALCULATION_REGEX.match(line_X)
+                        ):
+                            any_branching_or_exit = True
+                            break
+
+                        if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line_X):
+                            if match.group(6) == aN:
+                                aN_overwritten = True
+                                break
+
+                    # Ensure everything is ok to proceed
+                    if (
+                        instr1_is_ok and instr2_is_ok and not any_branching_or_exit and not aN_overwritten and
+                        symbol_or_mem_1 in mem_addr_by_symbolName_dict and symbol_or_mem_2 in mem_addr_by_symbolName_dict
+                    ):
+                        # Replace the symbol name by its mem address (0x prefix already included)
+                        mem_addr_1 = mem_addr_by_symbolName_dict[symbol_or_mem_1]
+                        mem_value_1 = parseConstantUnsigned(mem_addr_1)
+                        mem_addr_2 = mem_addr_by_symbolName_dict[symbol_or_mem_2]
+                        mem_value_2 = parseConstantUnsigned(mem_addr_2)
+                        # Evaluate with additional operands
+                        mem_value_1_eval_ops = evaluate_instr_math_expression(str(mem_value_1) + symbol_or_mem_1_ops)
+                        mem_value_2_eval_ops = evaluate_instr_math_expression(str(mem_value_2) + symbol_or_mem_2_ops)
+                        diff = (mem_value_2_eval_ops & 0xFFFFFFFF) - (mem_value_1_eval_ops & 0xFFFFFFFF)
+                        if -32768 <= diff <= 32767:
+                            opt_line = ""
+                            # If diff is 0 then we'll directly copy aN into aM
+                            if diff == 0:
+                                opt_line = f'{match_top.group(1)}move.l{match_top.group(4)}{aN},{aM}'
+                            else:
+                                opt_line = f'{match_top.group(1)}lea{match_top.group(4)}{diff}({aN}),{aM}'
+
+                            # Replace the old line with its optimized version
+                            lines[window_end] = opt_line
+
+                            # Update counter
+                            num_updates += 1
+                            # Print findings?
+                            if PRINT_OPTIMIZATION_LOG:
+                                # Get the original line number from the map
+                                original_line_num = line_number_map.get(window_end, window_end)
+                                # Print starting or ending an inline asm block
+                                if print_start_asm_block:
+                                    print('[OPT_LOG] --> Start inline asm block')
+                                    print_start_asm_block = False
+                                    print_end_asm_block = True
+                                # Print optimization log
+                                print_optimized_diff([line_end], original_line_num, [opt_line])
+
+        # Advance the window starting point and reset the window span
+        window_start += 1
+        window_span = 2
+
+    return num_updates
+
 indirection_0_pattern = re.compile(
     r'^\s*'
     r'([a-zA-Z]+)\.?([bwl])?\s+'  # instruction mnemonic with optional .[bwl]
@@ -7350,6 +7558,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Set constants
     ############################################################################
 
+    # Move a constant into a data register
     match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantSigned(match.group(3), 8)
@@ -8634,6 +8843,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
     print_end_asm_block = False
 
     modified_lines = []
+    skip_optimization_and_just_copy = -1
     num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
 
     print(f'[OPT_LOG] {step_name}')
@@ -8643,6 +8853,11 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
     i_line = rem_start
     while i_line < rem_end:  # forwards
         line = input_lines[i_line]
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            skip_optimization_and_just_copy = i_line
+            break
+
         i_line += 1
 
         # Track inline assembly blocks
@@ -8700,12 +8915,30 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
             # Not optimized -> add the original line
             modified_lines.append(line)
 
+    # Copy the reamining content
+    if skip_optimization_and_just_copy != -1:
+        start = skip_optimization_and_just_copy
+        for i_line in range(start, len(input_lines)):
+            line = input_lines[i_line]
+            modified_lines.append(line)
+
     return (modified_lines, num_updates)
 
-def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], int, int]:
+def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_pass: int) -> tuple[list[str], int, int]:
     """
     Perform multi and single line optimzations
     """
+
+    # Create a dictionary: symbolName -> memory address (ROM or RAM)
+    mem_addr_by_symbolName_dict: dict[str, str] = {}
+    if symbols_filename:
+        with open(symbols_filename) as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) < 3:
+                    continue
+                mem_addr_s, t, symbolName = parts[:3]
+                mem_addr_by_symbolName_dict[symbolName] = "0x" + mem_addr_s
 
     # Keep track of total number of updated lines and patterns
     num_updated_lines_found = 0
@@ -8720,15 +8953,22 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
     print_end_asm_block = False
 
     # Step 1: Optimze multiple lines first
-    print('[OPT_LOG] Multi line patterns')
+    print('[OPT_LOG] Multi line patterns (lots of patterns)')
 
     modified_multi_lines = []
-    
+    skip_optimization_and_just_copy = -1
+
     rem_start = 0
     rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
     i_line = rem_start
     while i_line < rem_end:  # forwards
         line = input_lines[i_line]
+
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            skip_optimization_and_just_copy = i_line
+            break
+
         i_line += 1
 
         # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
@@ -8750,8 +8990,9 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
 
         # Skip empty lines and comments and alike
         if not stripped or (stripped and stripped[0] in COMMENT_PREFIX_CHAR):
-            # '#APP' and '#NO_APP' are the only one comments starting with '#' added by gcc to discern 
-            # between inline asm blocks added by the user
+            # We'll skip any line starting with a '#', but considering that '#APP' and '#NO_APP' 
+            # are the only one comments starting with '#' added by gcc to discern between 
+            # inline asm blocks added by the user, so we have to leave them as it is.
             if not stripped.startswith(('#APP','#NO_APP')):
                 # Continue with next line
                 continue
@@ -8779,14 +9020,18 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
             # Range: from MULTIPLE_LINES_OPTIMIZATION_MAX_LIMIT lines down to 2 lines
             for multi_span_size in range(MULTIPLE_LINES_OPTIMIZATION_LIMIT, 2 - 1, -1):
 
+                # It might happen that previous optimization removed one or more lines
+                if len(modified_multi_lines) < multi_span_size:
+                    continue;
+
                 # Find optimizations spanning multiple lines
                 prev_rem_end = rem_end
-                optimized_multilines, lines_to_remove = optimizeMultipleLines(multi_span_size, i_line-1, input_lines, modified_multi_lines, current_pass)
+                optimized_multilines, lines_to_remove = optimizeMultiLines(multi_span_size, i_line-1, input_lines, modified_multi_lines, current_pass)
                 diff_lines = len(input_lines) - prev_rem_end
                 rem_end += diff_lines  # Adjust new limit
                 i_line += diff_lines  # Adjust next i_line value
 
-                if optimized_multilines is not None:
+                if optimized_multilines:
                     # Update counter
                     num_updated_lines_found += lines_to_remove
                     num_patterns_found += 1
@@ -8817,7 +9062,22 @@ def optimize_asm(input_lines: list[str], current_pass: int) -> tuple[list[str], 
                         # Print optimization log
                         print_optimized_diff(original_lines, (i_line-1)-(lines_to_remove-1), optimized_multilines)
 
-    # NOTE: At this point we know that modified_multi_lines lines have not trealing whitespace
+    # Copy the reamining content
+    if skip_optimization_and_just_copy != -1:
+        start = skip_optimization_and_just_copy
+        for i_line in range(start, len(input_lines)):
+            line = input_lines[i_line]
+            modified_multi_lines.append(line)
+
+    # NOTE: At this point we know that code lines in modified_multi_lines have not trealing whitespace
+
+    # Iterate over different amount of multiple lines and try to exploit the offset between symbols loaded into aN
+    print('[OPT_LOG] Multi line patterns (use offset when loading a symbol near other loaded symbol)')
+    num_updated_offsets = optimizeMultiLines_SymbolOrMemByOffset(
+        modified_multi_lines, mem_addr_by_symbolName_dict, line_number_map
+    )
+    num_updated_lines_found += num_updated_offsets
+    num_patterns_found += num_updated_offsets
 
     # Step 2: Single line patterns
     modified_single_lines_step_2, num_updates_2 = process_single_lines_helper(
@@ -8874,7 +9134,7 @@ gcc_indirection_with_long_dn_access_pattern = re.compile(
     r')'
 )
 
-def replace_gcc_dn_long_indirection_by_word(line: str, modified_lines: [str]) -> str:
+def replace_gcc_dn_long_indirection_by_word(line: str) -> str:
     """
     Replaces dN.l by dN.w in patterns: (aN/sp/pc,%dN.l) or disp(aN/sp/pc,%dN.l) or (disp,aN/sp/pc,%dN.l)
     """
@@ -8948,9 +9208,16 @@ def applyGccConversions(lines: list[str]) -> list[str]:
     """
     Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading.
     """
+    skip_optimization_and_just_copy = -1
     modified_lines: list[str] = []
     for i_line in range(0, len(lines)):
         line = lines[i_line]
+
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            skip_optimization_and_just_copy = i_line
+            break
+
         # Rewrite the line without any trailing whitespace. The content of lines will be used in other methods
         line = line.rstrip()
 
@@ -8968,13 +9235,20 @@ def applyGccConversions(lines: list[str]) -> list[str]:
         # Replace %fp by %a6
         line = convert_from_gcc_fp_style(line)
         # Replace dN.l by dN.w in indirection accesses when possible
-        line = replace_gcc_dn_long_indirection_by_word(line, modified_lines)
+        line = replace_gcc_dn_long_indirection_by_word(line)
         # Replace gcc encoded list of regs by a human readable format
         line = convert_gcc_movem_encoded_regs(line)
         # Remove dereference over symbol names. Eg: lea (PAL_setPalette.constprop.0),%a3 -> lea PAL_setPalette.constprop.0,%a3
         line = remove_gcc_dereference_symbol_or_memory(line)
 
         modified_lines.append(line)
+
+    # Copy the reamining content
+    if skip_optimization_and_just_copy != -1:
+        start = skip_optimization_and_just_copy
+        for i_line in range(start, len(lines)):
+            line = lines[i_line]
+            modified_lines.append(line)
 
     # Replace gcc special local labels like 0f, 1b, etc by unique labels
     convert_gcc_local_labels_into_unique_labels(modified_lines)
@@ -9037,6 +9311,9 @@ def non_used_functions(lines: list[str]):
     global_functions_set: set[str] = set()
     for i_line in range(0, len(lines)):
         line = lines[i_line]
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
         # Is a function declaration?
         if match := global_routine_pattern.match(line):
             func_name = match.group(1)
@@ -9049,7 +9326,9 @@ def non_used_functions(lines: list[str]):
     calling_functions_set: set[str] = set()
     for i in range(0, len(lines)):
         line = lines[i]
-
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
         # Is calling one of the declared functions?
         if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
@@ -9381,7 +9660,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
     # Collect the indexes of the updated lines from lines array
     line_indexes_updated: list[int] = []
 
-    # Create a dictinary: symbolName -> memory address (ROM or RAM)
+    # Create a dictionary: symbolName -> memory address (ROM or RAM)
     mem_addr_by_symbolName_dict: dict[str, str] = {}
     with open(symbols_filename) as f:
         for line in f:
@@ -9769,7 +10048,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
     if len(line_indexes_updated) == 0:
         return (0, 0)
 
-    # Create a dictinary: memory address (ROM or RAM) -> symbolName
+    # Create a dictionary: memory address (ROM or RAM) -> symbolName
     symbolName_by_mem_value_OPT_dict: dict[int, str] = {}
     with open(symbols_opt_filename) as f:
         for line in f:
@@ -9780,7 +10059,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
             mem_value = parseConstantUnsigned("0x" + mem_addr_s)
             symbolName_by_mem_value_OPT_dict[mem_value] = symbolName
 
-    # Create a dictinary: symbolName -> memory address (ROM or RAM)
+    # Create a dictionary: symbolName -> memory address (ROM or RAM)
     mem_addr_by_symbolName_CANONICAL_dict: dict[str, str] = {}
     with open(symbols_canonical_filename) as f:
         for line in f:
@@ -10010,15 +10289,22 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     #print('[OPT_LOG] -- Simple ABI removal pass --')
     #modified_lines = remove_simple_abi(modified_lines)
 
+    # Decide which symbols file we have to read for the optimize_asm() function
+    symbols_for_optimize_asm: str | None = None;
+    if symbols_canonical_filename:
+        symbols_for_optimize_asm = symbols_canonical_filename
+    elif symbols_opt_filename:
+        symbols_for_optimize_asm = symbols_opt_filename
+    
     # 1st pass
     print('[OPT_LOG] -- FIRST pass --')
-    modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, 1)
+    modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 1)
     num_updated_lines_found += num_updated_lines_found_1st_pass
     num_patterns_found += num_patterns_found_1st_pass
 
     # 2nd pass: catch new opportunities and optimize branches
     print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
-    modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, 2)
+    modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 2)
     num_updated_lines_found += num_updated_lines_found_2nd_pass
     num_patterns_found += num_patterns_found_2nd_pass
 
