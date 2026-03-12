@@ -76,14 +76,6 @@ When generating an int with int(string) or parseConstantSigned(string) or evalua
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign python sets at 63th bit
 
-A new optimization after reduce_canonical_address_using_sign_extension() could be next:
-    lea  symbol,aN
-    lea  disp(aN),aN|aM
-    (or with move instructions but same idea)
-Saves 8 cycles:
-    lea  mem_addres_of_symbol+disp,aN|aM
-And it also needs to be accomodated
-
 Ver los TODO en el optimizer script.
 
 Test the new division optimization.
@@ -117,13 +109,13 @@ Multiline instructions
     neg.s      d0
     addi.s     #val,d0
     move.[wl]  d1,(a0,d0.[wl])
-; Saves [2, 12] cycles
+; Saves [2,12] cycles
     suba.s     d0,a0
     lea        val(a0),a0
     move.[wl]  d1,(a0)
 Ensure a0 is not used afterwards before being overwritten or cleared.
 
-Next optimization only valid for 3 or more disp(SP).
+Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect access.
 Needs a free An register
     addq.w #1,44(sp)
@@ -215,61 +207,3 @@ eor.s   d2,d0
 add.s   d1,d0
 add.s   d2,d1
 # Results: d0 = max(X,Y), d1 = min(X,Y)
-
-
-Is there a way to improve it?
------------------------------
-void hint_enqueueTiles (void* from, u16 toIndex, u16 lenInWord)
-{
-    ++tiles_elems;
-    tiles_from[tiles_elems-1] = from;
-    tiles_toIndex[tiles_elems-1] = toIndex;
-    tiles_lenInWord[tiles_elems-1] = lenInWord;
-    tilesLenInWordTotalToDMA += lenInWord;
-}
-
-GCC output (but this gonna be modified by the LTO so very likely the performance is better):
-218 cycles (using the optimizer)
-hint_enqueueTiles:
-	move.l 12(%sp),%d1
-	move.w tiles_elems,%d0
-	move.w %d0,%a0
-	addq.w #1,%a0
-	move.w %a0,tiles_elems
-	swap  %d0
-	clr.w %d0
-	swap  %d0
-	add.w  %d0,%d0
-	lea    tiles_toIndex,%a0
-	move.w 10(%sp),(%a0,%d0.w)
-	lea tiles_lenInWord,%a0
-	move.w %d1,(%a0,%d0.l)
-	add.w %d1,tilesLenInWordTotalToDMA
-	add.w  %d0,%d0
-	lea    tiles_from,%a0
-	move.l 4(%sp),(%a0,%d0.w)
-	rts
-
-My version:
-I can't use this version in an inline asm because the offsets to stack pointer sp are unpredictable.
-190 cycles (178 cycles if using .w for the lea instructions, optimization made by the optimizer if ram symbols are at high mem >= 0xE0FF8000)
-hint_enqueueTiles:
-    lea     tiles_elems,a0     ;// tiles_elems base address
-    move.w  (a0),d0            ;// Get tiles_elems value
-    addq.w  #1,(a0)            ;// +1 to tiles_elems
-
-    add.w   d0,d0              ;// Multiply by 2 for word access
-
-    lea     tiles_toIndex,a0   ;// tiles_toIndex base address
-    move.w  10(sp),(a0,d0.w)   ;// Store second argument: u16 toIndex
-
-    lea     tiles_lenInWord,a0 ;// tiles_lenInWord base address
-    move.w  14(sp),d1          ;// Get third argument: u16 lenInWord
-    move.w  d1,(a0,d0.w)       ;// Store third argument
-    
-    add.w   d1,tilesLenInWordTotalToDMA ;// Add third argument into tilesLenInWordTotalToDMA
-
-    add.w   d0,d0              ;// Now multiplied by 2 again for long access
-    lea     tiles_from,a0      ;// tiles_from base address
-    move.l  4(sp),(a0,d0.w)    ;// Store first argument: void* from
-    rts
