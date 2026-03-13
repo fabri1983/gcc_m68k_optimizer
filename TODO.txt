@@ -105,16 +105,6 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Calculation of addressing offset.
-    neg.s      d0
-    addi.s     #val,d0
-    move.[wl]  d1,(a0,d0.[wl])
-; Saves [2,12] cycles
-    suba.s     d0,a0
-    lea        val(a0),a0
-    move.[wl]  d1,(a0)
-Ensure a0 is not used afterwards before being overwritten or cleared.
-
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect access.
 Needs a free An register

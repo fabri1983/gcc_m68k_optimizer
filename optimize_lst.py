@@ -5089,9 +5089,35 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
     line_B = modified_lines[-2]
     line_C = modified_lines[-1]
 
-    matchA = re.match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%[a][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    # Calculation of addressing offset.
+    # neg.s      dN                    ->    suba.s     dN,aN               ; Saves [2,12] cycles
+    # add.s      #val,dN                     lea        val+disp(aN),aN
+    # move.[wl]  dM,disp(aN,dN.[wl])         move.[wl]  dM,(aN)
+    # Displacement disp is optional
+    # Ensure a0 is not used afterwards before being overwritten or cleared.
+    matchA = re.match(r'^(\s*)neg\.([bwl])(\s+)(%d[0-7]|)', line_A)
     if matchA:
-        matchC = re.match(r'^\s*(add|adda)\.([bwl])\s+(%[a][0-7]|%sp),\s*(%a[0-7]|%sp)', line_C)
+        dN = matchA.group(4)
+        matchB = re.match(r'^\s*(add|addi|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(4):
+            s_B = matchB.group(2)
+            val = parseConstantSigned(matchB.group(3), 16)
+            matchC = re.match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_C)
+            if matchC and dN == matchC.group(5):
+                s_C = matchC.group(1)
+                dM = matchC.group(2)
+                disp = 0 if not matchC.group(3) else parseConstantSigned(matchC.group(3), 16)
+                aN = matchC.group(4)
+                optimized_lines = [
+                    f'{matchA.group(1)}suba.{s_B}{matchA.group(3)}{dN},{aN}',
+                    f'{matchA.group(1)}lea   {matchA.group(3)}{val+disp}({aN}),{aN}',
+                    f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{dM},({aN})'
+                ]
+                return (optimized_lines, 3)
+
+    matchA = re.match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    if matchA:
+        matchC = re.match(r'^\s*(add|adda)\.([bwl])\s+(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_C)
         if matchC:
             sA = matchA.group(3)
             sC = matchA.group(3)
@@ -5107,13 +5133,13 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
                 # add.s   #val,aP
                 # add.s   aM,aP
                 # Considers case when add.s #val,aP is replaced by a addq.s
-                matchB = re.match(r'^(\s*)(add|adda|addq)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
-                if matchB and sA == matchB.group(3) and aP == matchB.group(6):
-                    val = parseConstantSigned(matchB.group(5), 32)
+                matchB = re.match(r'^\s*(add|adda|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
+                if matchB and (matchB.group(1) == "addq" or sA == matchB.group(2)) and aP == matchB.group(4):
+                    val = parseConstantSigned(matchB.group(3), 32)
                     if sA == 'b':
-                        val = parseConstantSigned(matchB.group(5), 8)
+                        val = parseConstantSigned(matchB.group(3), 8)
                     elif sA == 'w':
-                        val = parseConstantSigned(matchB.group(5), 16)
+                        val = parseConstantSigned(matchB.group(3), 16)
                     if -32768 <= val <= 32767:
                         optimized_line = f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{aM}),{aP}'
                         return ([optimized_line], 3)
@@ -5123,13 +5149,13 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
                 # sub.s   #val,aP
                 # add.s   aM,aP
                 # Considers case when sub.s #val,aP is replaced by a subq.s
-                matchB = re.match(r'^(\s*)(sub|suba|subq)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
-                if matchB and (matchB.group(2) == "subq" or sA == matchB.group(3)) and aP == matchB.group(6):
-                    val = parseConstantSigned(matchB.group(5), 32)
+                matchB = re.match(r'^\s*(sub|suba|subq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
+                if matchB and (matchB.group(1) == "subq" or sA == matchB.group(2)) and aP == matchB.group(4):
+                    val = parseConstantSigned(matchB.group(3), 32)
                     if sA == 'b':
-                        val = parseConstantSigned(matchB.group(5), 8)
+                        val = parseConstantSigned(matchB.group(3), 8)
                     elif sA == 'w':
-                        val = parseConstantSigned(matchB.group(5), 16)
+                        val = parseConstantSigned(matchB.group(3), 16)
                     if -32768 <= val <= 32767:
                         optimized_line = f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN},{aM}),{aP}'
                         return ([optimized_line], 3)

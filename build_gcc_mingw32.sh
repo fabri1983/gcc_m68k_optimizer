@@ -54,7 +54,12 @@ install_deps() {
   echo "Installing dependencies..."
   sudo apt update
   sudo apt install -y build-essential gcc-13-plugin-dev libgmp-dev libmpc-dev libmpfr-dev \
-                      make flex bison texinfo git wget mingw-w64 libltdl-dev
+                      make flex bison texinfo git wget bzip2 xz-util libltdl-dev
+# MSYS2 requirements:
+  sudo apt install -y msys2-runtime unzip tar diffutils patch \
+                      mingw-w64-x86_64-gcc mingw-w64-x86_64-libmangle-git mingw-w64-x86_64-make \
+                      mingw-w64-x86_64-pkg-config mingw-w64-x86_64-tools-git mingw-w64-x86_64-winstorecompat-git libexpat-devel
+
   if [ $? -ne 0 ]; then
     echo "Failed to install dependencies"
     exit 1
@@ -232,6 +237,7 @@ build_toolchain() {
     --enable-languages="c,c++" \
     --enable-plugin \
     --enable-shared \
+    --enable-lto \
     --without-zstd \
     --without-headers \
     --without-newlib \
