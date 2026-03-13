@@ -5094,26 +5094,27 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
     # add.s      #val,dN                     lea        val+disp(aN),aN
     # move.[wl]  dM,disp(aN,dN.[wl])         move.[wl]  dM,(aN)
     # Displacement disp is optional
-    # Ensure a0 is not used afterwards before being overwritten or cleared.
+    # Ensure aN is not used afterwards before being overwritten or cleared.
     matchA = re.match(r'^(\s*)neg\.([bwl])(\s+)(%d[0-7]|)', line_A)
     if matchA:
         dN = matchA.group(4)
         matchB = re.match(r'^\s*(add|addi|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
         if matchB and dN == matchB.group(4):
-            s_B = matchB.group(2)
+            sB = matchB.group(2)
             val = parseConstantSigned(matchB.group(3), 16)
             matchC = re.match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_C)
             if matchC and dN == matchC.group(5):
-                s_C = matchC.group(1)
-                dM = matchC.group(2)
-                disp = 0 if not matchC.group(3) else parseConstantSigned(matchC.group(3), 16)
-                aN = matchC.group(4)
-                optimized_lines = [
-                    f'{matchA.group(1)}suba.{s_B}{matchA.group(3)}{dN},{aN}',
-                    f'{matchA.group(1)}lea   {matchA.group(3)}{val+disp}({aN}),{aN}',
-                    f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{dM},({aN})'
-                ]
-                return (optimized_lines, 3)
+                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
+                    sC = matchC.group(1)
+                    dM = matchC.group(2)
+                    disp = 0 if not matchC.group(3) else parseConstantSigned(matchC.group(3), 16)
+                    aN = matchC.group(4)
+                    optimized_lines = [
+                        f'{matchA.group(1)}suba.{sB}{matchA.group(3)}{dN},{aN}',
+                        f'{matchA.group(1)}lea   {matchA.group(3)}{val+disp}({aN}),{aN}',
+                        f'{matchA.group(1)}move.{sC}{matchA.group(3)}{dM},({aN})'
+                    ]
+                    return (optimized_lines, 3)
 
     matchA = re.match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:

@@ -106,7 +106,7 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 Multiline instructions
 ======================
 Next optimization only valid for 3 or more disp(sp).
-Adding same immediate value into subsequent memory by indirect access.
+Adding same immediate value into subsequent memory by indirect addressing.
 Needs a free An register
     addq.w #1,44(sp)
     might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN != sp)
