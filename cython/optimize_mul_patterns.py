@@ -1,3 +1,12 @@
+# --------------------------------------------------------------------
+# Copyright (c) 2025-2026 fabri1983
+# Author: fabri1983
+# fabri1983@gmail.com
+#
+# This script is part of the Gcc's gas assembly optimizer for cpu m68000.
+# See disclaimer at main script.
+# --------------------------------------------------------------------
+
 import re
 from typing import Callable
 from optimize_lst import (

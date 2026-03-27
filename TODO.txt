@@ -89,15 +89,15 @@ Single instruction
 ==================
 Clear upper word of dN.
 We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
-and.l   #0xFFFF,d0   ->   ext.l   d0                 ; Saves 12 cycles
+and.l   #0xFFFF,d0   ->   ext.l   d0                ; Saves 12 cycles
 
 Clearing memory using existent dN already holding 0 value.
 Must find a dN holding 0 in bits s.
-clr.s   -(aN)        ->    move.s  dN,-(aN)          ; Saves [6,10] cycles
+clr.s   -(aN)        ->   move.s  dN,-(aN)          ; Saves [6,10] cycles
 
 Replace usage of immediate by register.
 Must find a dM holding val in bits s.
-btst.s  #val,dN      ->    btst.s  dM,dN             ; Saves 4 cycles
+btst.s  #val,dN      ->   btst.s  dM,dN             ; Saves 4 cycles
 
 Multiplication by a negative constant: see the comments in the optimizer script and implement accordingly.
 
@@ -109,9 +109,9 @@ Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
 Needs a free An register
     addq.w #1,44(sp)
-    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN != sp)
+    might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
     addq.w #1,46(sp)
-    might be 1 or 2 instructions here of the form: addq/add.[wl] #val,aN  (aN != sp)
+    might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
     addq.w #1,48(sp)
 ; Saves 4 cycles
     lea 44(sp),a0

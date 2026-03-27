@@ -18,8 +18,9 @@
 
 # Convert Windows EOL (CRLF) to Linux EOL (LF)
 #   sed -i 's/\r$//' build_gcc.sh
-# chmod +x build_gcc.sh
-# ./build_gcc.sh
+# Set execution permissions
+#   chmod +x build_gcc.sh
+#   ./build_gcc.sh
 
 BASE_BUILD_DIR=$HOME
 M68K_GCC_TOOLCHAIN=${BASE_BUILD_DIR}/m68k-elf-gcc
@@ -290,7 +291,7 @@ echo ""
 echo "----------------------------------------------------"
 echo "Toolchain with plugin support built successfully!"
 echo "Add to your PATH: ${M68K_GCC_TOOLCHAIN}/bin"
-echo "export PATH=${M68K_GCC_TOOLCHAIN}/bin:\$PATH"
+echo "  export PATH=${M68K_GCC_TOOLCHAIN}/bin:\$PATH"
 echo "----------------------------------------------------"
 
 export PATH=${M68K_GCC_TOOLCHAIN}/bin:$PATH

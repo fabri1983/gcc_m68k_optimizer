@@ -14,12 +14,13 @@
 # So move to $HOME
 #   cd $HOME
 # Open a Explorer windows and locate into \\wsl.localhost\Ubuntu\home\<user_name>
-# Copy the script build_gcc_mingw32.sh here
+# Copy the script build_gcc_mingw64_ubuntu.sh here
 
 # Convert Windows EOL (CRLF) to Linux EOL (LF)
-#   sed -i 's/\r$//' build_gcc_mingw32.sh
-# chmod +x build_gcc_mingw32.sh
-# ./build_gcc_mingw32.sh
+#   sed -i 's/\r$//' build_gcc_mingw64_ubuntu.sh
+# Set execution permissions
+#   chmod +x build_gcc_mingw64_ubuntu.sh
+#   ./build_gcc_mingw64_ubuntu.sh
 
 BASE_BUILD_DIR=$HOME
 M68K_GCC_TOOLCHAIN=${BASE_BUILD_DIR}/m68k-elf-gcc-mingw32
@@ -156,7 +157,6 @@ build_toolchain() {
     --target=$TARGET \
     --host=$HOST \
     --prefix=$M68K_GCC_TOOLCHAIN \
-    --with-cpu=$TARGET_CPU \
     --with-included-ltdl \
     --enable-plugins \
     --disable-nls \
@@ -193,7 +193,6 @@ build_toolchain() {
 #    --target=$TARGET \
 #    --host=$HOST \
 #    --prefix=$M68K_GCC_TOOLCHAIN \
-#    --with-cpu=$TARGET_CPU \
 #    --disable-nls \
 #    --disable-werror \
 #    --with-expat \
@@ -233,14 +232,13 @@ build_toolchain() {
     --target=$TARGET \
     --host=$HOST \
     --prefix=$M68K_GCC_TOOLCHAIN \
-    --with-cpu=$TARGET_CPU \
     --enable-languages="c,c++" \
     --enable-plugin \
-    --enable-shared \
     --enable-lto \
     --without-zstd \
     --without-headers \
     --without-newlib \
+    --disable-shared \
     --disable-libstdcxx \
     --disable-threads \
     --disable-libssp \

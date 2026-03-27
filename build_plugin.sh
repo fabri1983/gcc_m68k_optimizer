@@ -2,8 +2,13 @@
 
 # First convert Windows EOL (CRLF) to Linux EOL (LF)
 #   sed -i 's/\r$//' build_plugin.sh
-# chmod +x build_plugin.sh
-# ./build_plugin.sh
+# Set execution permissions
+#   chmod +x build_plugin.sh
+#   ./build_plugin.sh
+
+BASE_BUILD_DIR=$HOME
+M68K_GCC_TOOLCHAIN=${BASE_BUILD_DIR}/m68k-elf-gcc
+export PATH=$M68K_GCC_TOOLCHAIN/bin:$PATH
 
 HOST_GCC_VERSION=$(gcc -dumpversion)
 echo "Host GCC version: $HOST_GCC_VERSION"
