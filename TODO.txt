@@ -107,7 +107,7 @@ Multiline instructions
 ======================
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
-Needs a free An register
+Needs a free aN register
     addq.w #1,44(sp)
     might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
     addq.w #1,46(sp)
