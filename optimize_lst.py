@@ -93,8 +93,8 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # There is also the possibility to manually mark any inline asm block to be always optimized:
 # surround the block with "\n#NO_APP\n\t" and "\n#APP"
 
-# Analyzes the context of the routine to detect free after use regs, where regs were previously used but are free to use
-# starting at the line the analyzer is located at.
+# Analyzes the context of the routine to detect free after use regs, where regs were previously used but are 
+# free to use starting at the line the analyzer is located at.
 USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False  # TODO: review the logic. Not properly working.
 
 # This refers to the function that searches for any register not used at the current location of the code in the 
@@ -447,9 +447,9 @@ n_to_m: dict[int, int] = {
 def getMForMovelOptimization(n: int) -> int | None:
     return n_to_m.get(n, None)  # Returns None if n is not found
 
-PUSH_REGS_INTO_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([wl])\s+([^,]+),\s*-\(%sp\)')
+PUSH_REGS_INTO_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([bwl])\s+([^,]+),\s*-\(%sp\)')
 
-POP_REGS_FROM_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([wl])\s+\(%sp\)\+,\s*(.*)')
+POP_REGS_FROM_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([bwl])\s+\(%sp\)\+,\s*(.*)')
 
 RANGE_REGS_REGEX = re.compile(r'(%[ad])([0-7])-(%[ad])([0-7])')
 SINGLE_REG_REGEX = re.compile(r'(%[ad])([0-7])')
@@ -609,7 +609,7 @@ REG_AS_SOURCE_OR_INDIRECT_USE_REGEX = re.compile(
 REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'^\s*'                           # Optional leading whitespace
     r'(?:'                            # Non-capturing group for alternatives
-        r'(move|moveq|movea|movep|lea|sub|suba|eor)(\.[bwl])?\s+'  # Capture overwrite instructions and size
+        r'(move|moveq|movea|movep|lea|sub|suba|eor)(\.[bwl])?\s+'  # Capture overwrite instruction and size
         r'('                          # Capturing group for every alternative
             r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
             r'|'
@@ -934,12 +934,16 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     # Get this routine name
     func_name = get_function_name(i_line, lines)
 
+    if func_name in ("vertIntOnTitan256cCallback_HIntEveryN"):
+        print(lines[i_line])
+        return [None]
+
     # Make them not to interfere with the analysis
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     # Bitmask tracking (7..0 = x7..x0)
     # Initially we set all them as available
-    candidate_mask = 0x7F
+    candidate_mask = 0xFF
     exclude_indexes = (
         {} if not excludes  # Handle empty list
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
@@ -952,10 +956,11 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
 
-    # Phase 1: Scan backwards and set which registers are used
+    # Phase 1: Scan backwards and set which registers are used.
+    # TODO: this is not the best way to collect used regs, but is good enough.
 
     # Start with all bits set (0xFF)
-    all_valid_regs_mask = 0x7F
+    all_valid_regs_mask = 0xFF
     # Clear the bits at positions in exclude_indexes
     for idx in exclude_indexes:
         all_valid_regs_mask &= ~(1 << idx)
@@ -1004,7 +1009,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
         if candidate_mask == all_valid_regs_mask:
             break
 
-    # Phase 2: Scan remaining lines and keep candidate registers that satisfies the rules
+    # Phase 2: Scan remaining lines and keep candidate registers that satisfies the rules.
 
     overwritten_or_cleared_mask = 0  # This mask is cleared before entering a new control flow
     #overwritten_or_cleared_mask_stack: list[int] = []
@@ -1109,8 +1114,10 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             # First check for overwrites/clears (if not used already)
             if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
                 instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
+                instr_size = match.group(2)  # Might be None
                 src_complex = match.group(3)  # source operand for move/lea/sub/eor
                 instr_clr = match.group(4)
+                clr_size = match.group(5)
                 dest = match.group(6)  # reg being overwritten or cleared
                 if dest.startswith(reg_type):
                     reg_index = int(dest[2])  # Extract digit after '%x'
@@ -1120,16 +1127,21 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                         if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
                             # sub or eor it self?
                             if dest in src_complex:
-                                overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
+                                # Only consider when the reg is totally overwritten, not partially
+                                if instr_size == ".l":
+                                    overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                                 continue
                         # if matching move or lea
                         elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                            #if dest not in src_complex:
-                            overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
+                            # Only consider when the reg is totally overwritten, not partially
+                            if instr_size is None or instr_size == ".l":
+                                overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                             continue
                         # just matching the clr instruction
                         elif instr_clr:
-                            overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
+                            # Only consider when the reg is totally overwritten, not partially
+                            if clr_size == ".l":
+                                overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                             continue
                         else:
                             # Instruction not considered?
@@ -1160,12 +1172,14 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             # If poping from stack then consider the regs as overwritten
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 regs_list = extract_registers(pop_match.group(3), POP_OP)
-                for reg_str in regs_list:
-                    if reg_str.startswith(reg_type):
-                        reg_index = int(reg_str[2])  # Extract digit after '%x'
-                        # Check reg is not one of the excluded and not used earlier
-                        if (reg_index not in exclude_indexes) and not (used_before_overwritten_or_cleared_mask & (1 << reg_index)):
-                            overwritten_or_cleared_mask |= 1 << reg_index
+                # Only consider when the reg is totally overwritten, not partially
+                if pop_match.group(2) == "l":
+                    for reg_str in regs_list:
+                        if reg_str.startswith(reg_type):
+                            reg_index = int(reg_str[2])  # Extract digit after '%x'
+                            # Check reg is not one of the excluded and not used earlier
+                            if (reg_index not in exclude_indexes) and not (used_before_overwritten_or_cleared_mask & (1 << reg_index)):
+                                overwritten_or_cleared_mask |= 1 << reg_index
 
             # Check for register usage as target (if not overwritten/cleared already)
             elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
@@ -1185,14 +1199,14 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
             # Reset the mask since we are going to test another flow
             overwritten_or_cleared_mask = 0
-            '''
+            """
             # Pop value from previous control flow, if any
             if len(overwritten_or_cleared_mask_stack) > 0:
                 prev_overwritten_or_cleared_mask = overwritten_or_cleared_mask_stack.pop()
                 # Keep regs that were overwritten or cleared in both flows, but not used before overwritten or cleared
                 overwritten_or_cleared_mask |= prev_overwritten_or_cleared_mask
                 overwritten_or_cleared_mask &= ~used_before_overwritten_or_cleared_mask
-            '''
+            """
             continue
         else:
             break  # Exit the master control flow loop
@@ -1208,10 +1222,10 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             candidate_mask &= candidate_mask - 1  # Clear the least significant set bit
 
     # No candidates?
-    #if candidates[0] is None:
-    #    print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND]{Style.RESET_ALL} At {func_name} for: {lines[i_line].lstrip()}")
-    #else:
-    #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
+    if candidates[0] is None:
+        pass #print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND]{Style.RESET_ALL} At {func_name} for: {lines[i_line].lstrip()}")
+    else:
+        print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -1253,7 +1267,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
 
     # Bitmask tracking (7..0 = x7..x0)
     # Initially we set all them as available
-    candidate_mask = 0x7F
+    candidate_mask = 0xFF
     exclude_indexes = (
         {} if not excludes  # Handle empty list
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
@@ -2732,7 +2746,7 @@ def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
     # Immediate value
     if match := RE_imm_value.match(operator):
         if op_base in ('addq','moveq','subq','movem'):
-            # TODO: weird fix: the size should be different than 0, otherwise it fails with out of range
+            # TODO: weird fix: force the size to be different than 0, otherwise it fails with out of range
             if op_base == 'moveq':
                 return '#imm.w'
             return 'encoded'  # The immediate operand is encoded inside the op_base so is free
@@ -8173,22 +8187,17 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 ]
                 return (optimized_lines, True)
 
-    # cmp.s  #0,aN     ->    move.s   aN,xM    ; Saves [6,10] cycles
-    # Needs a free register xM
+    # cmp.s  #0,aN     ->    move.s   aN,dM    ; Saves [6,10] cycles
+    # Needs a free register dM.
     match = re.match(r'^(\s*)cmp[a]?\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
-        aN = match.group(4)
-        xM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
-        if xM is None:
-            xM = find_unused_data_register([], i_line, lines, modified_lines)[0]
-        # TODO: finding an address reg makes the cpu to crash
-        #if xM is None:
-        #    xM = find_free_after_use_address_register([aN], i_line, lines, modified_lines)[0]
-        #if xM is None:
-        #    xM = find_unused_address_register([aN], i_line, lines, modified_lines)[0]
-        if xM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([xM], i_line, lines, modified_lines):
+        dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+        if dM is None:
+            dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+        if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             s = match.group(2)
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{aN},{xM}'
+            aN = match.group(4)
+            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{aN},{dM}'
             return ([optimized_line], True)
 
     ############################################################################
@@ -8733,7 +8742,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     ############################################################################
 
     if USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION:
-        # TODO: create method to check if we are inside a loop and find which reg is the counter, so next condition can be removed
+        # TODO: create method to check if we are inside a loop and find which reg is the counter, so previous condition can be removed
 
         # addq.l  #val,aN     ->   addq.w   #val,aN    ; Saves 4 cycles
         # Only if you know before hand the upper word won't be affected, which is true for loops.
