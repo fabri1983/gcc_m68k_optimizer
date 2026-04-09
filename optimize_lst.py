@@ -93,11 +93,15 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # There is also the possibility to manually mark any inline asm block to be always optimized:
 # surround the block with "\n#NO_APP\n\t" and "\n#APP"
 
+# Analyzes the context of the routine to detect free after use regs, where regs were previously used but are free to use
+# starting at the line the analyzer is located at.
+USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False  # TODO: review the logic. Not properly working.
+
 # This refers to the function that searches for any register not used at the current location of the code in the 
 # context of the current routine and the current program flow in that routine.
 # WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
-USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic. Not properly working
+USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic. Not properly working.
 
 # By default if a routine is NOT an interrupt routine then the scratch pad regs naturally don't need to be 
 # pushed/poped in/from stack. In any other case we must add them, and this flag enables/disables such functionality.
@@ -913,7 +917,8 @@ def find_free_after_use_address_register(excludes: list[str], i_line: int, lines
 def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], reg_type: str, ignore_N_previous_lines: int) -> list[str | None]:
     """
     Search for free after use register xM:
-    Search forwards over the lines in lines array starting at i_line + 1:
+    Phase 1: Look backwards which regs have been used until reaching current line.
+    Phase 2: Look forwards over the lines in lines array starting at i_line + 1:
        - if xM is overwritten/cleared by a move/lea or sub/eor itself, or clr, before it is actually 
          used in remaining lines and all possible flows, then xM is free to use immediately.
        - If xM is not used as source operand nor in any indirection (in both source and target) 
@@ -923,6 +928,9 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     """
     global declared_functions_set
 
+    if not USE_FIND_FREE_AFTER_USE_REG_FUNCTION:
+        return [None]
+
     # Get this routine name
     func_name = get_function_name(i_line, lines)
 
@@ -931,7 +939,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
 
     # Bitmask tracking (7..0 = x7..x0)
     # Initially we set all them as available
-    candidate_mask = 0xFF
+    candidate_mask = 0x7F
     exclude_indexes = (
         {} if not excludes  # Handle empty list
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
@@ -944,9 +952,62 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
 
-    # Phase 1: Scan remaining lines and keep candidate registers that satisfies the rules
+    # Phase 1: Scan backwards and set which registers are used
 
-    overwritten_or_cleared_mask = 0  # 
+    # Start with all bits set (0xFF)
+    all_valid_regs_mask = 0x7F
+    # Clear the bits at positions in exclude_indexes
+    for idx in exclude_indexes:
+        all_valid_regs_mask &= ~(1 << idx)
+
+    start_idx = len(modified_lines) - 1
+    end_idx = 0
+    for i in range(start_idx, end_idx - 1, -1):  # backwards
+        line = modified_lines[i]
+
+        # Break conditions
+        if FUNCTION_DECLARATION_REGEX.match(line):
+            break
+
+        # If pushing into stack then extract the registers
+        if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+            regs_list = extract_registers(push_match.group(3), PUSH_OP)
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract the digit after '%x'
+                    if reg_index not in exclude_indexes:
+                        candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
+        # If poping from stack then extract the registers
+        elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+            regs_list = extract_registers(pop_match.group(3), POP_OP)
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract the digit after '%x'
+                    if reg_index not in exclude_indexes:
+                        candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
+        # It's a source or indirect operand?
+        elif REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+            regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+            for reg_str in regs_list:
+                if reg_str.startswith(reg_type):
+                    reg_index = int(reg_str[2])  # Extract digit after '%x'
+                    if reg_index not in exclude_indexes:
+                        candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
+        # It's a target operand?
+        elif match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+            if match.group(1).startswith(reg_type):
+                reg_index = int(match.group(1)[2])  # Extract digit after '%x'
+                if reg_index not in exclude_indexes:
+                    candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
+
+        # All registers available? Then no need to keep scanning
+        if candidate_mask == all_valid_regs_mask:
+            break
+
+    # Phase 2: Scan remaining lines and keep candidate registers that satisfies the rules
+
+    overwritten_or_cleared_mask = 0  # This mask is cleared before entering a new control flow
+    #overwritten_or_cleared_mask_stack: list[int] = []
     used_before_overwritten_or_cleared_mask = 0
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
@@ -1022,7 +1083,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc (except dbCC)
+            # If is a conditional branch jcc/bcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -1041,6 +1102,8 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                         i = control_obj.label_pos_in_modified_lines
                         target_array = modified_lines
                         rem_end = len(target_array)
+                    # Save current state of overwritten_or_cleared_mask
+                    #overwritten_or_cleared_mask_stack.append(overwritten_or_cleared_mask)
                 continue
 
             # First check for overwrites/clears (if not used already)
@@ -1122,6 +1185,14 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
             # Reset the mask since we are going to test another flow
             overwritten_or_cleared_mask = 0
+            '''
+            # Pop value from previous control flow, if any
+            if len(overwritten_or_cleared_mask_stack) > 0:
+                prev_overwritten_or_cleared_mask = overwritten_or_cleared_mask_stack.pop()
+                # Keep regs that were overwritten or cleared in both flows, but not used before overwritten or cleared
+                overwritten_or_cleared_mask |= prev_overwritten_or_cleared_mask
+                overwritten_or_cleared_mask &= ~used_before_overwritten_or_cleared_mask
+            '''
             continue
         else:
             break  # Exit the master control flow loop
@@ -1182,7 +1253,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
 
     # Bitmask tracking (7..0 = x7..x0)
     # Initially we set all them as available
-    candidate_mask = 0xFF
+    candidate_mask = 0x7F
     exclude_indexes = (
         {} if not excludes  # Handle empty list
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
@@ -1263,7 +1334,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc (except dbCC)
+            # If is a conditional branch jcc/bcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -1723,7 +1794,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc (except dbCC)
+            # If is a conditional branch jcc/bcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -1981,7 +2052,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
             # Adjust sp indexing by adding/subtracting the amount of regs involved in previous logic
             adjust_sp_indexing(i, modified_lines, line, regs_added_count * movem_push_size)
 
-    # If regs were already in the movem push into stack then we are done since they already exist in the movem pop from stack
+    # If regs exist already in the movem push then we are done since they for sure exist in the movem pop
     if regs_were_added_into_movem_push and regs_added_count == 0:
         return True
 
@@ -2367,7 +2438,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc (except dbCC)
+            # If is a conditional branch jcc/bcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -8102,17 +8173,22 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 ]
                 return (optimized_lines, True)
 
-    # cmp.s  #0,aN     ->    move.s   aN,dM    ; Saves [6,10] cycles
-    # Needs a free register dM
+    # cmp.s  #0,aN     ->    move.s   aN,xM    ; Saves [6,10] cycles
+    # Needs a free register xM
     match = re.match(r'^(\s*)cmp[a]?\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
-        dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
-        if dM is None:
-            dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
-        if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+        aN = match.group(4)
+        xM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+        if xM is None:
+            xM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+        # TODO: finding an address reg makes the cpu to crash
+        #if xM is None:
+        #    xM = find_free_after_use_address_register([aN], i_line, lines, modified_lines)[0]
+        #if xM is None:
+        #    xM = find_unused_address_register([aN], i_line, lines, modified_lines)[0]
+        if xM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([xM], i_line, lines, modified_lines):
             s = match.group(2)
-            aN = match.group(4)
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{aN},{dM}'
+            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{aN},{xM}'
             return ([optimized_line], True)
 
     ############################################################################
