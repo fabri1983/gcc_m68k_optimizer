@@ -97,7 +97,7 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # context of the current routine and the current program flow in that routine.
 # WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
-USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic. Not properly working. Might be fault of add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
+USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 # By default if a routine is NOT an interrupt routine then the scratch pad regs naturally don't need to be 
 # pushed/poped in/from stack. In any other case we must add them, and this flag enables/disables such functionality.
@@ -1393,10 +1393,10 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
             candidate_mask &= candidate_mask - 1  # Clear the least significant set bit
 
     # No candidates?
-    #if candidates[0] is None:
-    #    print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
-    #else:
-    #    print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
+    if candidates[0] is None:
+        print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
+    else:
+        print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -1982,13 +1982,13 @@ def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
         target_lines[i] = new_line
 
 @export_func
-def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
+def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str], i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
     """
     Add regs into movem/move push/pop. Ignore scratch pad regs if not in an interrupt routine.
     Adjust SP indexing instructions.
     """
 
-    if len(regs) == 0:
+    if len(regs_to_add) == 0:
         return True  # Nothing to add means no need to modify the stack
 
     # Detect if we are in an interrupt routine
@@ -1996,8 +1996,8 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
 
     # If we are not in an interrupt routine then we can remove the scratch pad registers from regs
     if not inAnInterruptRoutine:
-        regs = [r for r in regs if r not in scratch_pad]
-        if len(regs) == 0:
+        regs_to_add = [r for r in regs_to_add if r not in scratch_pad]
+        if len(regs_to_add) == 0:
             return True  # Nothing to add means no need to modify the stack
 
     # Get this routine name
@@ -2033,7 +2033,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
                     regs_list = extract_registers(regs_str, PUSH_OP)
                     orig_count = len(regs_list)
                     # Add only missing regs
-                    regs_list.extend([r for r in regs if r not in regs_list])
+                    regs_list.extend([r for r in regs_to_add if r not in regs_list])
                     regs_added_count += len(regs_list) - orig_count  # It can be 0 if regs weare already in the pushed list
                     movem_push_size = 2 if push_match.group(1) == 'w' else 4
                     sortedRegs = sort_regs(regs_list)
@@ -2053,7 +2053,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
                 regs_str = pop_match.group(3)
                 regs_list = extract_registers(regs_str, POP_OP)
                 # Add only missing regs
-                regs_list.extend([r for r in regs if r not in regs_list])
+                regs_list.extend([r for r in regs_to_add if r not in regs_list])
                 sortedRegs = sort_regs(regs_list)
                 # Rebuild register list using '/' as separator
                 newRegs_str = '/'.join(sortedRegs)
@@ -2075,8 +2075,8 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
 
     # If regs weren't added to a movem push into stack then we have to manually add the instruction
     if not regs_were_added_into_movem_push:
-        add_line_with_push_regs_into_stack(regs, modified_lines, routine_first_instruction_pos)
-        regs_added_count = len(regs)  # Here we know all the regs has been added into a movem/move push into stack
+        add_line_with_push_regs_into_stack(regs_to_add, modified_lines, routine_first_instruction_pos)
+        regs_added_count = len(regs_to_add)  # Here we know all the regs has been added into a movem/move push into stack
         push_match = PUSH_REGS_INTO_STACK_REGEX.match(modified_lines[routine_first_instruction_pos])
         movem_push_size = 2 if push_match.group(1) == 'w' else 4
 
@@ -2101,7 +2101,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
             adjust_sp_indexing(i, modified_lines, line, regs_added_count * movem_push_size)
 
         # We have to manually add the movem/move pop from stack instruction/s
-        add_lines_with_pop_regs_from_stack(regs, modified_lines, routine_first_instruction_pos)
+        add_lines_with_pop_regs_from_stack(regs_to_add, modified_lines, routine_first_instruction_pos)
 
     # Now is the time to iterate over lines array and modify accordingly
     if regs_added_count > 0:
@@ -2125,7 +2125,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
                     regs_str = pop_match.group(3)
                     regs_list = extract_registers(regs_str, POP_OP)
                     # Add only missing regs
-                    regs_list.extend([r for r in regs if r not in regs_list])
+                    regs_list.extend([r for r in regs_to_add if r not in regs_list])
                     sortedRegs = sort_regs(regs_list)
                     # Rebuild register list using '/' as separator
                     newRegs_str = '/'.join(sortedRegs)
@@ -2138,7 +2138,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs: list[str], i_lin
 
         # If regs weren't added to any movem pop from stack then we have to manually add the instruction/s
         if not regs_were_added_into_movem_pop:
-            add_lines_with_pop_regs_from_stack(regs, lines, i_line + 1)
+            add_lines_with_pop_regs_from_stack(regs_to_add, lines, i_line + 1)
 
     return True
 
