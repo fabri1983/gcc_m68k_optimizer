@@ -93,15 +93,11 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # There is also the possibility to manually mark any inline asm block to be always optimized:
 # surround the block with "\n#NO_APP\n\t" and "\n#APP"
 
-# Analyzes the context of the routine to detect free after use regs, where regs were previously used but are 
-# free to use starting at the line the analyzer is located at.
-USE_FIND_FREE_AFTER_USE_REG_FUNCTION = False  # TODO: review the logic. Not properly working.
-
 # This refers to the function that searches for any register not used at the current location of the code in the 
 # context of the current routine and the current program flow in that routine.
 # WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
-USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic. Not properly working.
+USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: review the logic. Not properly working. Might be fault of add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 # By default if a routine is NOT an interrupt routine then the scratch pad regs naturally don't need to be 
 # pushed/poped in/from stack. In any other case we must add them, and this flag enables/disables such functionality.
@@ -919,8 +915,8 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     Search for free after use register xM:
     Phase 1: Look backwards which regs have been used until reaching current line.
     Phase 2: Look forwards over the lines in lines array starting at i_line + 1:
-       - if xM is overwritten/cleared by a move/lea or sub/eor itself, or clr, before it is actually 
-         used in remaining lines and all possible flows, then xM is free to use immediately.
+       - if xM is entirely overwritten/cleared by a move/lea or sub/eor itself, or clr, before it is 
+         actually used in remaining lines and all possible flows, then xM is free to use immediately.
        - If xM is not used as source operand nor in any indirection (in both source and target) 
          before xM is overwritten/cleared (like previous condition), then xM is free to use immediately.
     Returns:
@@ -928,36 +924,26 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     """
     global declared_functions_set
 
-    if not USE_FIND_FREE_AFTER_USE_REG_FUNCTION:
-        return [None]
-
     # Get this routine name
     func_name = get_function_name(i_line, lines)
-
-    if func_name in ("vertIntOnTitan256cCallback_HIntEveryN"):
-        print(lines[i_line])
-        return [None]
 
     # Make them not to interfere with the analysis
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
-    # Bitmask tracking (7..0 = x7..x0)
-    # Initially we set all them as available
-    candidate_mask = 0xFF
     exclude_indexes = (
         {} if not excludes  # Handle empty list
         else {int(xN[2]) for xN in excludes if xN.startswith(reg_type)}  # Extract digits from regs
     )
-
-    # Set excluded indexes as not available candidates
-    for reg_index in exclude_indexes:
-        candidate_mask &= ~(1 << reg_index) & 0xFF  # Set reg_index as not available
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
 
     # Phase 1: Scan backwards and set which registers are used.
     # TODO: this is not the best way to collect used regs, but is good enough.
+
+    # Bitmask tracking (7..0 = x7..x0)
+    # Initially we set all them as not available
+    candidate_mask = 0
 
     # Start with all bits set (0xFF)
     all_valid_regs_mask = 0xFF
@@ -1005,7 +991,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                 if reg_index not in exclude_indexes:
                     candidate_mask |= (1 << reg_index) & 0xFF  # Mark candidate as available
 
-        # All registers available? Then no need to keep scanning
+        # All valid registers available? Then no need to keep scanning
         if candidate_mask == all_valid_regs_mask:
             break
 
@@ -1071,7 +1057,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                         else:
                             # We actually can't calculate the destination: 
                             # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
                             # the target labels and visit them one by one
                             pass
                     # Target label is in the dictionary AND was not yet visited
@@ -1088,7 +1074,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc
+            # If is a conditional branch jcc/bcc or dbcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -1211,7 +1197,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
         else:
             break  # Exit the master control flow loop
 
-    candidates = [None]
+    candidates: list[str | None] = [None]
 
     # Create array of all available registers
     if candidate_mask:
@@ -1222,10 +1208,10 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             candidate_mask &= candidate_mask - 1  # Clear the least significant set bit
 
     # No candidates?
-    if candidates[0] is None:
-        pass #print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND]{Style.RESET_ALL} At {func_name} for: {lines[i_line].lstrip()}")
-    else:
-        print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
+    #if candidates[0] is None:
+    #    print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND]{Style.RESET_ALL} At {func_name} for: {lines[i_line].lstrip()}")
+    #else:
+    #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
@@ -1331,7 +1317,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
                         else:
                             # We actually can't calculate the destination: 
                             # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
                             # the target labels and visit them one by one
                             pass
                     # Target label is in the dictionary AND was not yet visited
@@ -1348,7 +1334,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc
+            # If is a conditional branch jcc/bcc or dbcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -1396,7 +1382,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
         else:
             break  # Exit the master control flow loop
 
-    candidates = [None]
+    candidates: list[str | None] = [None]
 
     # Create array of all available registers
     if candidate_mask:
@@ -1719,13 +1705,13 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
 
 def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], checkTargetOperand: bool, ignore_N_previous_lines: int) -> list[str]:
     """
-    Search over the remaining lines using control flow starting at i_line+1 for one of next conditions:
+    Search over the remaining lines using control flow starting at i_line + 1 for one of next conditions:
     - xN is used as source operand or in any indirection (in both source and target) operand:
-        collect the line and stop the analysis (if no pending any return frame)
+        collect the line and stop the analysis in current flow and continue any pending flow.
     - if checkTargetOperand==True: if xN is used as a target (but not being actually overwritten/cleared):
-        collect the line and stop the analysis (if no pending any return frame)
+        collect the line and stop the analysis in current flow and continue any pending flow.
     - xN is overwritten/cleared by a move/lea/sub/eor itself, or clr, before is being used:
-        stop the analysis
+        stop the analysis in current flow and continue any pending flow.
     Returns [line1, line2, ...] or empty []
     """
     global declared_functions_set
@@ -1791,7 +1777,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                         else:
                             # We actually can't calculate the destination: 
                             # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
                             # the target labels and visit them one by one
                             pass
                     # Target label is in the dictionary AND was not yet visited
@@ -1808,7 +1794,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc
+            # If is a conditional branch jcc/bcc or dbcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
@@ -1860,8 +1846,21 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                     collected_lines.append(line)
                     break  # Stop the analysis at current flow
 
+            # If pushing into stack then consider the regs as used
+            elif push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+                regs_list = extract_registers(push_match.group(3), PUSH_OP)
+                if xN in regs_list:
+                    collected_lines.append(line)
+                    break  # Stop the analysis at current flow
+
+            # If poping from stack then consider the regs as overwritten
+            elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+                regs_list = extract_registers(pop_match.group(3), POP_OP)
+                if xN in regs_list:
+                    break  # Stop the analysis at current flow
+
             # xN it's a target operand?
-            if checkTargetOperand:
+            elif checkTargetOperand:
                 if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
                     if xN == match.group(1):
                         collected_lines.append(line)
@@ -2435,7 +2434,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                         else:
                             # We actually can't calculate the destination: 
                             # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
-                            # TODO: if label is of the form label(pc,xN.s) then go to the table and collect all 
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
                             # the target labels and visit them one by one
                             pass
                     # Target label is in the dictionary AND was not yet visited
@@ -2452,7 +2451,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                             rem_end = len(target_array)
                 continue
 
-            # If is a conditional branch jcc/bcc
+            # If is a conditional branch jcc/bcc or dbcc
             elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
                 # Get the target label
                 label = match.group(2)
