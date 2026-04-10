@@ -97,11 +97,11 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # context of the current routine and the current program flow in that routine.
 # WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
-USE_FIND_NOT_USED_REG_FUNCTION = False  # TODO: Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
+USE_FIND_NOT_USED_REG_FUNCTION = True
 
 # By default if a routine is NOT an interrupt routine then the scratch pad regs naturally don't need to be 
 # pushed/poped in/from stack. In any other case we must add them, and this flag enables/disables such functionality.
-USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION = True
+USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION = False  # TODO: Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 # Custom optimizations found from the analyzis of gcc -S listings.
 USE_FABRI1983_MOVEM_OPTIMIZATIONS = True
@@ -1962,12 +1962,13 @@ def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
         xN_with_comma = xN_with_comma if xN_with_comma else ''
         anything2 = anything2 if anything2 else ''
         # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a subtraction
-        disp_val = int(disp) if disp else 0
-        disp_val += offset
-        disp = str(disp_val) if disp_val != 0 else ''
+        new_disp_val = (int(disp) if disp else 0) + offset
+        new_disp = str(disp_val) if disp_val != 0 else ''
         # Create the new line
-        new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp' + xN_with_comma + ')' + anything2
+        new_line = blank1 + instr + s + blank2 + anything1 + new_disp + '(%sp' + xN_with_comma + ')' + anything2
         target_lines[i] = new_line
+        print("adj sp prev: " + line)
+        print("adj sp next: " + new_line)
     elif match := sp_indexing_pattern_3.match(line):
         blank1, instr, s, blank2, anything1, anything2 = match.groups()
         blank1 = blank1 if blank1 else ''
@@ -1975,11 +1976,13 @@ def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
         anything1 = anything1 if anything1 else ''
         anything2 = anything2 if anything2 else ''
         # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a subtraction
-        disp_val = offset
-        disp = str(disp_val)
+        new_disp_val = offset
+        new_disp = str(disp_val)
         # Create the new line
-        new_line = blank1 + instr + s + blank2 + anything1 + disp + '(%sp)' + anything2
+        new_line = blank1 + instr + s + blank2 + anything1 + new_disp + '(%sp)' + anything2
         target_lines[i] = new_line
+        print("adj sp prev: " + line)
+        print("adj sp next: " + new_line)
 
 @export_func
 def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str], i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
@@ -2000,8 +2003,12 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
         if len(regs_to_add) == 0:
             return True  # Nothing to add means no need to modify the stack
 
+    if not USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION:
+        return False  # Stack stay untouched
+
     # Get this routine name
     func_name = get_function_name(i_line, lines)
+    print("--> " + func_name + ": " + str(regs_to_add))
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
@@ -2013,7 +2020,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
     # Track how many regs were added into the stack
     regs_added_count = 0
     # Initially we assume a movem.l instruction
-    movem_push_size = 4
+    movem_push_size = 4  # in bytes
 
     # Starts at the beginning  of the routine
     start_idx = routine_first_instruction_pos
@@ -2034,12 +2041,19 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
                     orig_count = len(regs_list)
                     # Add only missing regs
                     regs_list.extend([r for r in regs_to_add if r not in regs_list])
-                    regs_added_count += len(regs_list) - orig_count  # It can be 0 if regs weare already in the pushed list
-                    movem_push_size = 2 if push_match.group(1) == 'w' else 4
-                    sortedRegs = sort_regs(regs_list)
-                    # Rebuild register list using '/' as separator
-                    newRegs_str = '/'.join(sortedRegs[::-1])  # reverse the list of regs
-                    modified_lines[i] = line.replace(regs_str, newRegs_str, 1)
+                    # It can be 0 if regs weare already in the pushed list
+                    diff = len(regs_list) - orig_count
+                    if diff > 0:
+                        regs_added_count += diff
+                        movem_push_size = 2 if push_match.group(1) == 'w' else 4
+                        print("regs_added_count: " + str(regs_added_count))
+                        print("movem_push_size: " + str(movem_push_size))
+                        sortedRegs = sort_regs(regs_list)
+                        # Rebuild register list using '/' as separator
+                        newRegs_str = '/'.join(sortedRegs[::-1])  # reverse the list of regs
+                        modified_lines[i] = line.replace(regs_str, newRegs_str, 1)
+                        print("push prev: " + line)
+                        print("push new: " + modified_lines[i])
                     # There is only one movem push at the beginning of the routine
                     regs_were_added_into_movem_push = True
                 else:
@@ -2052,12 +2066,18 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
             if pop_match.group(1) == 'movem' and regs_were_added_into_movem_push and is_before_rts_rte:
                 regs_str = pop_match.group(3)
                 regs_list = extract_registers(regs_str, POP_OP)
+                orig_count = len(regs_list)
                 # Add only missing regs
                 regs_list.extend([r for r in regs_to_add if r not in regs_list])
-                sortedRegs = sort_regs(regs_list)
-                # Rebuild register list using '/' as separator
-                newRegs_str = '/'.join(sortedRegs)
-                modified_lines[i] = line.replace(regs_str, newRegs_str)
+                # It can be 0 if regs weare already in the pushed list
+                diff = len(regs_list) - orig_count
+                if diff > 0:
+                    sortedRegs = sort_regs(regs_list)
+                    # Rebuild register list using '/' as separator
+                    newRegs_str = '/'.join(sortedRegs)
+                    modified_lines[i] = line.replace(regs_str, newRegs_str)
+                    print("pop prev: " + line)
+                    print("pop prev: " + modified_lines[i])
                 regs_were_added_into_movem_pop = True
                 # Continue searching for another movem pop since there could be more than one
 
@@ -2069,12 +2089,11 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
     if regs_were_added_into_movem_push and regs_added_count == 0:
         return True
 
-    # Only if regs weren't added and the flag is False we abort the process
-    if not regs_were_added_into_movem_push and not USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION:
-        return False  # Stack stay untouched
-
     # If regs weren't added to a movem push into stack then we have to manually add the instruction
     if not regs_were_added_into_movem_push:
+
+        print("regs weren't added to a movem push into stack --> manually add the instruction")
+
         add_line_with_push_regs_into_stack(regs_to_add, modified_lines, routine_first_instruction_pos)
         regs_added_count = len(regs_to_add)  # Here we know all the regs has been added into a movem/move push into stack
         push_match = PUSH_REGS_INTO_STACK_REGEX.match(modified_lines[routine_first_instruction_pos])
@@ -2105,6 +2124,9 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
 
     # Now is the time to iterate over lines array and modify accordingly
     if regs_added_count > 0:
+
+        print("Add regs into movem/move pop")
+
         # Reset track operations for current phase
         regs_were_added_into_movem_pop = False
         
@@ -2132,6 +2154,10 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
                     lines[i] = line.replace(regs_str, newRegs_str)
                     regs_were_added_into_movem_pop = True
                     # Continue searching for another movem pop since there could be more than one
+            
+            # Push into stack was treated in previous phase
+            elif PUSH_REGS_INTO_STACK_REGEX.match(line):
+                continue
 
             # Adjust sp indexing by adding/subtracting the amount of regs involved in previous logic
             adjust_sp_indexing(i, lines, line, regs_added_count * movem_push_size)
