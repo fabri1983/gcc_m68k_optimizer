@@ -1393,10 +1393,10 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
             candidate_mask &= candidate_mask - 1  # Clear the least significant set bit
 
     # No candidates?
-    if candidates[0] is None:
-        print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
-    else:
-        print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
+    #if candidates[0] is None:
+    #    print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
+    #else:
+    #    print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
