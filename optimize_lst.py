@@ -93,6 +93,10 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # There is also the possibility to manually mark any inline asm block to be always optimized:
 # surround the block with "\n#NO_APP\n\t" and "\n#APP"
 
+# If True then control flow analysis continues with next line and leave the branching at the end of the block.
+# If False then it jumps into target label and continue anlysis from there.
+CONTROL_FLOW_ANALYSIS_BRANCH_LATER = False
+
 # This refers to the function that searches for any register not used at the current location of the code in the 
 # context of the current routine and the current program flow in that routine.
 # WARNING: This may add a bit overhead on push/pop from stack instructions if the reg wasn't there yet, killing 
@@ -947,7 +951,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
 
     # Start with all bits set (0xFF)
     all_valid_regs_mask = 0xFF
-    # Clear the bits at positions in exclude_indexes
+    # Clear the bits at the positions set in exclude_indexes
     for idx in exclude_indexes:
         all_valid_regs_mask &= ~(1 << idx)
 
@@ -998,7 +1002,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     # Phase 2: Scan remaining lines and keep candidate registers that satisfies the rules.
 
     overwritten_or_cleared_mask = 0  # This mask is cleared before entering a new control flow
-    #overwritten_or_cleared_mask_stack: list[int] = []
+    overwritten_or_cleared_mask_stack: list[int] = []
     used_before_overwritten_or_cleared_mask = 0
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
@@ -1080,21 +1084,33 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                 label = match.group(2)
                 # Target label is in the dictionary AND was not yet visited
                 if label in control_flow_dict and label not in control_visited:
-                    # Add a return frame so we can backtrack and continue from this point
-                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                    flow_return_frames.append(frame)
-                    # Which array the destination line points to?
-                    control_obj = control_flow_dict[label]
-                    if control_obj.label_pos_in_lines != -1:
-                        i = control_obj.label_pos_in_lines
-                        target_array = lines
-                        rem_end = len(target_array)
-                    elif control_obj.label_pos_in_modified_lines != -1:
-                        i = control_obj.label_pos_in_modified_lines
-                        target_array = modified_lines
-                        rem_end = len(target_array)
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
                     # Save current state of overwritten_or_cleared_mask
-                    #overwritten_or_cleared_mask_stack.append(overwritten_or_cleared_mask)
+                    overwritten_or_cleared_mask_stack.append(overwritten_or_cleared_mask)
                 continue
 
             # First check for overwrites/clears (if not used already)
@@ -1184,15 +1200,10 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
         if len(flow_return_frames) > 0:
             i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
             # Reset the mask since we are going to test another flow
-            overwritten_or_cleared_mask = 0
-            """
+            #overwritten_or_cleared_mask = 0
             # Pop value from previous control flow, if any
             if len(overwritten_or_cleared_mask_stack) > 0:
-                prev_overwritten_or_cleared_mask = overwritten_or_cleared_mask_stack.pop()
-                # Keep regs that were overwritten or cleared in both flows, but not used before overwritten or cleared
-                overwritten_or_cleared_mask |= prev_overwritten_or_cleared_mask
-                overwritten_or_cleared_mask &= ~used_before_overwritten_or_cleared_mask
-            """
+                overwritten_or_cleared_mask = overwritten_or_cleared_mask_stack.pop()
             continue
         else:
             break  # Exit the master control flow loop
@@ -1340,19 +1351,31 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
                 label = match.group(2)
                 # Target label is in the dictionary AND was not yet visited
                 if label in control_flow_dict and label not in control_visited:
-                    # Add a return frame so we can backtrack and continue from this point
-                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                    flow_return_frames.append(frame)
-                    # Which array the destination line points to?
-                    control_obj = control_flow_dict[label]
-                    if control_obj.label_pos_in_lines != -1:
-                        i = control_obj.label_pos_in_lines
-                        target_array = lines
-                        rem_end = len(target_array)
-                    elif control_obj.label_pos_in_modified_lines != -1:
-                        i = control_obj.label_pos_in_modified_lines
-                        target_array = modified_lines
-                        rem_end = len(target_array)
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
                 continue
 
             # It's movem/move push into stack?
@@ -1800,19 +1823,31 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                 label = match.group(2)
                 # Target label is in the dictionary AND was not yet visited
                 if label in control_flow_dict and label not in control_visited:
-                    # Add a return frame so we can backtrack and continue from this point
-                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                    flow_return_frames.append(frame)
-                    # Which array the destination line points to?
-                    control_obj = control_flow_dict[label]
-                    if control_obj.label_pos_in_lines != -1:
-                        i = control_obj.label_pos_in_lines
-                        target_array = lines
-                        rem_end = len(target_array)
-                    elif control_obj.label_pos_in_modified_lines != -1:
-                        i = control_obj.label_pos_in_modified_lines
-                        target_array = modified_lines
-                        rem_end = len(target_array)
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
                 continue
 
             # xN is overwritten/cleared by a move, sub or eor itself, or clr
@@ -2008,6 +2043,8 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
 
     # Get this routine name
     func_name = get_function_name(i_line, lines)
+    if func_name not in ("vertIntOnTitan256cCallback_HIntEveryN"):
+        return False
     print("--> " + func_name + ": " + str(regs_to_add))
 
     # Search for the first instruction in the routine
@@ -2089,6 +2126,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
     if regs_were_added_into_movem_push and regs_added_count == 0:
         return True
 
+
     # If regs weren't added to a movem push into stack then we have to manually add the instruction
     if not regs_were_added_into_movem_push:
 
@@ -2154,7 +2192,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
                     lines[i] = line.replace(regs_str, newRegs_str)
                     regs_were_added_into_movem_pop = True
                     # Continue searching for another movem pop since there could be more than one
-            
+
             # Push into stack was treated in previous phase
             elif PUSH_REGS_INTO_STACK_REGEX.match(line):
                 continue
@@ -2483,19 +2521,31 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                 label = match.group(2)
                 # Target label is in the dictionary AND was not yet visited
                 if label in control_flow_dict and label not in control_visited:
-                    # Add a return frame so we can backtrack and continue from this point
-                    frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
-                    flow_return_frames.append(frame)
-                    # Which array the destination line points to?
-                    control_obj = control_flow_dict[label]
-                    if control_obj.label_pos_in_lines != -1:
-                        i = control_obj.label_pos_in_lines
-                        target_array = lines
-                        rem_end = len(target_array)
-                    elif control_obj.label_pos_in_modified_lines != -1:
-                        i = control_obj.label_pos_in_modified_lines
-                        target_array = modified_lines
-                        rem_end = len(target_array)
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
                 continue
 
             # aN is overwritten/cleared by a move, sub or eor itself, or clr
