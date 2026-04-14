@@ -3,7 +3,7 @@
 Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds a m68k elf artifact prior 
 to the final binary rom artifact.
 
-This solution is intended to be executed with gcc plugin feature at `PLUGIN_FINISH` phase, which is 
+This script is intended to be executed with gcc plugin feature at `PLUGIN_FINISH` phase, which is 
 the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
 At `PLUGIN_FINISH` phase we can access the m68k assembly code generated from all the **.c units** in our project 
@@ -15,7 +15,8 @@ The optimizer depends heavily on the project you run it. On some, it saves 1% of
 See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all peepholes and switches 
 the optimizer provides.
 
-These are four of my projects in which I use the optimizer. The next picture outlines how many optimization patterns were applied on each of them.
+These are five of my projects in which I use the optimizer.
+The next picture outlines how many optimization patterns were applied on each of them.
 
 ![stats.jpg](stats.png?raw=true "stats.png")
 
