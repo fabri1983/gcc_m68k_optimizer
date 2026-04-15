@@ -26,6 +26,7 @@ pacman -S --needed --noconfirm git msys2-runtime unzip make tar flex bison diffu
                                mingw-w64-x86_64-gcc mingw-w64-x86_64-libmangle-git mingw-w64-x86_64-make \
                                mingw-w64-x86_64-pkg-config mingw-w64-x86_64-tools-git mingw-w64-x86_64-winstorecompat-git \
                                libexpat-devel
+#                               ncurses-devel
 
 # Check if gcc is located at /mingw64/bin/gcc
 GCC_PATH=$(which gcc)

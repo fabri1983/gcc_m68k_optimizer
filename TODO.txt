@@ -63,16 +63,18 @@ Tested on Blastem nightly build
 
 TODO
 ====
+Review USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY when is True.
+
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 Reg expressions catching a symbol or mem address along with its size:  [0-9a-zA-Z_\.]+)(\.[bwl])?
-    Make sure the size is not part of the symbolName or the mem address.
-        # Remove the size if it ended up being part of the symbol
-        if symbolName.endswith(('.l','.w','.b')):
-            symbolName = symbolName[:-2]  # remove last 2 chars
-        # Remove the size if it ended up being part of the mem address
-        if mem_addr.endswith(('.l','.w','.b')):
-            mem_addr = mem_addr[:-2]  # remove last 2 chars
+Make sure the size is not part of the symbolName or the mem address.
+    # Remove the size if it ended up being part of the symbol
+    if symbolName.endswith(('.l','.w','.b')):
+        symbolName = symbolName[:-2]  # remove last 2 chars
+    # Remove the size if it ended up being part of the mem address
+    if mem_addr.endswith(('.l','.w','.b')):
+        mem_addr = mem_addr[:-2]  # remove last 2 chars
 
 When generating an int with int(string) or parseConstantSigned(string) or evaluate_instr_math_expression() 
 and then comparing against an hex value 0xAACCEE00:
@@ -89,17 +91,23 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 
 Single instruction
 ==================
+INST.s  #val,<ea>    ->    moveq   #n,dN
+                           INST.s  dN,<ea>
+Where -128 <= val <= 127.
+Where INST is: ADD|ADDA|ADDI or AND|ANDI or OR|ORI or EOR|EORI or CMP|CMPA or SUB|SUBI|SUBA or MOVE|MOVEA.
+Needs a free dN register.
+
 Clear upper word of dN.
 We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
-and.l   #0xFFFF,d0   ->   ext.l   d0                ; Saves 12 cycles
+and.l   #0xFFFF,d0   ->   ext.l   d0             ; Saves 12 cycles
 
 Clearing memory using existent dN already holding 0 value.
 Must find a dN holding 0 in bits s.
-clr.s   -(aN)        ->   move.s  dN,-(aN)          ; Saves [6,10] cycles
+clr.s   -(aN)        ->   move.s  dN,-(aN)       ; Saves [6,10] cycles
 
 Replace usage of immediate by register.
 Must find a dM holding val in bits s.
-btst.s  #val,dN      ->   btst.s  dM,dN             ; Saves 4 cycles
+btst.s  #val,dN      ->   btst.s  dM,dN          ; Saves 4 cycles
 
 Multiplication by a negative constant: see the comments in the optimizer script and implement accordingly.
 
@@ -107,9 +115,24 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+# Clean upper word of data register to later copy it into other data register.
+swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different
+clr.w   dN              move.w  dN,dM
+swap    dN
+move.l  dN,dM
+Needs a free dM register.
+Leaves dN with different value in upper word. Ensure dN is not used anymore, or is used as word or byte.
+
+# Clean upper word of data register to later be used as address.
+swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different
+clr.w   dN              move.w  dN,dM
+swap    dN              move.l  dM,aN
+move.l  dN,aN
+Needs a free dM register.
+Leaves dN with different value in upper word. Ensure dN is not used anymore, or is used as word or byte.
+
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
-Needs a free aN register
     addq.w #1,44(sp)
     might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
     addq.w #1,46(sp)
@@ -122,7 +145,7 @@ Needs a free aN register
     addq.w #1,(a0)+
     instructions gathered in-between (if any)
     addq.w #1,(a0)
-
+Needs a free aN register.
 
 
 Assembler useful functions

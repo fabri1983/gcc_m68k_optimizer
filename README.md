@@ -1,5 +1,8 @@
 ## GCC M68K Assembler Optimizer
 
+Pattern matching peephole optimizer, static data flow analysis for registers liveness, branch instruction size reduction, 
+use word size on address to exploit address register sign extension, and many more optimizations.
+
 Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds a m68k elf artifact prior 
 to the final binary rom artifact.
 
@@ -30,6 +33,7 @@ http://www.easy68k.com/paulrsm/doc/trick68k.htm
 https://wiki.neogeodev.org/index.php?title=Optimization  
 http://www.ibaug.de/vasm/doc/vasm.pdf  
 http://www.csua.berkeley.edu/~muchandr/m68k  
+https://github.com/Samuel-DEVULDER/popt  
 Custom patterns found from gcc -S outputs  
 
 ### Build gcc and the plugin
@@ -46,7 +50,7 @@ This will create `optimizer_plugin.so`/`optimizer_plugin.dll` file. Move it into
 Move `optimize_lst.py` and `optimize_mul_patterns.py` files into SGDK's `tools` folder.
 
 Optionally, build SGDK. You can use script [build_sgdk.sh](build_sgdk.sh "build_sgdk.sh").  
-This step is not required if you have your SGDK already built/installed. Then you can rely on SGDK's `makefile.gen` will take 
+This step is not required if you have your SGDK already built/installed. Then you can rely SGDK's `makefile.gen` will take 
 the new *m68k-elf-* binaries added to the PATH in previous step.
 
 ### Execution

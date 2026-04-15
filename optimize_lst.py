@@ -30,6 +30,7 @@
 # https://wiki.neogeodev.org/index.php?title=Optimization
 # http://www.ibaug.de/vasm/doc/vasm.pdf
 # http://www.csua.berkeley.edu/~muchandr/m68k
+# https://github.com/Samuel-DEVULDER/popt
 # Custom patterns found from gcc -S outputs
 
 # Mnemocis equivalence
@@ -136,14 +137,10 @@ USE_REPLACE_TST_BCC_BY_DBCC_OPTIMIZATION = False
 USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION = True
 
 # Instead of loading the subroutine address into an address register aN to later use jsr (aN), we can
-# discard the loading and replace every jsr (aN) by jsr subroutine. There is a tradeoff of upto 3 direct
-# calls and the optimization accounts for that.
-# WARNING: Enabling this flag may cause unexpected side effects on some complex control flows. Test thoroughly.
+# discard the loading and replace every jsr (aN) by jsr subroutine. The optimization is only valid up to 
+# 3 direct calls. Beyond 3 is it better to keep the use of the address reg.
+# TODO: Enabling this flag may cause unexpected side effects on some complex code flows.
 USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY = False
-
-# This optimizaton removes the clearing of a register before it is loaded with a word value.
-# WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
-USE_AGGRESSIVE_AVOID_CLEAR_BEFORE_MOVE_WORD_INTO_DN = True
 
 # This optimization modifies the way gcc pushes word registers into stack.
 # WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
@@ -162,8 +159,9 @@ USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 # By lowering the value you can skip patterns requiring bigger number of lines. 1 means no multi line optimizations.
 MULTIPLE_LINES_OPTIMIZATION_LIMIT = 8
 
-# Up to how may consecutive lines we cover searching for the otimization pattern.
-SYMBOL_OR_MEM_LOAD_BY_OFFSET_WINDOW_MAX_SIZE = 32
+# Up to how may consecutive lines we cover searching for re use an address reg plus an offset to replace 
+# a load of a constant. Using bigger values increase considerably the time of analysis.
+SYMBOL_OR_MEM_LOAD_BY_OFFSET_WINDOW_MAX_SIZE = 64
 
 # Registry for public functions
 _PUBLIC_FUNCS_AND_CLASSES: list[str] = []
@@ -932,6 +930,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     exclude_indexes = (
@@ -1225,6 +1224,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
+    uncomment_line_at(lines, i_line)
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     return candidates
@@ -1256,6 +1256,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
@@ -1422,6 +1423,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
     #    print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
+    uncomment_line_at(lines, i_line)
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     return candidates
@@ -1429,7 +1431,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
 def in_a_SGDK_sound_related_routine(modified_lines: list[str]) -> bool:
     """
     Search backwards up to the function declaration to see if we are in any of next type of routines:
-        Z80_xxx, XGM_xxx, XGM2_xxx, SND_xxx
+        Z80_xxx, XGM_xxx, XGM2_xxx, SND_xxx, PSG_xxx, YM2612_xxx
     """
     start_idx = len(modified_lines) - 1
     end_idx = 0
@@ -1726,15 +1728,16 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         newRegs_str = '/'.join(sortedRegs)
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
-def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], checkTargetOperand: bool, ignore_N_previous_lines: int) -> list[str]:
+def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> list[str]:
     """
     Search over the remaining lines using control flow starting at i_line + 1 for one of next conditions:
     - xN is used as source operand or in any indirection (in both source and target) operand:
         collect the line and stop the analysis in current flow and continue any pending flow.
-    - if checkTargetOperand==True: if xN is used as a target (but not being actually overwritten/cleared):
+    - if xN is used as a target (but not being actually overwritten/cleared):
         collect the line and stop the analysis in current flow and continue any pending flow.
     - xN is overwritten/cleared by a move/lea/sub/eor itself, or clr, before is being used:
         stop the analysis in current flow and continue any pending flow.
+    Param ignore_N_previous_lines only affects modified_lines.
     Returns [line1, line2, ...] or empty []
     """
     global declared_functions_set
@@ -1743,6 +1746,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
@@ -1895,11 +1899,10 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                     break  # Stop the analysis at current flow
 
             # xN it's a target operand?
-            elif checkTargetOperand:
-                if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
-                    if xN == match.group(1):
-                        collected_lines.append(line)
-                        break  # Stop the analysis at current flow
+            if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+                if xN == match.group(1):
+                    collected_lines.append(line)
+                    break  # Stop the analysis at current flow
 
         # If there is any return frame then continue from that location
         if len(flow_return_frames) > 0:
@@ -1909,6 +1912,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
             break  # Exit the master control flow loop
 
     # Restore them
+    uncomment_line_at(lines, i_line)
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     # Remove duplicates just in case. Preserving the order.
@@ -1918,15 +1922,19 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     return collected_lines
 
 def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
-
-    checkTargetOperand = False
-    matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines)
+    """
+    Param ignore_N_previous_lines only affects modified_lines.
+    lines[i_line] will be commented.
+    """
+    matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
     return len(matching_lines) > 0
 
 def is_reg_used_as_word_or_byte_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
-
-    checkTargetOperand = True
-    matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, checkTargetOperand, ignore_N_previous_lines)
+    """
+    Param ignore_N_previous_lines only affects modified_lines.
+    lines[i_line] will be commented.
+    """
+    matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
     if len(matching_lines) == 0:
         return False
 
@@ -2059,7 +2067,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
     # Initially we assume a movem.l instruction
     movem_push_size = 4  # in bytes
 
-    # Starts at the beginning  of the routine
+    # Starts at the beginning of the routine
     start_idx = routine_first_instruction_pos
     end_idx = len(modified_lines)
     for i in range(start_idx, end_idx):  # forwards
@@ -2125,7 +2133,6 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
     # If regs exist already in the movem push then we are done since they for sure exist in the movem pop
     if regs_were_added_into_movem_push and regs_added_count == 0:
         return True
-
 
     # If regs weren't added to a movem push into stack then we have to manually add the instruction
     if not regs_were_added_into_movem_push:
@@ -2228,6 +2235,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     # Backwards scan
@@ -2288,6 +2296,12 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
             if xN == match.group(1):
                 xN_used_forwards = True
                 break
+
+    # TODO: review all remaining logic along with adjust_sp_indexing()
+    # (remove next uncomments once everything works fine)
+    uncomment_line_at(lines, i_line)
+    uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    return
 
     # xN not used at all? Then remove it from movem/move push/pop
     if not xN_used_backwards and not xN_used_forwards:
@@ -2401,6 +2415,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
             adjust_sp_indexing(i, lines, line, -1 * regs_removed_count * movem_push_size)
 
     # Restore them
+    uncomment_line_at(lines, i_line)
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
 jsr_aN_pattern = re.compile(r'^\s*jsr\s+\((%a[0-7])\)')
@@ -2427,6 +2442,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
     comment_last_N_lines(modified_lines, ignore_N_previous_lines)
                     
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
@@ -2581,6 +2597,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
             break  # Exit the master control flow loop
 
     # Restore them
+    uncomment_line_at(lines, i_line)
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     return replacement_counter
@@ -3085,6 +3102,17 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
     )
     return is_in_range
 
+def comment_line_at(lines: list[str], i_line: int):
+    line = lines[i_line]
+    if line != "#APP" and line != "#NO_APP":
+        lines[i_line] = '#' + line
+
+def uncomment_line_at(lines: list[str], i_line: int):
+    line = lines[i_line]
+    if line.startswith('#'):
+        if line != "#APP" and line != "#NO_APP":
+            lines[i_line] = line[1:]
+
 def comment_last_N_lines(modified_lines: list[str], n_lines: int):
     """
     Starting from the end of the array, replace last N lines by '#' + line.
@@ -3095,7 +3123,7 @@ def comment_last_N_lines(modified_lines: list[str], n_lines: int):
     for i in range(start_index, len(modified_lines)):
         line = modified_lines[i]
         if line != "#APP" and line != "#NO_APP":
-            modified_lines[i] = '#' + modified_lines[i]
+            modified_lines[i] = '#' + line
 
 def uncomment_last_N_lines(modified_lines: list[str], n_lines: int):
     """
@@ -3106,9 +3134,9 @@ def uncomment_last_N_lines(modified_lines: list[str], n_lines: int):
     start_index = max(0, len(modified_lines) - n_lines)
     for i in range(start_index, len(modified_lines)):
         line = modified_lines[i]
-        if line != "#APP" and line != "#NO_APP":
-            if line.startswith('#'):
-                modified_lines[i] = modified_lines[i][1:]
+        if line.startswith('#'):
+            if line != "#APP" and line != "#NO_APP":
+                modified_lines[i] = line[1:]
 
 IS_ASL_INSTRUCTION_REGEX = re.compile(r'^\s*asl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
@@ -6230,6 +6258,38 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
                     ]
                     return (optimized_lines, 2)
 
+        # Use of unnecessary additional register.
+        # lea        disp(aN),aM    ->    move.[wl]       aN,dN              ; Saves [4,8] cycles. Leaves aM free
+        # move.[wl]  aM,dN                addq/subq.[wl]  abs(disp),dN
+        #                                 (addq if val > 0, subq if val < 0)
+        # Where 1 <= abs(disp) <= 8.
+        # Leaves aM free. Ensure aM is not used anymore.
+        matchA = re.match(r'^(\s*)lea(\s+)(?:(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)|\((-?\d+|0[xX][0-9a-fA-F]+),(%a[0-7])\)),\s*(%a[0-7])', line_A)
+        if matchA:
+            disp_str = matchA.group(3) if matchA.group(3) else matchA.group(5)
+            disp = parseConstantSigned(disp_str, 16)
+            aN = matchA.group(4) if matchA.group(4) else matchA.group(6)
+            aM = matchA.group(7)
+            matchB = re.match(r'^\s*move\.([wl])\s+(%a[0-7]),\s*(%d[0-7])', line_B)
+            if matchB and aM == matchB.group(2):
+                if 1 <= abs(disp) <= 8:
+                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 2):
+                        s = matchB.group(1)
+                        dN = matchB.group(3)
+                        if disp > 0:
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.{s}{matchA.group(2)}{aN},{dN}',
+                                f'{matchA.group(1)}addq.{s}{matchA.group(2)}#{abs(disp)},{dN}'
+                            ]
+                            return (optimized_lines, 2)
+                        else:
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.{s}{matchA.group(2)}{aN},{dN}',
+                                f'{matchA.group(1)}subq.{s}{matchA.group(2)}#{abs(disp)},{dN}'
+                            ]
+                            return (optimized_lines, 2)
+                
+
         # This pattern comes up after applying optimization for lsl.w #8,dN
         # clr.b   dN            ->   move.b  dM,dN             ; Saves 4 cycles
         # move.b  dM,dN
@@ -7038,6 +7098,25 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
                         ]
                         return (optimized_lines, 2)
 
+    # Clean register dN before moving a word into dN.
+    # This pattern appears when dN is later used in an indirection (aN,dN.w).
+    # but not when used in arithmetic or assignment for aN reg: add.l/sub.l/move.l dN,aN
+    # moveq   #0,dN        ->   move.w  <ea>,dN     ; Saves 4 cycles
+    # move.w  <ea>,dN
+    matchA = re.match(r'^(\s*)(moveq|move)(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(5)
+        matchB = re.match(r'^\s*move\.w\s+([,^]),\s*(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(3):
+            is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
+            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 2)
+            if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
+                ea = matchB.group(1)
+                optimized_lines = [
+                    f'{matchA.group(1)}move.w{matchA.group(4)}{ea},{dN}'
+                ]
+                return (optimized_lines, 2)
+
     if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
         # Push 2 words consecutively into the stack where last word is 0.
@@ -7094,25 +7173,6 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
             if matchB:
                 optimized_lines = [
                     f'{matchA.group(1)}pea{matchA.group(2)}0.w'
-                ]
-                return (optimized_lines, 2)
-
-    if USE_AGGRESSIVE_AVOID_CLEAR_BEFORE_MOVE_WORD_INTO_DN:
-
-        # Clean register dN before moving a word from memory into dN.
-        # This pattern appears when dN is later used in an indirection (aN,dN.w).
-        # but not when used in arithmetic or assignment for aN reg: add.l/sub.l/move.l dN,aN
-        # moveq   #0,dN        ->   move.w  <ea>,dN     ; Saves 4 cycles
-        # move.w  <ea>,dN
-        matchA = re.match(r'^(\s*)(moveq|move)(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
-        if matchA:
-            dN = matchA.group(5)
-            matchB = re.match(r'^\s*move\.w\s+([,^]),\s*(%d[0-7])', line_B)
-            if matchB and dN == matchB.group(3):
-                ea = matchB.group(1)
-                # TODO: ensure dN is not immediately or nearby used by: add.l/sub.l/move.l dN,aN
-                optimized_lines = [
-                    f'{matchA.group(1)}move.w{matchA.group(4)}{ea},{dN}'
                 ]
                 return (optimized_lines, 2)
 
@@ -7983,7 +8043,7 @@ lea_move_symbol_or_mem_into_an_pattern = re.compile(
 
 def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolName_dict: dict[str, str], line_number_map: dict[int, int]) -> int:
     """
-    Iterate over different amount of multiple lines and try to exploit the offset between symbols loaded into aN
+    Iterate over different amount of multiple lines and try to exploit the offset between symbols loaded into aN.
     """
 
     if len(mem_addr_by_symbolName_dict) == 0:
@@ -8196,6 +8256,26 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Miscellaneous
     ############################################################################
 
+    # or.l   #val,dN    ->    or.w   #val,dN         ; Saves 8 cycles
+    # Where 0 < val <= 0xFFFF (65535)
+    match = re.match(r'^(\s*)(or|ori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line)
+    if match:
+        val = parseConstantUnsigned(match.group(4))
+        dN = match.group(5)
+        if (val & 0xFFFF0000) == 0:
+            optimized_line = f'{match.group(1)}or.w{match.group(3)}#{val},{dN}'
+            return ([optimized_line], True)
+
+    # eor.l   #val,dN   ->   eor.w   #val,dN        ; Saves 8 cycles
+    # Where 0 < val <= 0xFFFF (65535)
+    match = re.match(r'^(\s*)(eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line)
+    if match:
+        val = parseConstantUnsigned(match.group(4))
+        dN = match.group(5)
+        if (val & 0xFFFF0000) == 0:
+            optimized_line = f'{match.group(1)}eor.w{match.group(3)}#{val},{dN}'
+            return ([optimized_line], True)
+
     # or.s   #val,dN    ->    bset.[bwl]  #b,dN      ; Saves [4,12] cycles
     # Where val = 2^b (only 1 bit set and is at position b)
     match = re.match(r'^(\s*)(or|ori)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line)
@@ -8235,7 +8315,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Comparison using constants
     ############################################################################
 
-    # cmp.s  #0,dN     ->    tst.s    dN       ; Saves [4,10] cycles
+    # cmp.s  #0,dN     ->    tst.s    dN           ; Saves [4,10] cycles
     match = re.match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#0,\s*(%d[0-7])', line)
     if match:
         s = match.group(3)
@@ -8243,8 +8323,27 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         optimized_line = f'{match.group(1)}tst.{s}{match.group(4)}{dN}'
         return ([optimized_line], True)
 
+    # If 1 <= abs(val) <= 8
+    # cmp.s  #val,dN   ->    subq/addq.s   #abs(val),dN      ; Saves [4,6] cycles. Leaves dN different
+    #                        (subq if val > 0, addq if val < 0)
+    # Only if dN is not used anymore until is overwritten or cleared.
+    match = re.match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    if match:
+        val = parseConstantSigned(match.group(5), 8)
+        if 1 <= abs(val) <= 8:
+            s = match.group(3)
+            dN = match.group(6)
+            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+                if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 0)
+                if val > 0:
+                    optimized_line = f'{match.group(1)}subq.{s}{match.group(4)}#{abs(val)},{dN}'
+                    return ([optimized_line], True)
+                else:
+                    optimized_line = f'{match.group(1)}addq.{s}{match.group(4)}#{abs(val)},{dN}'
+                    return ([optimized_line], True)
+
     # If -128 <= val <= 127
-    # cmp.l  #val,dN   ->    moveq.l  #val,dM  ; Saves 4 cycles
+    # cmp.l  #val,dN   ->    moveq    #val,dM      ; Saves 4 cycles
     #                        cmp.l    dM,dN
     # Needs a free register dM
     match = re.match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
@@ -8262,18 +8361,44 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 ]
                 return (optimized_lines, True)
 
-    # cmp.s  #0,aN     ->    move.s   aN,dM    ; Saves [6,10] cycles
+    # cmp.s  #0,aN     ->    move.s   aN,dM        ; Saves [6,10] cycles
     # Needs a free register dM.
-    match = re.match(r'^(\s*)cmp[a]?\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
+    match = re.match(r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
         dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
         if dM is None:
             dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-            s = match.group(2)
-            aN = match.group(4)
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{aN},{dM}'
+            s = match.group(3)
+            aN = match.group(5)
+            optimized_line = f'{match.group(1)}move.{s}{match.group(4)}{aN},{dM}'
             return ([optimized_line], True)
+
+    # cmp.l  #0,aN     ->    cmp.w   #0,aN         ; Saves 4 cycles
+    match = re.match(r'^(\s*)(cmp|cmpa)\.l(\s+)#0,\s*(%a[0-7]|%sp)', line)
+    if match:
+        aN = match.group(4)
+        optimized_line = f'{match.group(1)}cmp.w{match.group(3)}#0,{aN}'
+        return ([optimized_line], True)
+
+    # If 1 <= abs(val) <= 8
+    # cmp.s  #val,aN   ->    subq/addq.s   #abs(val),aN      ; Saves [4,6] cycles. Leaves aN different
+    #                        (subq if val > 0, addq if val < 0)
+    # Only if aN is not used anymore until is overwritten or cleared.
+    match = re.match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
+    if match:
+        val = parseConstantSigned(match.group(5), 8)
+        if 1 <= abs(val) <= 8:
+            s = match.group(3)
+            aN = match.group(6)
+            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
+                if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 0)
+                if val > 0:
+                    optimized_line = f'{match.group(1)}subq.{s}{match.group(4)}#{abs(val)},{aN}'
+                    return ([optimized_line], True)
+                else:
+                    optimized_line = f'{match.group(1)}addq.{s}{match.group(4)}#{abs(val)},{aN}'
+                    return ([optimized_line], True)
 
     ############################################################################
     # Set constants
@@ -8547,7 +8672,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If val = 0x80 (128)
-    # ori.b   #0x80,dN   ->   tas   dN          ; Saves 4 cycles. Status flags wrong
+    # or.b    #0x80,dN   ->   tas   dN          ; Saves 4 cycles. Status flags wrong
     match = re.match(r'^(\s*)(or|ori)\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantUnsigned(match.group(4))
@@ -8667,7 +8792,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             optimized_line = f'{match.group(1)}pea{match.group(2)}0.w'
             return ([optimized_line], True)
 
-    # clr.l  dN      ->    moveq  #0,dN      ; Saves 2 cycles
+    # clr.l  dN      ->    moveq  #0,dN      ; Saves 2 cycles. But now time is multiple of 4.
     match = re.match(r'^(\s*)clr\.l(\s+)(%d[0-7])', line)
     if match:
         dN = match.group(3)
