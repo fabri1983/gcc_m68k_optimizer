@@ -91,15 +91,9 @@ Tener en cuenta siempre que si se deja de usar un registro hay q usar:
 
 Single instruction
 ==================
-INST.s  #val,<ea>    ->    moveq   #n,dN
-                           INST.s  dN,<ea>
-Where -128 <= val <= 127.
-Where INST is: ADD|ADDA|ADDI or AND|ANDI or OR|ORI or EOR|EORI or CMP|CMPA or SUB|SUBI|SUBA or MOVE|MOVEA.
-Needs a free dN register.
-
 Clear upper word of dN.
 We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
-and.l   #0xFFFF,d0   ->   ext.l   d0             ; Saves 12 cycles
+and.l   #0xFFFF,dN   ->   ext.l   dN             ; Saves 12 cycles
 
 Clearing memory using existent dN already holding 0 value.
 Must find a dN holding 0 in bits s.
@@ -120,16 +114,22 @@ swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN dif
 clr.w   dN              move.w  dN,dM
 swap    dN
 move.l  dN,dM
-Needs a free dM register.
-Leaves dN with different value in upper word. Ensure dN is not used anymore, or is used as word or byte.
+Needs a free data register dM.
+Leaves dN with different value in upper word. Ensure dN is not used before cleared or overwritten, or is used as word or byte.
 
 # Clean upper word of data register to later be used as address.
 swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different
 clr.w   dN              move.w  dN,dM
 swap    dN              move.l  dM,aN
 move.l  dN,aN
-Needs a free dM register.
-Leaves dN with different value in upper word. Ensure dN is not used anymore, or is used as word or byte.
+Needs a free data register dM.
+Leaves dN with different value in upper word. Ensure dN is not used before cleared or overwritten, or is used as word or byte.
+
+# Use of unnecessary additional data register.
+move.b  (aN),dM    ->    or.b    (aN),dN         ; Saves 4 cycles. Leaves dM free
+and.w   #255,dM          and.w   #255,dN
+or.b    dM,dN
+Leaves dM free. Ensure dM is not used before cleared or overwritten.
 
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
@@ -139,13 +139,13 @@ Adding same immediate value into subsequent memory by indirect addressing.
     might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
     addq.w #1,48(sp)
 ; Saves 4 cycles
-    lea 44(sp),a0
+    lea 44(sp),aM
     addq.w #1,(a0)+
     instructions gathered in-between (if any)
     addq.w #1,(a0)+
     instructions gathered in-between (if any)
     addq.w #1,(a0)
-Needs a free aN register.
+Needs a free address register aM.
 
 
 Assembler useful functions

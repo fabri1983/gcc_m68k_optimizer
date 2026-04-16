@@ -331,7 +331,6 @@ def parseConstantSigned(s_value: str, bit_depth: int=32) -> int:
     # Two's complement interpretation for signed values
     signed_threshold = 1 << (bit_depth - 1)
     #max_unsigned = (1 << bit_depth) - 1
-
     #if result > max_unsigned:
     #    raise ValueError(f"Value {result} does not fit in {bit_depth} bits")
 
@@ -444,6 +443,21 @@ n_to_m: dict[int, int] = {
 
 def getMForMovelOptimization(n: int) -> int | None:
     return n_to_m.get(n, None)  # Returns None if n is not found
+
+ONLY_REGS_REGEX = re.compile(r'(%[ad][0-7]|%sp)\b')
+
+def extract_all_regs_from_ea(ea: str) -> list[str]:
+    """
+    Extract registers using set membership test.
+    """
+    # Quick check for '%' occurrence
+    if '%' not in ea:
+        return []
+
+    matches = ONLY_REGS_REGEX.findall(ea)
+
+    # Use dict.fromkeys for deduplication
+    return list(dict.fromkeys(m for m in matches))
 
 PUSH_REGS_INTO_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([bwl])\s+([^,]+),\s*-\(%sp\)')
 
@@ -902,7 +916,7 @@ def get_function_name(i_line: int, lines: list[str]) -> str:
             func_name = match_func.group(1)
             break
     return func_name
-
+    
 @export_func
 def find_free_after_use_data_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
     return find_free_after_use_register(excludes, i_line, lines, modified_lines, "%d", ignore_N_previous_lines)
@@ -4568,7 +4582,7 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
     # cmp.l     #0x00007FFF,dN          bne      OutOfRange
     # bgt       OutOfRange
     # Note: we also considered the inverted order of instructions
-    # Needs a free aN register
+    # Needs a free address aN register
     matchA = re.match(r'^(\s*)(cmp|cmpi)\.[wl](\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
     if matchA:
         # Considers both blt and bgt appearing in line_B
@@ -5303,7 +5317,7 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
     # move.l  aN,-(sp)   ->    move.l  aN,dM           ; Saves 16 cycles
     # addq    #4,sp            beq     label
     # beq     label
-    # Needs a free dM register
+    # Needs a free data register dM.
     matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
     if matchA:
         matchB = re.match(r'^\s*(add|adda|addq)(\.[wl])?\s+#4,\s*%sp', line_B)
@@ -5627,7 +5641,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # asr.w/l  #val,dN          add.w/l   dM,dN
     #                           eor.w/l   dM,dN
     # Where val=16-N for bytes, val=32-N for words. mask=-(2^(N-1))
-    # Needs a free dM
+    # Needs a free data register dM.
     matchA = re.match(r'^(\s*)lsl\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
     if matchA:
         matchB = re.match(r'^\s*asr\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
@@ -6260,7 +6274,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
 
         # Use of unnecessary additional register.
         # lea        disp(aN),aM    ->    move.[wl]       aN,dN              ; Saves [4,8] cycles. Leaves aM free
-        # move.[wl]  aM,dN                addq/subq.[wl]  abs(disp),dN
+        # move.[wl]  aM,dN                addq/subq.[wl]  #abs(disp),dN
         #                                 (addq if val > 0, subq if val < 0)
         # Where 1 <= abs(disp) <= 8.
         # Leaves aM free. Ensure aM is not used anymore.
@@ -6542,7 +6556,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # add.s   disp(aN),dN   ->   move.s  disp(aN),dP      ; Saves 4 cycles
     # add.s   disp(aN),dM        add.s   dP,dN
     #                            add.s   dP,dM
-    # Needs a free register dP
+    # Needs a free data register dP
     # Note that gcc might put the displacement like next: (disp,aN)
     add_disp_aN_into_dN_pattern = r'^(\s*)add\.([bwl])(\s+)(?:(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)|\((-?\d+|0[xX][0-9a-fA-F]+),(%a[0-7])\)),\s*(%d[0-7])'
     matchA = re.match(add_disp_aN_into_dN_pattern, line_A)
@@ -6582,7 +6596,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # sub.s   disp(aN),dN   ->   move.s  disp(aN),dP      ; Saves 4 cycles
     # sub.s   disp(aN),dM        sub.s   dP,dN
     #                            sub.s   dP,dM
-    # Needs a free register dP
+    # Needs a free data register dP
     # Note that gcc might put the displacement like next: (disp,aN)
     sub_disp_aN_into_dN_pattern = r'^(\s*)sub\.([bwl])(\s+)(?:(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)|\((-?\d+|0[xX][0-9a-fA-F]+),(%a[0-7])\)),\s*(%d[0-7])'
     matchA = re.match(sub_disp_aN_into_dN_pattern, line_A)
@@ -6622,7 +6636,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # add.s   disp(aN),aM   ->   move.s  disp(aN),aQ      ; Saves 4 cycles
     # add.s   disp(aN),aP        add.s   aQ,aM
     #                            add.s   aQ,aP
-    # Needs a free register aQ
+    # Needs a free address register aQ
     # Note that gcc might put the displacement like next: (disp,aN)
     add_disp_aN_into_aM_pattern = r'^(\s*)(add|adda)\.([bwl])(\s+)(?:(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)|\((-?\d+|0[xX][0-9a-fA-F]+),(%a[0-7])\)),\s*(%d[0-7])'
     matchA = re.match(add_disp_aN_into_aM_pattern, line_A)
@@ -6662,7 +6676,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # sub.s   disp(aN),aM   ->   move.s  disp(aN),aQ      ; Saves 4 cycles
     # sub.s   disp(aN),aP        sub.s   aQ,aM
     #                            sub.s   aQ,aP
-    # Needs a free register aQ
+    # Needs a free address register aQ
     # Note that gcc might put the displacement like next: (disp,aN)
     sub_disp_aN_into_aM_pattern = r'^(\s*)(sub|suba)\.([bwl])(\s+)(?:(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)|\((-?\d+|0[xX][0-9a-fA-F]+),(%a[0-7])\)),\s*(%d[0-7])'
     matchA = re.match(sub_disp_aN_into_aM_pattern, line_A)
@@ -8256,29 +8270,22 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Miscellaneous
     ############################################################################
 
+    # Where 0 < val <= 0xFFFF (65535)
     # or.l   #val,dN    ->    or.w   #val,dN         ; Saves 8 cycles
-    # Where 0 < val <= 0xFFFF (65535)
-    match = re.match(r'^(\s*)(or|ori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line)
+    # or
+    # eor.l  #val,dN    ->    eor.w  #val,dN         ; Saves 8 cycles
+    match = re.match(r'^(\s*)(or|ori|eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantUnsigned(match.group(4))
         dN = match.group(5)
         if (val & 0xFFFF0000) == 0:
-            optimized_line = f'{match.group(1)}or.w{match.group(3)}#{val},{dN}'
+            instr = match.group(2)
+            optimized_line = f'{match.group(1)}{instr}.w{match.group(3)}#{val},{dN}'
             return ([optimized_line], True)
 
-    # eor.l   #val,dN   ->   eor.w   #val,dN        ; Saves 8 cycles
-    # Where 0 < val <= 0xFFFF (65535)
-    match = re.match(r'^(\s*)(eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line)
-    if match:
-        val = parseConstantUnsigned(match.group(4))
-        dN = match.group(5)
-        if (val & 0xFFFF0000) == 0:
-            optimized_line = f'{match.group(1)}eor.w{match.group(3)}#{val},{dN}'
-            return ([optimized_line], True)
-
-    # or.s   #val,dN    ->    bset.[bwl]  #b,dN      ; Saves [4,12] cycles
     # Where val = 2^b (only 1 bit set and is at position b)
-    match = re.match(r'^(\s*)(or|ori)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line)
+    # or.s   #val,dN    ->    bset.[bwl]  #b,dN      ; Saves [4,12] cycles
+    match = re.match(r'^(\s*)(or|ori)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         s = match.group(3)
         val = parseConstantUnsigned(match.group(5))
@@ -8293,12 +8300,49 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 optimized_line = f'{match.group(1)}bset.{s_bset}{match.group(4)}#{bit_to_set},{dN}'
                 return ([optimized_line], True)
 
-    # eor.s  #-1,*      ->    not.s   *          ; Saves 4 cycles
-    match = re.match(r'^(\s*)(eor|eori)\.([bwl])(\s+)#-1,\s*(.+)', line)
+    # If val = 0x80 (128)
+    # or.b    #0x80,dN   ->   tas   dN          ; Saves 4 cycles. Status flags wrong
+    match = re.match(r'^(\s*)(or|ori)\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    if match:
+        val = parseConstantUnsigned(match.group(4))
+        if val == 128:
+            dN = match.group(5)
+            optimized_line = f'{match.group(1)}tas{match.group(3)}{dN}'
+            return ([optimized_line], True)
+
+    # eor.s  #-1,<ea>   ->    not.s   <ea>           ; Saves 4 cycles
+    match = re.match(r'^(\s*)(eor|eori)\.([bwl])(\s+)#-1,\s*(.+);?$', line)
     if match:
         s = match.group(3)
-        optimized_line = f'{match.group(1)}not.{s}{match.group(4)}{match.group(5)}'
+        ea = match.group(5)
+        optimized_line = f'{match.group(1)}not.{s}{match.group(4)}{ea}'
         return ([optimized_line], True)
+
+    # Where -128 <= val <= 127.
+    # or.l   #val,<ea>   ->   moveq  #val,dM         ; Saves 4 cycles
+    #                         or.l   dM,<ea>
+    # or
+    # eor.l  #val,<ea>   ->   moveq  #val,dM         ; Saves 4 cycles
+    #                         eor.l  dM,<ea>
+    # Needs a free data register dM.
+    match = re.match(r'^(\s*)(or|ori|eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    if match:
+        instr = match.group(2)
+        if instr.endswith('i'):
+            instr = instr[:-1]  # removes 'i'
+        val = parseConstantSigned(match.group(4), 8)
+        if -128 <= val <= 127:
+            ea = match.group(5)
+            regs_from_ea = extract_all_regs_from_ea(ea)
+            dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}{instr}.l{match.group(3)}{dM},{ea}'
+                ]
+                return (optimized_lines, True)
 
     # Remove 0 indirection
     # any_inst   *0(aN)*     ->    any_inst   *(aN)*     ; Saves 4 cycles
@@ -8342,27 +8386,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                     optimized_line = f'{match.group(1)}addq.{s}{match.group(4)}#{abs(val)},{dN}'
                     return ([optimized_line], True)
 
-    # If -128 <= val <= 127
-    # cmp.l  #val,dN   ->    moveq    #val,dM      ; Saves 4 cycles
-    #                        cmp.l    dM,dN
-    # Needs a free register dM
-    match = re.match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
-    if match:
-        val = parseConstantSigned(match.group(4), 8)
-        if -128 <= val <= 127:
-            dN = match.group(5)
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
-            if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
-            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                optimized_lines = [
-                    f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
-                    f'{match.group(1)}cmp.l{match.group(3)}{dM},{dN}'
-                ]
-                return (optimized_lines, True)
-
     # cmp.s  #0,aN     ->    move.s   aN,dM        ; Saves [6,10] cycles
-    # Needs a free register dM.
+    # Needs a free data register dM.
     match = re.match(r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
         dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
@@ -8380,6 +8405,26 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         aN = match.group(4)
         optimized_line = f'{match.group(1)}cmp.w{match.group(3)}#0,{aN}'
         return ([optimized_line], True)
+
+    # If -128 <= val <= 127
+    # cmp.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles
+    #                          cmp.l    dM,<ea>
+    # Needs a free data register dM.
+    match = re.match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    if match:
+        val = parseConstantSigned(match.group(4), 8)
+        if -128 <= val <= 127:
+            ea = match.group(5)
+            regs_from_ea = extract_all_regs_from_ea(ea)
+            dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}cmp.l{match.group(3)}{dM},{ea}'
+                ]
+                return (optimized_lines, True)
 
     # If 1 <= abs(val) <= 8
     # cmp.s  #val,aN   ->    subq/addq.s   #abs(val),aN      ; Saves [4,6] cycles. Leaves aN different
@@ -8431,7 +8476,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if -136 <= val <= -129:
             optimized_lines = [
                 f'{match.group(1)}moveq{match.group(2)}#-128,{dN}',
-                f'{match.group(1)}subq.l{match.group(2)}#{val+128},{dN}',
+                f'{match.group(1)}subq.l{match.group(2)}#{val+128},{dN}'
             ]
             return (optimized_lines, True)
 
@@ -8441,7 +8486,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if 128 <= val <= 255:
             optimized_lines = [
                 f'{match.group(1)}moveq{match.group(2)}#{255-val},{dN}',
-                f'{match.group(1)}not.b{match.group(2)}{dN}',
+                f'{match.group(1)}not.b{match.group(2)}{dN}'
             ]
             return (optimized_lines, True)
 
@@ -8451,7 +8496,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if ((128 <= val <= 254) or (-256 <= val <= -130)) and (val % 2 == 0):
             optimized_lines = [
                 f'{match.group(1)}moveq{match.group(2)}#{val/2},{dN}',
-                f'{match.group(1)}add.b{match.group(2)}{dN},{dN}',
+                f'{match.group(1)}add.b{match.group(2)}{dN},{dN}'
             ]
             return (optimized_lines, True)
 
@@ -8463,7 +8508,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if (65534 <= val <= 65408) or (-65409 <= val <= -65536):
             optimized_lines = [
                 f'{match.group(1)}moveq{match.group(2)}#{65535-abs(val)},{dN}',
-                f'{match.group(1)}not.w{match.group(2)}{dN}',
+                f'{match.group(1)}not.w{match.group(2)}{dN}'
             ]
             return (optimized_lines, True)
 
@@ -8474,7 +8519,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if m is not None:
             optimized_lines = [
                 f'{match.group(1)}moveq {match.group(2)}#{m},{dN}',
-                f'{match.group(1)}bchg.l{match.group(2)}{dN},{dN}',
+                f'{match.group(1)}bchg.l{match.group(2)}{dN},{dN}'
             ]
             return (optimized_lines, True)
 
@@ -8488,7 +8533,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 m = val // 65536  # floor division
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(2)}#{m},{dN}',
-                    f'{match.group(1)}swap {match.group(2)}{dN}',
+                    f'{match.group(1)}swap {match.group(2)}{dN}'
                 ]
                 return (optimized_lines, True)
 
@@ -8514,7 +8559,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             val_adjusted = ((-val & 0xFF) - 256)
             optimized_lines = [
                 f'{match.group(1)}moveq{match.group(2)}#{val_adjusted},{dN}',
-                f'{match.group(1)}neg.w{match.group(2)}{dN}',
+                f'{match.group(1)}neg.w{match.group(2)}{dN}'
             ]
             return (optimized_lines, True)
         
@@ -8588,23 +8633,28 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         optimized_line = f'{match.group(1)}pea{match.group(2)}{symbol_or_mem}'
         return ([optimized_line], True)
 
-    # Push constant val into <ea>, where -128 <= val <= 127
-    # move.l   #val,<ea>    ->   moveq   #val,dM      ; Saves 4 cycles
-    #                            move.l  dM,<ea>
-    # Needs a free register dM
-    match = re.match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    # If -128 <= val <= 127
+    # move.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles
+    #                           move.l   dM,<ea>
+    # Needs a free data register dM.
+    match = re.match(r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
     if match:
-        val = parseConstantSigned(match.group(3), 32)
+        instr = match.group(2)
+        val = parseConstantSigned(match.group(4), 8)
         if -128 <= val <= 127:
-            dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
-            if dM is None:
-                dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
-            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                ea = match.group(4)
-                if not ea.startswith(("%a", "%sp")):
+            ea = match.group(5)
+            regs_from_ea = extract_all_regs_from_ea(ea)
+            # if val == 0 and ea is a register then we skip the optimization and let fall into better optimizations waiting ahead
+            if len(regs_from_ea) < 0 and val == 0:
+                pass
+            else:
+                dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                if dM is None:
+                    dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                     optimized_lines = [
-                        f'{match.group(1)}moveq{match.group(2)}#{val},{dM}',
-                        f'{match.group(1)}move.l{match.group(2)}{dM},{ea}'
+                        f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                        f'{match.group(1)}{instr}.l{match.group(3)}{dM},{ea}'
                     ]
                     return (optimized_lines, True)
 
@@ -8621,7 +8671,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         # and.l   #255,dN      ->     move.b  dN,dM      ; Saves 4 cycles
         #                             moveq   #0,dN
         #                             move.b  dM,dN
-        # Needs a free register dM
+        # Needs a free data register dM
         if val == 255:
             dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -8652,6 +8702,26 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             optimized_line = f'{match.group(1)}clr.w{match.group(3)}{dN}'
             return ([optimized_line], True)
 
+    # If -128 <= val <= 127
+    # and.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles
+    #                          and.l    dM,<ea>
+    # Needs a free data register dM.
+    match = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    if match:
+        val = parseConstantSigned(match.group(4), 8)
+        if -128 <= val <= 127:
+            ea = match.group(5)
+            regs_from_ea = extract_all_regs_from_ea(ea)
+            dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            if dM is None:
+                dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                optimized_lines = [
+                    f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}and.l{match.group(3)}{dM},{ea}'
+                ]
+                return (optimized_lines, True)
+
     # Masking bits where in reality it clears one bit
     # and.[bwl]  #val,dN   ->   bclr.[bl]  #b,dN         ; Saves [2,4,12] cycles
     # Where not(val) = 2^b (only 1 bit set and is at position b)
@@ -8670,16 +8740,6 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if (s == 'b' and bit_to_clear < 8) or (s == 'w' and 8 <= bit_to_clear < 16) or (s == 'l' and 16 <= bit_to_clear < 32):
                 optimized_line = f'{match.group(1)}bclr.{s_bclr}{match.group(4)}#{bit_to_clear},{dN}'
                 return ([optimized_line], True)
-
-    # If val = 0x80 (128)
-    # or.b    #0x80,dN   ->   tas   dN          ; Saves 4 cycles. Status flags wrong
-    match = re.match(r'^(\s*)(or|ori)\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
-    if match:
-        val = parseConstantUnsigned(match.group(4))
-        if val == 128:
-            dN = match.group(5)
-            optimized_line = f'{match.group(1)}tas{match.group(3)}{dN}'
-            return ([optimized_line], True)
 
     # Optimizations using TAS instruction are only safe if used on regular RAM and not on memory-mapped I/O 
     # like VDP regs, YM2612 sound chip, Z80 bus, control ports. Hardware registers like (aN) is valid if 
@@ -8756,11 +8816,11 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         optimized_line = f'{match.group(1)}clr.w{match.group(2)}{dN}'
         return ([optimized_line], True)
 
-    # movea.l  #0,An   ->    sub.l   An,An     ; Saves 4 cycles
+    # movea.l  #0,aN   ->    sub.l   aN,aN     ; Saves 4 cycles
     match = re.match(r'^(\s*)(movea|move)\.l(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
-        a_reg = match.group(4)
-        optimized_line = f'{match.group(1)}sub.l{match.group(3)}{a_reg},{a_reg}'
+        aN = match.group(4)
+        optimized_line = f'{match.group(1)}sub.l{match.group(3)}{aN},{aN}'
         return ([optimized_line], True)
 
     if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
@@ -8846,7 +8906,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # If -128 <= val <= 127.
     # add*.l   #val,dN    ->   moveq.l   #val,dM       ; Saves 4 cycles
     #                          add.l     dM,dN
-    # Needs a free register dM
+    # Needs a free data register dM
     match = re.match(r'^(\s*)(add|addi|addq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
@@ -8905,7 +8965,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # If -128 <= val <= 127.
     # sub*.l   #val,dN    ->   moveq.l   #val,dM    ; Saves 4 cycles
     #                          sub.l     dM,dN
-    # Needs a free register dM
+    # Needs a free data register dM
     match = re.match(r'^(\s*)(sub|subi|subq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
@@ -8985,7 +9045,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # If -128 <= val <= 127.
     # adda.l   #val,aN    ->   moveq.l   #val,dM    ; Saves 4 cycles
     #                          adda.l    dM,aN
-    # Needs a free register dM
+    # Needs a free data register dM
     match = re.match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
         aN = match.group(5)
@@ -9049,7 +9109,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # If -128 <= val <= 127.
     # suba.l   #val,aN    ->   moveq.l   #val,dM    ; Saves 4 cycles
     #                          suba.l    dM,aN
-    # Needs a free register dM
+    # Needs a free data register dM
     match = re.match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
         aN = match.group(5)
@@ -9447,7 +9507,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         #                          add.w   dM,dN     ; Dn = Dn * (5 + 5 * 16) = Dn * 85
         #                          andi.w  #~((1<<(8+x))-1),dN   ; x=2
         #                          rol.w   #8-x,dN   ; Dn = (Dn * 85) / 1024
-        # Needs a free register dM
+        # Needs a free data register dM
         match = re.match(r'^(\s*)divu(\.w)?(\s+)#12,\s*(%d[0-7])', line)
         if match:
             dN = match.group(4)
@@ -9486,9 +9546,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                     optimized_line = f'{match.group(1)}lsr.l{match.group(3)}#{x},{dN}'
                     return ([optimized_line], True)
 
-        # divu[.w]  #1<<9,dN  ->   moveq   #9,dM     ; Saves [46,106]
+        # divu[.w]  #1<<9,dN  ->   moveq   #9,dM     ; Saves [46,106], but needs a free register
         #                          lsr.l   dM,dN
-        # Needs a free register dM
+        # Needs a free data register dM
         match = re.match(r'^(\s*)divu(\.w)?(\s+)#512,\s*(%d[0-7])', line)
         if match:
             dN = match.group(4)
@@ -9505,7 +9565,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
         # divu[.w]  #1<<10,dN  ->   moveq   #10,dM   ; Saves [44,104], but needs a free register
         #                           lsr.l   dM,dN
-        # Needs a free register dM
+        # Needs a free data register dM
         match = re.match(r'^(\s*)divu(\.w)?(\s+)#1024,\s*(%d[0-7])', line)
         if match:
             dN = match.group(4)
@@ -9626,7 +9686,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
 
     # movem.s xN,*     ->    move.s  xN,*        ; Saves 4 cycles. Status flags wrong
     # Where xN = a single register
-    match = re.match(r'^(\s*)movem\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(.+)', line)
+    match = re.match(r'^(\s*)movem\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(.+);?$', line)
     if match:
         s = match.group(2)
         xN = match.group(4)
