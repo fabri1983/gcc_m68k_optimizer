@@ -446,6 +446,7 @@ def getMForMovelOptimization(n: int) -> int | None:
 
 ONLY_REGS_REGEX = re.compile(r'(%[ad][0-7]|%sp)\b')
 
+@export_func
 def extract_all_regs_from_ea(ea: str) -> list[str]:
     """
     Extract registers using set membership test.
@@ -5037,10 +5038,11 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                         return (optimized_lines, 4)
 
         # Unnecessary clear of data register to multiply by 2 an address register
-        # moveq[.l]  #0,dN     ->    add.l   aN,aN         ; Saves 12 cycles. Leaves dN with different value than expected.
+        # moveq[.l]  #0,dN     ->    add.l   aN,aN         ; Saves 12 cycles. Leaves dN different.
         # move.w     aN,dN
         # move.l     dN,aN
         # add/sub.l  aN,aN
+        # Leaves dN with different value. Ensure is not used before cleared or overwritten.
         matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(4)
@@ -5059,10 +5061,11 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                             return (optimized_lines, 4)
 
         # Unnecessary clear of data register to multiply by 2 an address register and add/sub a constant
-        # move.w     aN,dN     ->   add.l      aN,aN           ; Saves 4 cycles. Leaves dN with different value than expected.
+        # move.w     aN,dN     ->   add.l      aN,aN           ; Saves 4 cycles. Leaves dN different.
         # lsl.l      #2,dN          add.l      aN,aN
         # move.l     dN,aN          add/sub.l  #val,aN
         # add/sub.l  #val,aN
+        # Leaves dN with different value. Ensure is not used before cleared or overwritten.
         matchA = re.match(r'^(\s*)move\.w(\s+)(%a[0-7]),\s*(%d[0-7])', line_A)
         if matchA:
             aN = matchA.group(3)
@@ -5082,6 +5085,62 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                                 f'{matchA.group(1)}{alu}.l{matchA.group(2)}#{val},{aN}'
                             ]
                             return (optimized_lines, 4)
+
+        # Clean upper word of data register to later copy it into other data register.
+        # swap    dN        ->    moveq   #0,dM            ; Saves 8 cycles. Leaves dN different.
+        # clr.w   dN              move.w  dN,dM
+        # swap    dN
+        # move.l  dN,dM
+        # Leaves dN with different value in upper word. Ensure dN is not used before is cleared or overwritten, or is used as word or byte.
+        matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
+        if matchA:
+            dN = matchA.group(4)
+            matchB = re.match(r'^\s*clr\.w\s+(%d[0-7])', line_B)
+            if matchB and dN == matchB.group(1):
+                matchC = re.match(r'^\s*swap(\.w)?\s+(%d[0-7])', line_C)
+                if matchC and dN == matchC.group(2):
+                    matchD = re.match(r'^\s*move\.l?\s+(%d[0-7]),(%d[0-7])', line_D)
+                    if matchD and dN == matchD.group(1) and dN != matchD.group(2):
+                        is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 4)
+                        if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
+                            dM = matchD.group(2)
+                            optimized_lines = [
+                                f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dM}',
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{dN},{dM}'
+                            ]
+                            return (optimized_lines, 4)
+
+        # Clean upper word of data register to later be used as address.
+        # swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different.
+        # clr.w   dN              move.w  dN,dM
+        # swap    dN              move.l  dM,aN
+        # move.l  dN,aN
+        # Needs a free data register dM.
+        # Leaves dN with different value in upper word. Ensure dN is not used before is cleared or overwritten, or is used as word or byte.
+        matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
+        if matchA:
+            dN = matchA.group(4)
+            matchB = re.match(r'^\s*clr\.w\s+(%d[0-7])', line_B)
+            if matchB and dN == matchB.group(1):
+                matchC = re.match(r'^\s*swap(\.w)?\s+(%d[0-7])', line_C)
+                if matchC and dN == matchC.group(2):
+                    matchD = re.match(r'^\s*move\.l?\s+(%d[0-7]),(%a[0-7]|%sp)', line_D)
+                    if matchD and dN == matchD.group(1):
+                        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                        if dM is None:
+                            dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                        if dM is not None:
+                            is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
+                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 4)
+                            if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
+                                aN = matchD.group(2)
+                                optimized_lines = [
+                                    f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dM}',
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{dN},{dM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{dM},{aN}'
+                                ]
+                                return (optimized_lines, 4)
 
     # Tail recursion for BSR/JSR or exploiting PEA opportunities
     bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
@@ -5502,25 +5561,26 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
         # move.w      dM,dN           clr.w   dM
         # move.l      dN,dM           swap    dM
         # Leaves dN free which potentially can be removed from movem/move push/pop stack if not used anymore.
-        # Only valid if dN is used afterwards as word or byte, before it's clear or overwritten.
-        matchA = re.match(r'^(\s)*moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
-        if matchA:
-            dN = matchA.group(4)
-            matchB = re.match(r'^\s*move\.w\s+(%d[0-7]),\s*(%d[0-7])', line_B)
-            if matchB and dN == matchB.group(2):
-                dM = matchB.group(1)
-                matchC = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
-                if matchC and dN == matchC.group(1) and dM == matchC.group(2):
-                    # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
-                    if current_pass == 2:
-                        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 3):
-                            if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
-                            optimized_lines = [
-                                f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
-                                f'{matchA.group(1)}clr.w{matchA.group(3)}{dM}',
-                                f'{matchA.group(1)}swap {matchA.group(3)}{dM}'
-                            ]
-                            return (optimized_lines, 3)
+        # Only valid if dN is used afterwards as word or byte, before it's cleared or overwritten.
+        # NOTE: not used to avoid de-optimization of other patterns.
+        #matchA = re.match(r'^(\s)*moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
+        #if matchA:
+        #    dN = matchA.group(4)
+        #    matchB = re.match(r'^\s*move\.w\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+        #    if matchB and dN == matchB.group(2):
+        #        dM = matchB.group(1)
+        #        matchC = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
+        #        if matchC and dN == matchC.group(1) and dM == matchC.group(2):
+        #            # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
+        #            if current_pass == 2:
+        #                if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 3):
+        #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
+        #                    optimized_lines = [
+        #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
+        #                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dM}',
+        #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}'
+        #                    ]
+        #                    return (optimized_lines, 3)
 
     if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 

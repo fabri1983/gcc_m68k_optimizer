@@ -67,7 +67,7 @@ Review USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY when i
 
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
-Reg expressions catching a symbol or mem address along with its size:  [0-9a-zA-Z_\.]+)(\.[bwl])?
+Reg expressions catching a symbol or mem address along with its size: [0-9a-zA-Z_\.]+)(\.[bwl])?
 Make sure the size is not part of the symbolName or the mem address.
     # Remove the size if it ended up being part of the symbol
     if symbolName.endswith(('.l','.w','.b')):
@@ -80,12 +80,12 @@ When generating an int with int(string) or parseConstantSigned(string) or evalua
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign that python sets at 64th bit
 
+Tener en cuenta siempre que si se deja de usar un registro hay q usar:
+	if_reg_not_used_anymore_then_remove_from_push_pop(<reg>, i_line, lines, modified_lines, <ingore_N_previous_lines>)
+
 Ver los TODO en el optimizer script.
 
 Test the new division optimization.
-
-Tener en cuenta siempre que si se deja de usar un registro hay q usar:
-	if_reg_not_used_anymore_then_remove_from_push_pop(<reg>, i_line, lines, modified_lines, <ingore_N_previous_lines>)
 
 
 
@@ -109,27 +109,11 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Clean upper word of data register to later copy it into other data register.
-swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different
-clr.w   dN              move.w  dN,dM
-swap    dN
-move.l  dN,dM
-Needs a free data register dM.
-Leaves dN with different value in upper word. Ensure dN is not used before cleared or overwritten, or is used as word or byte.
-
-# Clean upper word of data register to later be used as address.
-swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different
-clr.w   dN              move.w  dN,dM
-swap    dN              move.l  dM,aN
-move.l  dN,aN
-Needs a free data register dM.
-Leaves dN with different value in upper word. Ensure dN is not used before cleared or overwritten, or is used as word or byte.
-
 # Use of unnecessary additional data register.
 move.b  (aN),dM    ->    or.b    (aN),dN         ; Saves 4 cycles. Leaves dM free
 and.w   #255,dM          and.w   #255,dN
 or.b    dM,dN
-Leaves dM free. Ensure dM is not used before cleared or overwritten.
+Leaves dM free. Ensure dM is not used before is cleared or overwritten.
 
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
