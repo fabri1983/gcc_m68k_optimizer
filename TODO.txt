@@ -109,26 +109,20 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Use of unnecessary additional data register.
-move.b  (aN),dM    ->    or.b    (aN),dN         ; Saves 4 cycles. Leaves dM free
-and.w   #255,dM          and.w   #255,dN
-or.b    dM,dN
-Leaves dM free. Ensure dM is not used before is cleared or overwritten.
-
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
     addq.w #1,44(sp)
-    might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
+    0, 1, or 2 instructions here. Where sp pointer is not modified. Grab all used address regs.
     addq.w #1,46(sp)
-    might be 1 or 2 instructions here of the form: addq/add/adda.[wl] #val,aN  (aN != sp)
+    0, 1, or 2 instructions here. Where sp pointer is not modified. Grab all used address regs.
     addq.w #1,48(sp)
 ; Saves 4 cycles
     lea 44(sp),aM
-    addq.w #1,(a0)+
+    addq.w #1,(aM)+
     instructions gathered in-between (if any)
-    addq.w #1,(a0)+
+    addq.w #1,(aM)+
     instructions gathered in-between (if any)
-    addq.w #1,(a0)
+    addq.w #1,(aM)
 Needs a free address register aM.
 
 
