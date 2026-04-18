@@ -10,15 +10,15 @@ This script is intended to be executed with gcc plugin feature at `PLUGIN_FINISH
 the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
 At `PLUGIN_FINISH` phase we can access the m68k assembly code generated from all the **.c units** in our project 
-and the **SGDK** library, including the inline asm blocks. Assembly **.s, .S, .asm units** are excluded from this phase.
+and those by the **SGDK** library, including the inline asm blocks. Assembly **.s, .S, .asm units** are excluded from this phase.
 
 The optimizer depends heavily on the project you run it. On some, it saves 1% of CPU per frame 
 (approximately 2 scanlines), which is a sign that the project's hot path might be better rewritten in asm (if not already).
 
-See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all peepholes and switches 
-the optimizer provides.
+See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of reference web sites where I took the peepholes, 
+and all the switches the optimizer provides for more cycles squishing.
 
-These are five of my projects in which I use the optimizer.
+These are five of my projects for which I use the optimizer as a test base.
 The next picture outlines how many optimization patterns were applied on each of them.
 
 ![stats.jpg](stats.png?raw=true "stats.png")
@@ -41,7 +41,7 @@ Custom patterns found from gcc -S outputs
 First, build gcc m68k toolchain with plugin support enabled. This is straight forward on Linux systems, 
 even on WSL (Windows Subsytem for Linux), but impossible on Windows systems (I couldn't build it yet).  
 Use script [build_gcc.sh](build_gcc.sh "build_gcc.sh") (or [build_gcc_mingw64_windows.sh](build_gcc_mingw64_windows.sh "build_gcc_mingw64_windows.sh") **WIP**).  
-Add the toolchain into your PATH so SGDK can see it, as well for the next step to build the plugin.
+Add the toolchain into your PATH so SGDK can see it, and also to correctly build the plugin in next step.
 
 Then, compile the gcc plugin `optimizer_plugin.c` responsible to execute the python script over the 
 gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
