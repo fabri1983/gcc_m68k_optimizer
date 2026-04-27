@@ -63,6 +63,14 @@ Tested on Blastem nightly build
 
 TODO
 ====
+Subroutine call reduction. Saves [12,14] cycles.
+If a subroutine is called always from the same code location then we can:
+    replace bsr/jsr routine_name by:
+        rts_lbl_routine_name:
+            bra/jmp routine_name
+    replace every rts by:
+            bra/jmp rts_lbl_routine_name
+
 Review USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY when is True.
 
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
@@ -133,7 +141,7 @@ add.s   d0,d0
 subx.s  d1,d1
 negx.s  d0
 addx.s  d1,d1
- 
+
 # Check if A=B, (d0=A, d1=B, range 0000-7FFF, but true in all cases if B=$ffff)
 eor.w   d1,d0
 bgt     not_equal

@@ -11,7 +11,7 @@
 #
 # Some optimizations may leave the CCR flags in a different state than the original immediate 
 # instruction was expecting, therefor may incur in unexpected behavior or a bug.
-# 
+#
 # Test your game thoroughly not only in emulators but also in real hardware.
 #
 # DISCLAIMER.
@@ -1939,7 +1939,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
 def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
     """
     Param ignore_N_previous_lines only affects modified_lines.
-    lines[i_line] will be commented.
+    lines[i_line] will be commented in the inner method.
     """
     matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
     return len(matching_lines) > 0
@@ -1947,7 +1947,7 @@ def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: 
 def is_reg_used_as_word_or_byte_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
     """
     Param ignore_N_previous_lines only affects modified_lines.
-    lines[i_line] will be commented.
+    lines[i_line] will be commented in the inner method.
     """
     matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
     if len(matching_lines) == 0:
@@ -3159,7 +3159,7 @@ IS_ASR_INSTRUCTION_REGEX = re.compile(r'^\s*asr\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
 IS_DIV_INSTRUCTION_REGEX = re.compile(r'^\s*(?:divs\.w|divu\.w)\s+[^,]+,\s*%d[0-7]')
 
-IS_MOVEQ_INSTRUCTION_REGEX = re.compile(r'^\s*(?:moveq|move)\.?[bwl]?\s+#[^,]+,\s*%d[0-7]')
+IS_MOVEQ_OR_MOVE_IMM_INSTRUCTION_REGEX = re.compile(r'^\s*(?:moveq|move)\.?[bwl]?\s+#[^,]+,\s*%d[0-7]')
 
 IS_MUL_INSTRUCTION_REGEX = re.compile(r'^\s*(?:muls\.w|mulu\.w)\s+[^,]+,\s*%d[0-7]')
 
@@ -3752,7 +3752,7 @@ def optimizeMultiLines_6(i_line: int, lines: list[str], modified_lines: list[str
                                 return (optimized_lines, 6)
 
         # Calculate a long value from a word value.
-        # moveq[.wl]   #0,dN         ->    moveq #0,dN            ; Saves 4 cycles
+        # moveq[.wl]   #0,dN         ->    moveq      #0,dN            ; Saves 4 cycles
         # move.w       aN,dN               move.w     aN,dN
         # move.l       dN,aN               add/sub.l  #val,dN
         # add*/sub*.l  #val,aN             add/sub.l  dN,dM
@@ -7304,7 +7304,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # Rotates Left
     ############################################################################
 
-    if IS_MOVEQ_INSTRUCTION_REGEX.match(line_A) and IS_ROL_INSTRUCTION_REGEX.match(line_B):
+    if IS_MOVEQ_OR_MOVE_IMM_INSTRUCTION_REGEX.match(line_A) and IS_ROL_INSTRUCTION_REGEX.match(line_B):
 
         matchA = re.match(r'^(\s*)(moveq|move)\.?[bwl]?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
         if matchA:
@@ -7381,7 +7381,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # Rotates Right
     ############################################################################
 
-    if IS_MOVEQ_INSTRUCTION_REGEX.match(line_A) and IS_ROR_INSTRUCTION_REGEX.match(line_B):
+    if IS_MOVEQ_OR_MOVE_IMM_INSTRUCTION_REGEX.match(line_A) and IS_ROR_INSTRUCTION_REGEX.match(line_B):
 
         matchA = re.match(r'^(\s*)(moveq|move)\.?[bwl]?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
         if matchA:
@@ -7459,7 +7459,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # All lsl peephole optimizations also apply to asl
     ############################################################################
 
-    if IS_MOVEQ_INSTRUCTION_REGEX.match(line_A) and (IS_LSL_INSTRUCTION_REGEX.match(line_B) or IS_ASL_INSTRUCTION_REGEX.match(line_B)):
+    if IS_MOVEQ_OR_MOVE_IMM_INSTRUCTION_REGEX.match(line_A) and (IS_LSL_INSTRUCTION_REGEX.match(line_B) or IS_ASL_INSTRUCTION_REGEX.match(line_B)):
 
         matchA = re.match(r'^(\s*)(moveq|move)\.?[bwl]?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
         if matchA:
@@ -7685,7 +7685,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # Logical Shift Right
     ############################################################################
 
-    if IS_MOVEQ_INSTRUCTION_REGEX.match(line_A) and IS_LSR_INSTRUCTION_REGEX.match(line_B):
+    if IS_MOVEQ_OR_MOVE_IMM_INSTRUCTION_REGEX.match(line_A) and IS_LSR_INSTRUCTION_REGEX.match(line_B):
 
         matchA = re.match(r'^(\s*)(moveq|move)\.?[bwl]?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
         if matchA:
@@ -7869,7 +7869,7 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
     # Arithmetic Shift Right
     ############################################################################
 
-    if IS_MOVEQ_INSTRUCTION_REGEX.match(line_A) and IS_ASR_INSTRUCTION_REGEX.match(line_B):
+    if IS_MOVEQ_OR_MOVE_IMM_INSTRUCTION_REGEX.match(line_A) and IS_ASR_INSTRUCTION_REGEX.match(line_B):
 
         matchA = re.match(r'^(\s*)(moveq|move)\.?[bwl]?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
         if matchA:
@@ -8993,6 +8993,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # add*.l   #val,dN    ->   add*/sub*.[wl]   #val,dN       ; Saves [8,12] cycles
     match = re.match(r'^(\s*)(add|addi|addq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
+        instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
         if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
@@ -9006,7 +9007,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 optimized_line = f'{match.group(1)}addi.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
         else:
-            if 1 <= val <= 8:
+            if 1 <= val <= 8 and instr != "addq":
                 optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
             if -8 <= val <= -1:
@@ -9014,10 +9015,10 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If -128 <= val <= 127.
-    # add*.l   #val,dN    ->   moveq.l   #val,dM       ; Saves 4 cycles
-    #                          add.l     dM,dN
-    # Needs a free data register dM
-    match = re.match(r'^(\s*)(add|addi|addq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    # add*.l   #val,dN    ->   moveq     #val,dM       ; Saves [4,8] cycles
+    #                          add.[wl]  dM,dN
+    # Needs a free data register dM.
+    match = re.match(r'^(\s*)(add|addi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
@@ -9026,11 +9027,18 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                optimized_lines = [
-                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
-                    f'{match.group(1)}add.l  {match.group(3)}{dM},{dN}'
-                ]
-                return (optimized_lines, True)
+                if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+                    optimized_lines = [
+                        f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                        f'{match.group(1)}add.w{match.group(3)}{dM},{dN}'
+                    ]
+                    return (optimized_lines, True)
+                else:
+                    optimized_lines = [
+                        f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                        f'{match.group(1)}add.l{match.group(3)}{dM},{dN}'
+                    ]
+                    return (optimized_lines, True)
 
     # Add immediate word to dN.
     # If 1 <= val <= 8:
@@ -9052,6 +9060,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # sub*.l  #val,dN     ->   sub*/add*.[wl]   #val,dN    ; Saves [8,12] cycles
     match = re.match(r'^(\s*)(sub|subi|subq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
+        instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
         if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
@@ -9065,7 +9074,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 optimized_line = f'{match.group(1)}subi.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
         else:
-            if 1 <= val <= 8:
+            if 1 <= val <= 8 and instr != "subq":
                 optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
             if -8 <= val <= -1:
@@ -9073,10 +9082,10 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If -128 <= val <= 127.
-    # sub*.l   #val,dN    ->   moveq.l   #val,dM    ; Saves 4 cycles
-    #                          sub.l     dM,dN
-    # Needs a free data register dM
-    match = re.match(r'^(\s*)(sub|subi|subq)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
+    # sub*.l   #val,dN    ->   moveq     #val,dM    ; Saves [4,8] cycles
+    #                          sub.[wl]  dM,dN
+    # Needs a free data register dM.
+    match = re.match(r'^(\s*)(sub|subi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
@@ -9085,11 +9094,18 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                optimized_lines = [
-                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
-                    f'{match.group(1)}sub.l  {match.group(3)}{dM},{dN}'
-                ]
-                return (optimized_lines, True)
+                if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+                    optimized_lines = [
+                        f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                        f'{match.group(1)}sub.w{match.group(3)}{dM},{dN}'
+                    ]
+                    return (optimized_lines, True)
+                else:
+                    optimized_lines = [
+                        f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
+                        f'{match.group(1)}sub.l{match.group(3)}{dM},{dN}'
+                    ]
+                    return (optimized_lines, True)
 
     # Sub immediate word to dN.
     # If 1 <= val <= 8:
@@ -9153,7 +9169,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If -128 <= val <= 127.
-    # adda.l   #val,aN    ->   moveq.l   #val,dM    ; Saves 4 cycles
+    # adda.l   #val,aN    ->   moveq     #val,dM    ; Saves 4 cycles
     #                          adda.l    dM,aN
     # Needs a free data register dM
     match = re.match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
@@ -9166,8 +9182,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
-                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
-                    f'{match.group(1)}adda.l {match.group(3)}{dM},{aN}'
+                    f'{match.group(1)}moveq {match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}adda.l{match.group(3)}{dM},{aN}'
                 ]
                 return (optimized_lines, True)
 
@@ -9217,7 +9233,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If -128 <= val <= 127.
-    # suba.l   #val,aN    ->   moveq.l   #val,dM    ; Saves 4 cycles
+    # suba.l   #val,aN    ->   moveq     #val,dM    ; Saves 4 cycles
     #                          suba.l    dM,aN
     # Needs a free data register dM
     match = re.match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
@@ -9230,8 +9246,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
-                    f'{match.group(1)}moveq.l{match.group(3)}#{val},{dM}',
-                    f'{match.group(1)}suba.l {match.group(3)}{dM},{aN}'
+                    f'{match.group(1)}moveq {match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}suba.l{match.group(3)}{dM},{aN}'
                 ]
                 return (optimized_lines, True)
 
@@ -10665,8 +10681,10 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
     """
     We can take advantage of the sign extension nature of lea/movea/jmp/jsr instructions over the high word of 
     the canonical address to reduce its size:
-    - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOW_ROM_END) -> we can use .w
-    - If higher word is 0xE0FF (SGDK's RAM start) and lower word >= 0x8000 (high half RAM) -> we can use .w
+    - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOW_ROM_END) -> 
+        we can use .w and let the sign extension fills higher word with 0s.
+    - If higher word is 0xE0FF (SGDK's RAM start) and lower word >= 0x8000 (high half RAM) ->
+        we can use .w and let the sign extension fills higher word with 1s.
     """
 
     # Collect the symbols that has the form: symbolName +-* N
@@ -11041,7 +11059,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
                     optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w'
 
-        # Replace the original line with the its optimized version
+        # Replace the original line with its optimized version
         if optimized_line != '':
             line_indexes_updated.append(i_line)
             lines[i_line] = optimized_line
@@ -11061,8 +11079,9 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
 
 def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[int], symbol_with_additional_ops_by_mem_address: dict[int, tuple[str, str]], symbols_opt_filename: str, symbols_canonical_filename: str) -> tuple[int, int]:
     """
-    Given that previous phase of reducing load of canonical address into aN makes gcc to rellocate some symbols,
-    we have to re accomodate the new final address of every symbol we have used in the reduction.
+    Given that previous phase reduces load of canonical memory address into aN using .w and causes the instruction 
+    to reduce its size, it makes gcc to rellocate symbols stored in .text section, we have to re accomodate the new 
+    final address of every memory address we have used in the reduction.
     Only applies to memory addresses that were originally an alphabetical symbolName [+-*N].
     """
 
