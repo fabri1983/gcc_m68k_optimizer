@@ -64,12 +64,14 @@ Tested on Blastem nightly build
 TODO
 ====
 Subroutine call reduction. Saves [12,14] cycles.
-If a subroutine is called always from the same code location then we can:
+If a subroutine (other than an interrupt routine) is called always from the same code location then we can:
     replace bsr/jsr routine_name by:
-        rts_lbl_routine_name:
+            ... code here ...
             bra/jmp routine_name
-    replace every rts by:
-            bra/jmp rts_lbl_routine_name
+        rts_from_routine_name:
+            ... code here ...
+    replace every rts detected inside the body of routine_name by:
+            bra/jmp rts_from_routine_name
 
 Review USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY when is True.
 
