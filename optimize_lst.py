@@ -460,9 +460,9 @@ def extract_all_regs_from_ea(ea: str) -> list[str]:
     # Use dict.fromkeys for deduplication
     return list(dict.fromkeys(m for m in matches))
 
-PUSH_REGS_INTO_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([bwl])\s+([^,]+),\s*-\(%sp\)')
+PUSH_REGS_INTO_STACK_REGEX = re.compile(r'^\s*(movem|movm|move)\.([bwl])\s+([^,]+),\s*-\(%sp\)')
 
-POP_REGS_FROM_STACK_REGEX = re.compile(r'^\s*(movem|move)\.([bwl])\s+\(%sp\)\+,\s*(.*)')
+POP_REGS_FROM_STACK_REGEX = re.compile(r'^\s*(movem|movm|move)\.([bwl])\s+\(%sp\)\+,\s*(.*)')
 
 RANGE_REGS_REGEX = re.compile(r'(%[ad])([0-7])-(%[ad])([0-7])')
 SINGLE_REG_REGEX = re.compile(r'(%[ad])([0-7])')
@@ -647,7 +647,7 @@ declared_functions_set: set[str] = set()
 
 def collect_declared_functions(lines: list[str]):
     """
-    Get all the declared functions in this assembly unit declared by FUNCTION_DECLARATION_REGEX
+    Get all the declared functions in this assembly unit declared by FUNCTION_DECLARATION_REGEX.
     """
     global declared_functions_set
     
@@ -1704,7 +1704,7 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
         if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
             if was_xM_added_into_movem_or_move_pop:
                 # movem
-                if push_match.group(1) == 'movem':
+                if push_match.group(1) in ('movem','movm'):
                     regs_str = push_match.group(3)
                     regs_list = extract_registers(regs_str, PUSH_OP)
                     # If xM is not in the list already and is not scratch pad, unless in an interrupt routine: then add it
@@ -2066,9 +2066,9 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
 
     # Get this routine name
     func_name = get_function_name(i_line, lines)
-    if func_name not in ("vertIntOnTitan256cCallback_HIntEveryN"):
-        return False
-    print("--> " + func_name + ": " + str(regs_to_add))
+    #if func_name not in ("vertIntOnTitan256cCallback_HIntEveryN"):
+    #    return False
+    #print("--> " + func_name + ": " + str(regs_to_add))
 
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
@@ -2094,7 +2094,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
 
         # If it's a movem push then add the missing regs into the list
         if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
-            if push_match.group(1) == 'movem':
+            if push_match.group(1) in ('movem','movm'):
                 if not regs_were_added_into_movem_push:
                     regs_str = push_match.group(3)
                     regs_list = extract_registers(regs_str, PUSH_OP)
@@ -2123,7 +2123,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
         # Is a movem/move pop instruction?
         elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
             is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(modified_lines[i+1]) else False
-            if pop_match.group(1) == 'movem' and regs_were_added_into_movem_push and is_before_rts_rte:
+            if pop_match.group(1) in ('movem','movm') and regs_were_added_into_movem_push and is_before_rts_rte:
                 regs_str = pop_match.group(3)
                 regs_list = extract_registers(regs_str, POP_OP)
                 orig_count = len(regs_list)
@@ -2203,7 +2203,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
             # Is a movem/move pop instruction?
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(lines[i+1]) else False
-                if pop_match.group(1) == 'movem':
+                if pop_match.group(1) in ('movem','movm'):
                     regs_str = pop_match.group(3)
                     regs_list = extract_registers(regs_str, POP_OP)
                     # Add only missing regs
@@ -2736,7 +2736,7 @@ BASE_SIZES_IN_WORDS = {
     'divs': 1, 'divu': 1, 'eor': 1, 'eori': 1, 'exg': 1, 'ext': 1,     
     'jcc': 1, 'jcs': 1, 'jeq': 1, 'jge': 1, 'jgt': 1, 'jhi': 1, 'jhs': 1, 'jle': 1, 'jlo': 1, 'jls': 1, 'jlt': 1, 'jmi': 1, 'jmp': 1, 
     'jne': 1, 'jpl': 1, 'jra': 1, 'jsr': 1, 'jvc': 1, 'jvs': 1, 
-    'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 
+    'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 'movm': 2, 'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 
     'nbcd': 1, 'neg': 1, 'negx': 1, 'not': 1, 'or': 1, 'ori': 1, 'pea': 1, 'rol': 1, 'ror': 1, 'roxl': 1, 'roxr': 1, 
     'sbcd': 1, 'scc': 1, 'scs': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'sle': 1, 'sls': 1, 'slt': 1, 'smi': 1, 'sne': 1, 'spl': 1, 
     'st': 1, 'suba': 1, 'sub': 1, 'subi': 1, 'subq': 1, 'subx': 1, 'svc': 1, 'swap': 1, 
@@ -2852,7 +2852,7 @@ def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
         return 'ABS.l'
     # Immediate value
     if match := RE_imm_value.match(operator):
-        if op_base in ('addq','moveq','subq','movem'):
+        if op_base in ('addq','moveq','subq','movem','movm'):
             # TODO: weird fix: force the size to be different than 0, otherwise it fails with out of range
             if op_base == 'moveq':
                 return '#imm.w'
@@ -3165,7 +3165,7 @@ IS_MUL_INSTRUCTION_REGEX = re.compile(r'^\s*(?:muls\.w|mulu\.w)\s+[^,]+,\s*%d[0-
 
 IS_MULS_INSTRUCTION_REGEX = re.compile(r'^\s*(?:muls\.w)\s+[^,]+,\s*%d[0-7]')
 
-IS_MULU_INSTRUCTION_REGEX = re.compile(r'^\s*(mulu\.w)\s+[^,]+,\s*%d[0-7]')
+IS_MULU_INSTRUCTION_REGEX = re.compile(r'^\s*(?:mulu\.w)\s+[^,]+,\s*%d[0-7]')
 
 IS_LSL_INSTRUCTION_REGEX = re.compile(r'^\s*lsl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
@@ -4911,7 +4911,7 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
 
                                 # Format the register list for movem
                                 xregs_for_movem_str = '/'.join(f'{r}' for r in xregs_for_movem)
-                                
+
                                 # First xreg is not in correct increasing order
                                 if register_order.index(xregs[0]) > register_order.index(xregs[1]):
                                     first_disp = '' if dispA + stride == 0 else dispA + stride
@@ -9778,46 +9778,47 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
     # movem.w *,dN     ->    move.w  *,dN        ; Saves 4 cycles
     #                        ext.l   dN
     # movem does sign extension so we need to add ext.l instruction
-    match = re.match(r'^(\s*)movem\.w(\s+)([^,]+),\s*(%d[0-7]);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.w(\s+)([^,]+),\s*(%d[0-7]);?$', line)
     if match:
-        src = match.group(3)
-        dN = match.group(4)
+        src = match.group(4)
+        dN = match.group(5)
         optimized_lines = [
-            f'{match.group(1)}move.w{match.group(2)}{src},{dN}',
-            f'{match.group(1)}ext.l {match.group(2)}{dN}'
+            f'{match.group(1)}move.w{match.group(3)}{src},{dN}',
+            f'{match.group(1)}ext.l {match.group(3)}{dN}'
         ]
         return (optimized_lines, True)
 
     # movem.l (sp)+,<2 regs>  ->   move.l  (sp)+,<reg1>     ; Saves 4 cycles
     #                              move.l  (sp)+,<reg2>
-    match = re.match(r'^(\s*)movem\.l(\s+)\(%sp\)\+,\s*(%[ad][0-7])/(%[ad][0-7]);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.l(\s+)\(%sp\)\+,\s*(%[ad][0-7])/(%[ad][0-7]);?$', line)
     if match:
-        _, _, reg1, reg2, = match.groups()
+        reg1 = match.group(4)
+        reg2 = match.group(5)
         optimized_lines = [
-            f'{match.group(1)}move.l{match.group(2)}(%sp)+,{reg1}',
-            f'{match.group(1)}move.l{match.group(2)}(%sp)+,{reg2}'
+            f'{match.group(1)}move.l{match.group(3)}(%sp)+,{reg1}',
+            f'{match.group(1)}move.l{match.group(3)}(%sp)+,{reg2}'
         ]
         return (optimized_lines, True)
 
     # movem.s *,xN     ->    move.s  *,xN        ; Saves [4,8] cycles
     # Where xN = a single register, but not (xN=dN & s=w) at the same time
-    match = re.match(r'^(\s*)movem\.([wl])(\s+)([^,]+),\s*(%[ad][0-7]|%sp);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.([wl])(\s+)([^,]+),\s*(%[ad][0-7]|%sp);?$', line)
     if match:
-        s = match.group(2)
-        src = match.group(4)
-        xN = match.group(5)
+        s = match.group(3)
+        src = match.group(5)
+        xN = match.group(6)
         if not (s == 'w' and xN.startswith("%d")):
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{src},{xN}'
+            optimized_line = f'{match.group(1)}move.{s}{match.group(4)}{src},{xN}'
             return ([optimized_line], True)
 
     # movem.s xN,*     ->    move.s  xN,*        ; Saves 4 cycles. Status flags wrong
     # Where xN = a single register
-    match = re.match(r'^(\s*)movem\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(.+);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(.+);?$', line)
     if match:
-        s = match.group(2)
-        xN = match.group(4)
-        dest = match.group(5)
-        optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{dest}'
+        s = match.group(3)
+        xN = match.group(5)
+        dest = match.group(6)
+        optimized_line = f'{match.group(1)}move.{s}{match.group(4)}{xN},{dest}'
         return ([optimized_line], True)
 
     # No optimization was applied
@@ -9855,11 +9856,8 @@ def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str],
         if not branch_s or branch_s == '.w':
             label = match.group(5)
             if is_label_within_8_bytes_range(label, i_line, lines, modified_lines):
-                # Replace jsr by bsr
-                if branch_instr == 'jsr':
-                    branch_instr = 'bsr'
                 # Normalize the instruction to the M68000 set
-                elif branch_instr[0] == 'j':
+                if branch_instr[0] == 'j':
                     branch_instr = 'b' + branch_instr[1:]
                 optimized_line = f'{match.group(1)}{branch_instr}.s{match.group(4)}{label}'
                 return ([optimized_line], True)
@@ -10201,9 +10199,9 @@ def convert_from_gcc_fp_style(line: str) -> str:
     """
     return line.replace('%fp', '%a6')
 
-MOVEM_REGS_INTO_MEM_REGEX = re.compile(r'^\s*movem\.[wl]\s+([^,]+),\s*-\((?:%a[0-7]|%sp)\)')
+MOVEM_REGS_INTO_MEM_REGEX = re.compile(r'^\s*(?:movem|movm)\.[wl]\s+([^,]+),\s*-\((?:%a[0-7]|%sp)\)')
 
-MOVEM_MEM_INTO_REGS_REGEX = re.compile(r'^\s*movem\.[wl]\s+\((?:%a[0-7]|%sp)\)\+,\s*(.*)')
+MOVEM_MEM_INTO_REGS_REGEX = re.compile(r'^\s*(?:movem|movm)\.[wl]\s+\((?:%a[0-7]|%sp)\)\+,\s*(.*)')
 
 def convert_gcc_movem_encoded_regs(line: str) -> str:
     """
@@ -10335,26 +10333,26 @@ global_routine_pattern = re.compile(
 def non_used_functions(lines: list[str]):
 
     # Phase 1:
-    # Collect all the declared functions in this  assembly unit.
+    # Collect all the declared functions in this assembly unit.
     # This was done previously by calling collect_declared_functions()
-    # Global variable is declared_functions_set
+    # Use next global variable: declared_functions_set
 
     # Phase 2:
-    # Get all the routines declared as global, meaning they are outside this assembly unit
+    # Get all the routines tagged as global:
+    # functions defined outside this assembly unit, and functions defined in this unit but called externally.
     global_functions_set: set[str] = set()
     for i_line in range(0, len(lines)):
         line = lines[i_line]
         # Whenever we detect the first declaration of a .bss section we can stop the analysis
         if BSS_SECTION_REGEX.match(line):
             break
-        # Is a function declaration?
+        # Is a global function declaration?
         if match := global_routine_pattern.match(line):
             func_name = match.group(1)
-            if func_name in declared_functions_set:
-                global_functions_set.add(func_name)
+            global_functions_set.add(func_name)
 
     # Phase 3:
-    # For each call to a function save it into a set of called functions so we can later know which
+    # For each call to a function we save it into a set of called functions so we can later know which
     # declared functions are not being called.
     calling_functions_set: set[str] = set()
     for i in range(0, len(lines)):
@@ -10365,7 +10363,7 @@ def non_used_functions(lines: list[str]):
         # Is calling one of the declared functions?
         if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
-            # Consider cases like jsr/jmp (aN)
+            # Considers jsr/jmp (aN)
             if func_name.startswith('%a'):
                 aN = func_name
                 func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i-1, 0)
