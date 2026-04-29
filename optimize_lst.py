@@ -643,22 +643,47 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'(%[ad][0-7])\b'                 # Register being overwritten
 )
 
-declared_functions_set: set[str] = set()
+declared_functions_all_set: set[str] = set()
+declared_functions_interrupts_only_set: set[str] = set()
 
 def collect_declared_functions(lines: list[str]):
     """
     Get all the declared functions in this assembly unit declared by FUNCTION_DECLARATION_REGEX.
     """
-    global declared_functions_set
-    
-    for i in range(0, len(lines)):
+    global declared_functions_all_set
+
+    i = 0
+    while i < len(lines):  # forwards
         line = lines[i]
+        i += 1
+
         # Whenever we detect the first declaration of a .bss section we can stop the analysis
         if BSS_SECTION_REGEX.match(line):
             break
+
         # Is a function declaration?
         if match := FUNCTION_DECLARATION_REGEX.match(line):
-            declared_functions_set.add(match.group(1))
+
+            # Detect if we are in an interrupt routine
+            inAnInterruptRoutine = False
+            while i < len(lines):  # forwards
+                line = lines[i]
+                i += 1
+
+                # Exiting the routine declaration
+                if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                    break
+                # Found a rts/rte?
+                if match_exit := FUNCTION_EXIT_REGEX.match(line):
+                    # If instruction is rte then we are inside an interrupt routine, otherwise is a simple routine
+                    if match_exit.group(1) == 'rte':
+                        inAnInterruptRoutine = True
+                    break
+
+            if inAnInterruptRoutine:
+                declared_functions_interrupts_only_set.add(match.group(1))
+
+            declared_functions_all_set.add(match.group(1))
 
 # pea symbol_or_mem[.wl][+-*N][.bwl]
 PEA_REGEX = re.compile(
@@ -679,11 +704,13 @@ number_labels = {'0','1','2','3','4','5','6','7','8','9'}
 
 def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
     """
-    Converts local lables of the type 0,1,..,9 where branching instruction use them with prefix 'b' of 'f'.
+    Converts local lables of the type 0,1,..,9 where branching instruction use them with prefix 'b' or 'f'.
     This way we made it easier for the creation of the control flow dictionary.
     """
     global_label_prefix = '.ulbl_'
     global_label_counter = 1
+
+    search_limit = 40
 
     for i in range(0, len(lines)):  # forwards
         line = lines[i]
@@ -695,18 +722,20 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
         # Is a label definition?
         if match_label := LABEL_REGEX.match(line):
             number_label = match_label.group(1)
+
             # If it's a special local label then rename it as a new global label
             if number_label in number_labels:
                 new_label = global_label_prefix + str(global_label_counter)
                 global_label_counter += 1
                 lines[i] = line.replace(number_label, new_label, 1)
+
                 # Search backwards for any usage of label and replace it by new label
-                for k in range(i-1, max(0, i-40)-1, -1):  # backwards
+                for k in range(i-1, max(0, i-search_limit)-1, -1):  # backwards
                     this_line = lines[k]
                     # If reaching the start of the routine then stop the analysis
                     if FUNCTION_DECLARATION_REGEX.match(this_line):
                         break
-                    # If matching with another special local labelthen stop the analysis
+                    # If matching with another special local label then stop the analysis
                     if match := LABEL_REGEX.match(this_line):
                         if match.group(1) in number_labels:
                             break
@@ -715,13 +744,14 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
                             this_label = match.group(2)
                             if this_label in forward_number_labels and this_label[0] == number_label:
                                 lines[k] = this_line.replace(this_label, new_label, 1)
+
                 # Search forwards for any usage of label and replace it by new label
-                for k in range(i+1, min(i+40, len(lines))):  # forwards
+                for k in range(i+1, min(i+search_limit, len(lines))):  # forwards
                     this_line = lines[k]
                     # If reaching the end of the routine then stop the analysis
                     if FUNCTION_SIZE_CALCULATION_REGEX.match(this_line):
                         break
-                    # If matching with another special local labelthen stop the analysis
+                    # If matching with another special local label then stop the analysis
                     if match := LABEL_REGEX.match(this_line):
                         if match.group(1) in number_labels:
                             break
@@ -746,7 +776,7 @@ class ControlFlowPosInArray:
         if value not in self.inverted_for_lines:
             self.inverted_for_lines.append(value)
             self.inverted_for_lines.sort()
-    
+
     def add_inverted_for_modified_lines(self, value: int):
         if value not in self.inverted_for_modified_lines:
             self.inverted_for_modified_lines.append(value)
@@ -939,7 +969,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     Returns:
         ["%xM","%xP",...] or [None]
     """
-    global declared_functions_set
+    global declared_functions_all_set
 
     # Get this routine name
     func_name = get_function_name(i_line, lines)
@@ -1069,7 +1099,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                     # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
                     # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
                     if label not in control_flow_dict:
-                        if label in declared_functions_set:
+                        if label in declared_functions_all_set:
                             # Same behavior than when instruction is in ('jsr','bsr')
                             pass
                         else:
@@ -1262,7 +1292,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
     Returns:
         ['%xM','%xP', ...] or [None]
     """
-    global declared_functions_set
+    global declared_functions_all_set
 
     if not USE_FIND_NOT_USED_REG_FUNCTION:
         return [None]
@@ -1338,7 +1368,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
                     # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
                     # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
                     if label not in control_flow_dict:
-                        if label in declared_functions_set:
+                        if label in declared_functions_all_set:
                             # Same behavior than when instruction is in ('jsr','bsr')
                             pass
                         else:
@@ -1755,7 +1785,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
     Param ignore_N_previous_lines only affects modified_lines.
     Returns [line1, line2, ...] or empty []
     """
-    global declared_functions_set
+    global declared_functions_all_set
 
     # Get this routine name
     func_name = get_function_name(i_line, lines)
@@ -1813,7 +1843,7 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                     # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
                     # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
                     if label not in control_flow_dict:
-                        if label in declared_functions_set:
+                        if label in declared_functions_all_set:
                             # Same behavior than when instruction is in ('jsr','bsr')
                             pass
                         else:
@@ -2450,7 +2480,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
     Search forwards an backwards for every "jsr (aN)" and replace it by new_line, until aN is overwritten or cleared.
     Returns how many replacements were applied.
     """
-    global declared_functions_set
+    global declared_functions_all_set
     replacement_counter = 0
 
     # Get this routine name
@@ -2523,7 +2553,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                     # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
                     # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
                     if label not in control_flow_dict:
-                        if label in declared_functions_set:
+                        if label in declared_functions_all_set:
                             # Same behavior than when instruction is in ('jsr','bsr')
                             pass
                         else:
@@ -2671,7 +2701,7 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
         print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): {expr}")
         return None
 
-def get_displacement_and_areg(match) -> tuple[int | None, str | None]:
+def get_displacement_and_addr_reg(match) -> tuple[int | None, str | None]:
     """
     This is exclusively to use with the match object from pattern move_disp_aN_into_xN_pattern
     """
@@ -2679,18 +2709,18 @@ def get_displacement_and_areg(match) -> tuple[int | None, str | None]:
         return (None, None)
 
     disp = None
-    areg = None
+    addr_reg = None
     if match.group(4):
         disp = evaluate_instr_math_expression(match.group(4))
-        areg = match.group(5)
+        addr_reg = match.group(5)
     elif match.group(6):
         disp = evaluate_instr_math_expression(match.group(6))
-        areg = match.group(7)
+        addr_reg = match.group(7)
     elif match.group(8):
         disp = 0
-        areg = match.group(8)
+        addr_reg = match.group(8)
 
-    return (disp, areg)
+    return (disp, addr_reg)
 
 def are_regs_sorted(regs: list[str]) -> bool:
     """
@@ -3916,8 +3946,8 @@ def optimizeMultiLines_5(i_line: int, lines: list[str], modified_lines: list[str
                 stride = 2
 
                 # Extract displacements and address registers
-                dispB, aregB = get_displacement_and_areg(matchB)
-                dispC, aregC = get_displacement_and_areg(matchC)
+                dispB, aregB = get_displacement_and_addr_reg(matchB)
+                dispC, aregC = get_displacement_and_addr_reg(matchC)
 
                 # Coincident address registers and consecutive displacements?
                 # As any disp can be 0 then use "is not None"
@@ -3961,8 +3991,8 @@ def optimizeMultiLines_5(i_line: int, lines: list[str], modified_lines: list[str
                 stride = 2
 
                 # Extract displacements and address registers
-                dispB, aregB = get_displacement_and_areg(matchB)
-                dispD, aregD = get_displacement_and_areg(matchD)
+                dispB, aregB = get_displacement_and_addr_reg(matchB)
+                dispD, aregD = get_displacement_and_addr_reg(matchD)
 
                 # Coincident address registers and consecutive displacements?
                 # As any disp can be 0 then use "is not None"
@@ -4437,8 +4467,8 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                 stride = 2
 
                 # Extract displacements and address registers
-                dispA, aregA = get_displacement_and_areg(matchA)
-                dispB, aregB = get_displacement_and_areg(matchB)
+                dispA, aregA = get_displacement_and_addr_reg(matchA)
+                dispB, aregB = get_displacement_and_addr_reg(matchB)
                 aM = aregA
 
                 # Coincident address registers and consecutive displacements?
@@ -4478,8 +4508,8 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                 stride = 2
 
                 # Extract displacements and address registers
-                dispA, aregA = get_displacement_and_areg(matchA)
-                dispC, aregC = get_displacement_and_areg(matchC)
+                dispA, aregA = get_displacement_and_addr_reg(matchA)
+                dispC, aregC = get_displacement_and_addr_reg(matchC)
                 aM = aregA
 
                 # Coincident address registers and consecutive displacements?
@@ -4701,9 +4731,9 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                     stride = 2 if sA == 'w' else 4
 
                     # Extract displacements and address registers (they can be None)
-                    dispA, aregA = get_displacement_and_areg(matchA)
-                    dispB, aregB = get_displacement_and_areg(matchB)
-                    dispC, aregC = get_displacement_and_areg(matchC)
+                    dispA, aregA = get_displacement_and_addr_reg(matchA)
+                    dispB, aregB = get_displacement_and_addr_reg(matchB)
+                    dispC, aregC = get_displacement_and_addr_reg(matchC)
 
                     # Same address registers and consecutive displacements?
                     are_same_aregs = aregA and aregA == aregB and aregC and aregC == aregB
@@ -4720,7 +4750,7 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                         matchD = move_disp_aN_into_xN_pattern.match(line_D)
                         matchD_ok = False
                         if matchD and matchD.group(2) == sA:
-                            dispD, aregD = get_displacement_and_areg(matchD)
+                            dispD, aregD = get_displacement_and_addr_reg(matchD)
                             if aregD == aregA and dispD is not None and dispD == dispC + stride:
                                 xregs.append(matchD.group(9))
                                 disps.append(dispD)
@@ -4769,10 +4799,10 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
                     stride = 2 if sA == 'w' else 4
 
                     # Extract displacements and address registers (they can be None)
-                    dispA, aregA = get_displacement_and_areg(matchA)
-                    dispB, aregB = get_displacement_and_areg(matchB)
-                    dispC, aregC = get_displacement_and_areg(matchC)
-                    dispD, aregD = get_displacement_and_areg(matchD)
+                    dispA, aregA = get_displacement_and_addr_reg(matchA)
+                    dispB, aregB = get_displacement_and_addr_reg(matchB)
+                    dispC, aregC = get_displacement_and_addr_reg(matchC)
+                    dispD, aregD = get_displacement_and_addr_reg(matchD)
 
                     # Same address registers?
                     are_same_aregs = aregA and aregA == aregB and aregC and aregC == aregB and aregD and aregD == aregC
@@ -10286,6 +10316,158 @@ def applyGccConversions(lines: list[str]) -> list[str]:
 
     return modified_lines
 
+# move.l #functionName[.wl],<any>
+move_functionName_into_any_pattern = re.compile(
+    r'^\s*move\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(.+);?$'
+)
+# lea functionName[.wl],aN
+lea_functionName_into_an_pattern = re.compile(
+    r'^\s*lea\s+([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
+)
+# .globl	VDP_setAutoInc
+global_routine_pattern = re.compile(
+    r'^\s*'
+    r'\.globl\s+'          # .globl followed by at least one whitespace
+    r'('                   # Start capturing group for function name
+    r'[a-zA-Z_]'           # First character must be a letter or underscore
+    r'[0-9a-zA-Z_\.]+'     # Anything left
+    r')$'
+)
+# .align	2
+align_2_directive_pattern = re.compile(
+    r'^\s*\.align\s+2$'
+)
+# .set	_int_callback,beforeVBlankProcOnMainMenu_DMA_QUEUE
+set_directive_pattern = re.compile(
+    r'^\s*\.set\s+([a-zA-Z_\.][0-9a-zA-Z_\.]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)$'
+)
+
+def process_non_used_and_single_use_functions(lines: list[str]):
+    """
+    Remove non used functions.
+    Improve single use (ie called only once) functions ABI interface by reducing call pressure.
+    """
+    global declared_functions_all_set
+    global declared_functions_interrupts_only_set
+
+    # Phase 1:
+    # Collect all the declared functions in this assembly unit.
+    # Collect all the declared interrupt functions in this assembly unit.
+    # This was done previously by calling collect_declared_functions().
+    # Use next global variables: declared_functions_all_set and declared_functions_interrupts_only_set
+
+    # Phase 2:
+    # Get all the routines tagged as global:
+    # functions defined outside this assembly unit, and functions defined in this unit but called externally.
+    global_functions_set: set[str] = set()
+    for i_line in range(0, len(lines)):
+        line = lines[i_line]
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
+        # Is a global function declaration?
+        if match := global_routine_pattern.match(line):
+            func_name = match.group(1)
+            global_functions_set.add(func_name)
+
+    # Phase 3:
+    # For each call to a function we save it into a set of called functions so we can later know which
+    # declared functions are not being called.
+    calling_functions_set: set[str] = set()
+    functions_called_counter: dict[str, int] = {}
+
+    for i in range(0, len(lines)):
+        line = lines[i]
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
+        # Is calling one of the declared functions?
+        if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            func_name = uncond_match.group(2)
+            # Skip jsr/jmp (aN)
+            if func_name.startswith('%a'):
+                continue
+            if func_name in declared_functions_all_set:
+                # Collect the function name
+                calling_functions_set.add(func_name)
+                # Increment by 1 the counter tracking called functions
+                functions_called_counter[func_name] = functions_called_counter.get(func_name, 0) + 1
+        # Is loading symbol name into a register or mem location?
+        if match := (move_functionName_into_any_pattern.match(line) or lea_functionName_into_an_pattern.match(line)):
+            func_name = match.group(1)
+            if func_name in declared_functions_all_set:
+                # Collect the function name
+                calling_functions_set.add(func_name)
+                # Increment by 1 the counter tracking called functions
+                functions_called_counter[func_name] = functions_called_counter.get(func_name, 0) + 1
+        # Gcc uses directive .set to assign a handler a function name. 
+        # If that happens then we have to consider that function name as called
+        if match_set := set_directive_pattern.match(line):
+            func_name = match_set.group(2)
+            if func_name in declared_functions_all_set:
+                # Collect the function name
+                calling_functions_set.add(func_name)
+
+    # Phase 4:
+    # Remove the called functions, interrupt functions, and global functions from the declared functions.
+    # If the result is not empty then we can remove the code of those declared functions
+    unused_funcs = declared_functions_all_set - calling_functions_set  # set_a - set_b = Elements in set_a but not in set_b
+    unused_funcs = unused_funcs - global_functions_set
+    unused_funcs = unused_funcs - declared_functions_interrupts_only_set
+    print('[OPT_LOG] Non explicitly  used functions to remove:')
+    print(sorted(unused_funcs))
+
+    # Phase 5:
+    # Replace non used functions lines by empty lines so we can keep matching lines locations between 'before' and 'after'.
+    inside_unused_func = False
+    for i in range(0, len(lines)):
+        line = lines[i]
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
+        # Function declaration
+        if match_func := FUNCTION_DECLARATION_REGEX.match(line):
+            func_name = match_func.group(1)
+            if func_name in unused_funcs:
+                inside_unused_func = True
+                # if previous line is .align 2 then replace it by empty line
+                if align_2_directive_pattern.match(lines[i-1]):
+                    lines[i-1] = ''
+        # If we are inside a non used function then replace its line by an empty line
+        if inside_unused_func:
+            lines[i] = ''
+        # End of function declaration
+        if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+            inside_unused_func = False
+
+    # Phase 6:
+    # Remove the global functions and interrupt functions from the counter dictionary
+    for func_name in list(functions_called_counter):
+        if (func_name in global_functions_set) or (func_name in declared_functions_interrupts_only_set):
+            del functions_called_counter[func_name]
+
+    # Collect functions called only once
+    functions_called_only_once: set[str] = set()
+    for func_name, count in functions_called_counter.items():
+        if count == 1:
+            functions_called_only_once.add(func_name)
+    print('[OPT_LOG] Functions called only once for ABI contract reduction (experimental):')
+    print(sorted(functions_called_only_once))
+
+    # Phase 7:
+    # TODO:
+    # Subroutine call pressure reduction. Saves [12,14] cycles.
+    # If a subroutine (other than an interrupt routine) is called always from the same code location then we can:
+    #    replace bsr/jsr routine_name by:
+    #            ... code here ...
+    #            bra/jmp routine_name
+    #        rts_from_routine_name:
+    #            ... code here ...
+    #    replace every rts detected inside the body of routine_name by:
+    #            bra/jmp rts_from_routine_name
+    # Accomodate the SP usage inside the subroutine given that now there is no return address (4 bytes).
+
+
 # move.l #symbolName[.wl],aN
 move_symbolName_into_an_pattern = re.compile(
     r'^\s*move\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
@@ -10314,77 +10496,7 @@ def search_backwards_for_lea_or_move_symbolName_into_aN(aN: str, lines: list[str
 
     return ''
 
-move_into_SGDK_table_vector_pattern = re.compile(
-    r'^\s*move\.[wl]\s+'
-    r'#([0-9a-zA-Z_\.]+)(\.[wl])?,\s*'
-    r'(vintCB|hintCaller|eintCB|intCB|vblankCB|busErrorCB|addressErrorCB|illegalInstCB|zeroDivideCB|chkInstCB|trapvInstCB|privilegeViolationCB|traceCB|line1x1xCB|errorExceptionCB)'
-    r'(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
-)
-
-global_routine_pattern = re.compile(
-    r'^\s*'
-    r'\.globl\s+'          # .globl followed by at least one whitespace
-    r'('                   # Start capturing group for function name
-    r'[a-zA-Z_]'           # First character must be a letter or underscore
-    r'[0-9a-zA-Z_\.]+'     # Anything left
-    r')$'
-)
-
-def non_used_functions(lines: list[str]):
-
-    # Phase 1:
-    # Collect all the declared functions in this assembly unit.
-    # This was done previously by calling collect_declared_functions()
-    # Use next global variable: declared_functions_set
-
-    # Phase 2:
-    # Get all the routines tagged as global:
-    # functions defined outside this assembly unit, and functions defined in this unit but called externally.
-    global_functions_set: set[str] = set()
-    for i_line in range(0, len(lines)):
-        line = lines[i_line]
-        # Whenever we detect the first declaration of a .bss section we can stop the analysis
-        if BSS_SECTION_REGEX.match(line):
-            break
-        # Is a global function declaration?
-        if match := global_routine_pattern.match(line):
-            func_name = match.group(1)
-            global_functions_set.add(func_name)
-
-    # Phase 3:
-    # For each call to a function we save it into a set of called functions so we can later know which
-    # declared functions are not being called.
-    calling_functions_set: set[str] = set()
-    for i in range(0, len(lines)):
-        line = lines[i]
-        # Whenever we detect the first declaration of a .bss section we can stop the analysis
-        if BSS_SECTION_REGEX.match(line):
-            break
-        # Is calling one of the declared functions?
-        if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-            func_name = uncond_match.group(2)
-            # Considers jsr/jmp (aN)
-            if func_name.startswith('%a'):
-                aN = func_name
-                func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i-1, 0)
-            if func_name in declared_functions_set:
-                calling_functions_set.add(func_name)
-        # Check if a function is moved into a SGDK table vector
-        elif match := move_into_SGDK_table_vector_pattern.match(line):
-            func_name = match.group(1)
-            if func_name in declared_functions_set:
-                calling_functions_set.add(func_name)
-
-    # Phase 4:
-    # Remove the called functions and global functions from the declared functions.
-    # If the result is not empty then we can remove the code of those declared functions
-    unused_funcs = declared_functions_set - calling_functions_set  # set_a - set_b = Elements in set_a but not in set_b
-    unused_funcs = unused_funcs - global_functions_set
-    print('[OPT_LOG] Non used functions (experimental):', sorted(unused_funcs))
-    
-    # TODO: Replace non used functions lines by empty line so we can keep matching lines locations between 'before' and 'after'.
-
-add_sub_sp_pattern = re.compile(
+inc_or_dec_sp_pattern = re.compile(
     r'^\s*(add|sub)\S*\s+#(\d+|0[xX][0-9a-fA-F]+),\s*%sp'
 )
 
@@ -10419,7 +10531,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
     - Avoid saving args into stack now that they are not trashed but directly used from the caller context.
     - Avoid restoring args from stack.
     """
-    global declared_functions_set
+    global declared_functions_all_set
 
     # How many lines to trace back searching for arguments
     previous_N_lines_for_args = 12
@@ -10427,7 +10539,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
     # Phase 1:
     # Get all the routines in this assembly unit declared by FUNCTION_DECLARATION_REGEX
     # As this was previously calculated, we just copy it
-    declared_functions = declared_functions_set.copy()
+    declared_functions = declared_functions_all_set.copy()
 
     # Phase 2:
     # For each call to a function we create a list of the arguments (reg or memory or symbol) being pushed into 
@@ -10441,7 +10553,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
         # Is calling one of the declared functions?
         if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
-            # Consider cases like jsr/jmp (%a5)
+            # Consider case jsr/jmp (aN)
             if func_name.startswith('%a'):
                 aN = func_name
                 func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i-1, 0)
@@ -10539,7 +10651,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
         # Is calling one of the collected functions?
         elif uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
-            # Consider cases like jsr (%a5)
+            # Consider case jsr/jmp (aN)
             if func_name.startswith('%a'):
                 aN = func_name
                 func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, modified_lines_no_abi, i, 0)
@@ -10585,7 +10697,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
                     # Adjust uses of sp between the arguments we have removed
                     elif accum_sp_adjustment > 0:
                         # add*/sub* over sp
-                        if match := add_sub_sp_pattern.match(next_line):
+                        if match := inc_or_dec_sp_pattern.match(next_line):
                             val = parseConstantUnsigned(match.group(2))
                             # Add the adjustment in order to compensate the removal of -(sp) instruction/s
                             val += accum_sp_adjustment
@@ -11320,8 +11432,8 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     # Collect all the functions declared in this assembly unit and store them into a global variable
     collect_declared_functions(modified_lines)
 
-    # Print non used functions
-    non_used_functions(modified_lines)
+    # Remove non used functions and improve single use functions (ie called only once) ABI interface by reducing call pressure
+    process_non_used_and_single_use_functions(modified_lines)
 
     # Remove ABI when possible
     #print('[OPT_LOG] -- Simple ABI removal pass --')
