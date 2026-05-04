@@ -10465,7 +10465,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     #            ... code here ...
     #    replace every rts detected inside the body of routine_name by:
     #            bra/jmp rts_from_routine_name
-    # Accomodate the SP usage inside the subroutine given that now there is no return address (4 bytes).
+    # Accomodate the SP usage inside the subroutine given that there won't be return address (4 bytes) pushed into stack.
 
 
 # move.l #symbolName[.wl],aN
@@ -10477,7 +10477,7 @@ lea_symbolName_into_an_pattern = re.compile(
     r'^\s*lea\s+([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
 )
 
-def search_backwards_for_lea_or_move_symbolName_into_aN(aN: str, lines: list[str], i_start: int, i_end: int) -> str:
+def search_backwards_for_lea_or_move_functionName_into_aN(aN: str, lines: list[str], i_start: int, i_end: int) -> str:
     """
     Search for lea symbolName,aN or move.l #symbolName,aN and assign symbolName to func_name
     """
@@ -10556,7 +10556,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
             # Consider case jsr/jmp (aN)
             if func_name.startswith('%a'):
                 aN = func_name
-                func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, lines, i-1, 0)
+                func_name = search_backwards_for_lea_or_move_functionName_into_aN(aN, lines, i-1, 0)
             if func_name in declared_functions:
                 # Collect the arguments being pushed into the stack along with the total sp adjustment.
                 # Visit up to N previous lines going backwards.
@@ -10654,7 +10654,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
             # Consider case jsr/jmp (aN)
             if func_name.startswith('%a'):
                 aN = func_name
-                func_name = search_backwards_for_lea_or_move_symbolName_into_aN(aN, modified_lines_no_abi, i, 0)
+                func_name = search_backwards_for_lea_or_move_functionName_into_aN(aN, modified_lines_no_abi, i, 0)
             if func_name in args_pushed_per_function:
                 # Go backwards until we reach the end of arguments range
                 line_end_of_args_range = i - 1
