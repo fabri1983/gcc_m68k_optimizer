@@ -95,7 +95,7 @@ SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # surround the block with "\n#NO_APP\n\t" and "\n#APP"
 
 # If True then control flow analysis continues with next line and leave the branching at the end of the block.
-# If False then it jumps into target label and continue anlysis from there.
+# If False then it jumps into target label and continue analysis from there.
 CONTROL_FLOW_ANALYSIS_BRANCH_LATER = False
 
 # This refers to the function that searches for any register not used at the current location of the code in the 
@@ -2652,15 +2652,18 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
     expr = expr.replace(' ', '')
 
     # Check for basic pattern: optional sign followed by digits and optional operator with more digits
-    match_expr = re.fullmatch(r'^(-?\d+)(?:\.[bwl])?([\+\-\*]\d+(?:\.[bwl])?)?$', expr)
+    match_expr = re.fullmatch(r'^(-?\d+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?$', expr)
     if not match_expr:
         print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): match_expr didn't match: {expr}")
         return None
 
-    if not match_expr.group(2):
+    # Only one operand?
+    if not match_expr.group(3):
         return int(match_expr.group(1))
 
     try:
+        expr_clean = match_expr.group(1)+match_expr.group(3)
+
         # Safe evaluation using operator precedence
         ops = {
             '+': operator.add,
@@ -2669,7 +2672,7 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
         }
 
         # Find all numbers and operators
-        tokens = re.split(r'([\+\-\*])', expr)  # Split on +, -, or *
+        tokens = re.split(r'([\+\-\*])', expr_clean)  # Split on +, -, or *
         if len(tokens) == 1:
             # No operators, just a number
             return int(tokens[0])
@@ -2691,7 +2694,7 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
         return result
 
     except (ValueError, IndexError, KeyError):
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): {expr}")
+        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): {expr_clean} (original: {expr})")
         return None
 
 def get_displacement_and_addr_reg(match) -> tuple[int | None, str | None]:
@@ -2745,7 +2748,7 @@ def are_regs_sorted(regs: list[str]) -> bool:
     return is_increasing(data_regs, '%d') and is_increasing(addr_regs, '%a')
 
 # Table for opcode base sizes in words
-BASE_SIZES_IN_WORDS = {
+INSTR_BASE_SIZES_IN_WORDS = {
     'abcd': 1, 'adda': 1, 'add': 1, 'addi': 1, 'addq': 1, 'addx': 1, 'and': 1, 'andi': 1, 'asl': 1, 'asr': 1, 'bcc': 1, 'bcs': 1, 
     'beq': 1, 'bge': 1, 'bgt': 1, 'bhi': 1, 'bhs': 1, 'ble': 1, 'blo': 1, 'bls': 1, 'blt': 1, 'bmi': 1, 'bne': 1, 'bpl': 1, 
     'bra': 1, 'bset': 1, 'bsr': 1, 'btst': 1, 'bvc': 1, 'bvs': 1, 'chk': 1, 'clr': 1, 'cmpa': 1, 'cmp': 1, 'cmpi': 1, 'cmpm': 1, 
@@ -2805,7 +2808,7 @@ bcc_or_jcc_instructions = {
 
 unconditional_short_instructions = {'bra','jra','bsr'}
 
-def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
+def classify_operand(instr_op_base: str, op_size: str, operator: str) -> str | None:
     """
     Classify operand into addressing mode key for MODE_EXTRA_SIZES_IN_WORDS
     """
@@ -2833,8 +2836,8 @@ def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
     # Labels, functions, and symbols. gcc might add +-*N[.wl]. Ie: ammoInventory[.bwl][+N][.l]
     if RE_label_function_symbol.match(operator):
         if op_size == 's':
-            return 'encoded'  # The label is encoded inside the op_base so is free
-        elif op_base.startswith('db') or op_base in bcc_or_jcc_instructions or op_base in unconditional_short_instructions:
+            return 'encoded'  # The label is encoded inside the instr_op_base so is free
+        if instr_op_base.startswith('db') or instr_op_base in bcc_or_jcc_instructions or instr_op_base in unconditional_short_instructions:
             return 'ABS.w'
         return 'ABS.l'
     # Symbol with starting #. gcc might add +-*N[.wl]. Ie: #ammoInventory[.bwl][+N][.l]
@@ -2847,11 +2850,11 @@ def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
         return 'ABS.l'
     # Immediate value
     if match := RE_imm_value.match(operator):
-        if op_base in ('addq','moveq','subq','movem','movm'):
+        if instr_op_base in ('addq','moveq','subq','movem','movm'):
             # TODO: weird fix: force the size to be different than 0, otherwise it fails with out of range
-            if op_base == 'moveq':
+            if instr_op_base == 'moveq':
                 return '#imm.w'
-            return 'encoded'  # The immediate operand is encoded inside the op_base so is free
+            return 'encoded'  # The immediate operand is encoded inside the instr_op_base so is free
         elif operator.endswith(('.b','.w')):
             return '#imm.w'
         elif operator.endswith('.l'):
@@ -2867,7 +2870,7 @@ def classify_operand(op_base: str, op_size: str, operator: str) -> str | None:
 
     # Not considered:
     #   xN/xM... and xN-xM... which are part of movem
-    # But they are encoded into the op_base. So returning None won't add up in size calculation.
+    # But they are encoded into the instr_op_base. So returning None won't add up in size calculation.
     #print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {operator}")
     return None
 
@@ -2908,27 +2911,45 @@ def instruction_size(line_stripped: str) -> int:
 
     # Strip size suffix for lookup
     opcode_components = opcode.split('.')
-    op_base = opcode_components[0]
+    instr_op_base = opcode_components[0]
     op_size = '' if len(opcode_components) == 1 else opcode_components[1]
-    if op_base not in BASE_SIZES_IN_WORDS:
-        #print(f'0\t{line_stripped}   op_code={opcode}  operands={operands}  op_base={op_base}  op_size={op_size}')
+    if instr_op_base not in INSTR_BASE_SIZES_IN_WORDS:
+        #print(f'0\t{line_stripped}   op_code={opcode}  operands={operands}  instr_op_base={instr_op_base}  op_size={op_size}')
         return 0  # Unknown opcode
 
-    size_words = BASE_SIZES_IN_WORDS[op_base]
+    # Instruction op base size
+    size_words = INSTR_BASE_SIZES_IN_WORDS[instr_op_base]
 
     # Parse operands
     if operands:
-        for op in operands:
-            mode = classify_operand(op_base, op_size, op)
+        for operand in operands:
+            mode = classify_operand(instr_op_base, op_size, operand)
             if mode:
                 size_words += MODE_EXTRA_SIZES_IN_WORDS.get(mode, 0)
 
     # Convert words into bytes
-    #print(f'{size_words*2}\t{line_stripped}   op_code={opcode}  operands={operands}  op_base={op_base}  op_size={op_size}')
+    #print(f'{size_words*2}\t{line_stripped}   op_code={opcode}  operands={operands}  instr_op_base={instr_op_base}  op_size={op_size}')
     return size_words * 2
 
-MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126
-MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128
+def is_size_directive_nearby_backwards(lines: list[str], i: int) -> bool:
+    """
+    If there is a .size directive in the previous N lines.
+    Eg:
+    	.size	STACK_releaseAll, .-STACK_releaseAll
+        .globl	_int_callback.lto_priv.0
+        .hidden	_int_callback.lto_priv.0
+        .set	_int_callback.lto_priv.0,STACK_releaseAll
+    """
+    # Scan backwards up to N lines
+    N_lines = 10
+    for k in range(i, i-N_lines - 1, -1):
+        if FUNCTION_SIZE_CALCULATION_REGEX.match(lines[k]):
+            return True
+    return False
+
+# Subtract the branch instruction short size
+MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2
+MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128-2
 
 def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
     """
@@ -2943,7 +2964,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
         rept_stack = []  # Stack to track nested .rept blocks
         variables = {}   # Dictionary to store variables defined with .set
 
-        while i < end_idx:
+        while i < end_idx:  # Forward scan
             line = target_lines[i]
             # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
             stripped = line.lstrip()
@@ -2952,8 +2973,8 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
             if stripped.startswith('#'):
                 continue
 
-            # Stop if reaching or exceeding max bytes
-            if bytes_accum >= max_bytes:
+            # Stop if exceeding max bytes
+            if bytes_accum > max_bytes:
                 return False
 
             # Handles .set directive. Eg: .set regs, 15
@@ -2961,7 +2982,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
             # Also handlex .set with arithmetic over the variable. Eg: .set regs, regs + 40 * 2
             if stripped.startswith('.set'):
                 # Special case when gcc uses .set after the size calculation of a routine
-                if FUNCTION_SIZE_CALCULATION_REGEX.match(target_lines[i-2]):
+                if is_size_directive_nearby_backwards(target_lines, i-2):
                     continue
                 parts = stripped.split(',', 1)
                 if len(parts) == 2:
@@ -3045,7 +3066,8 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
                 rept_stack.pop()
                 continue
 
-            # Check if this is the target label
+            # Check if this is the target label. 
+            # Only valid when target label is ahead of the branching instruction that triggered this analysis.
             if stripped.startswith(target_label_def):
                 break
 
@@ -3077,12 +3099,11 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
         return True
 
     # Phase 1: Backward scan (modified_lines)
-    # But we are going to scan it in forward fashion.
-    # So first find target_label_def position
+    # But we are going to scan it in forward fashion. So first find target_label_def position
     target_label_def_position = len(modified_lines) - 1  # fail safe position in case we can't find target_label_def
     start_idx = len(modified_lines) - 1
     end_idx = 0
-    for i in range(start_idx, end_idx - 1, -1):
+    for i in range(start_idx, end_idx - 1, -1):  # Backwards scan
         line = modified_lines[i]
         # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
         stripped = line.lstrip()
@@ -3248,7 +3269,7 @@ copy_memory_by_indirection_pattern = re.compile(
     r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\);?$'
 )
 
-def optimizeMultiLines_8(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-8]
     line_B = modified_lines[-7]
@@ -3345,7 +3366,7 @@ def optimizeMultiLines_8(i_line: int, lines: list[str], modified_lines: list[str
 
     return (None, 0)
 
-def optimizeMultiLines_7(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-7]
     line_B = modified_lines[-6]
@@ -3434,7 +3455,7 @@ def optimizeMultiLines_7(i_line: int, lines: list[str], modified_lines: list[str
 
     return (None, 0)
 
-def optimizeMultiLines_6(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-6]
     line_B = modified_lines[-5]
@@ -3689,7 +3710,7 @@ def optimizeMultiLines_6(i_line: int, lines: list[str], modified_lines: list[str
 
     return (None, 0)
 
-def optimizeMultiLines_5(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-5]
     line_B = modified_lines[-4]
@@ -4189,7 +4210,7 @@ def optimizeMultiLines_5(i_line: int, lines: list[str], modified_lines: list[str
 
     return (None, 0)
 
-def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-4]
     line_B = modified_lines[-3]
@@ -5110,7 +5131,7 @@ def optimizeMultiLines_4(i_line: int, lines: list[str], modified_lines: list[str
 
     return (None, 0)
 
-def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-3]
     line_B = modified_lines[-2]
@@ -5169,8 +5190,10 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
                     elif sA == 'w':
                         val = parseConstantSigned(matchB.group(3), 16)
                     if -32768 <= val <= 32767:
-                        optimized_line = f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{aM}),{aP}'
-                        return ([optimized_line], 3)
+                        optimized_lines = [
+                            f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{aM}),{aP}'
+                        ]
+                        return (optimized_lines, 3)
 
                 # If -32768 <= val <= 32767
                 # move.s  aN,aP      ->    lea     -val(aN,aM),aP
@@ -5185,8 +5208,10 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
                     elif sA == 'w':
                         val = parseConstantSigned(matchB.group(3), 16)
                     if -32768 <= val <= 32767:
-                        optimized_line = f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN},{aM}),{aP}'
-                        return ([optimized_line], 3)
+                        optimized_lines = [
+                            f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN},{aM}),{aP}'
+                        ]
+                        return (optimized_lines, 3)
 
     # If -32767 <= val <= 32767
     # move.[wl]  aN,-(sp)   ->    link    aN,#val      ; Saves 12 cycles
@@ -5201,8 +5226,10 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
             if matchC:
                 val = parseConstantSigned(matchC.group(3), 16)
                 if -32767 <= val <= 32767:
-                    optimized_line = f'{matchA.group(1)}link{matchA.group(3)}{aN},#{val}'
-                    return ([optimized_line], 3)
+                    optimized_lines = [
+                        f'{matchA.group(1)}link{matchA.group(3)}{aN},#{val}'
+                    ]
+                    return (optimized_lines, 3)
 
     # Testing for null (or 0)
     # move.l  aN,-(sp)   ->    move.l  aN,dM           ; Saves 16 cycles
@@ -5573,10 +5600,30 @@ def optimizeMultiLines_3(i_line: int, lines: list[str], modified_lines: list[str
 
     return (None, 0)
 
-def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
+def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-2]
     line_B = modified_lines[-1]
+
+    # Sign extension on long word unnecessary if then it's save as word.
+    # This pattern is the outcome of GCC optimization for ASR.l #16,dN which adds EXT.l dN
+    # ext.l   dN       ->    move.w  d1,<ea>      ; Saves 4 cycles
+    # move.w  dN,<ea>
+    # Ensure dN is not used at all, anymore or used as word or byte before is overwritten or cleared.
+    matchA = re.match(r'^(\s*)ext\.l(\s+)(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(3)
+        matchB = re.match(r'^\s*(move|movea)\.w\s+(%d[0-7]),\s*(.+);?$', line_B)
+        if matchB and dN == matchB.group(2):
+            ea = matchB.group(3)
+            if dN not in ea:
+                dn_used = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
+                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 2)
+                if not dn_used or dn_used_as_word_or_byte:
+                    optimized_lines = [
+                        lineB
+                    ]
+                    return (optimized_lines, 2)
 
     # Fast sign-extend bytes into words and words into longs when the sign bit is at an position N.
     # lsl.w/l  #val,dN     ->   move.w/l  #mask,dM     ; Saves ?? cycles as long as N decreases.
@@ -5861,15 +5908,19 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
             # bsr subr         ->    bra   subr         ; Saves 24 cycles. Different stack depth.
             # rts
             if matchA.group(2) == 'bsr':
-                optimized_line = f'{matchA.group(1)}bra{s_branch}{matchA.group(4)}{subr}'
-                return ([optimized_line], 2)
+                optimized_lines = [
+                    f'{matchA.group(1)}bra{s_branch}{matchA.group(4)}{subr}'
+                ]
+                return (optimized_lines, 2)
 
             # Tail recursion. Replace JSR+RTS by JMP
             # jsr subr         ->    jmp   subr         ; Saves 24 cycles. Different stack depth.
             # rts
             if matchA.group(2) == 'jsr':                
-                optimized_line = f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
-                return ([optimized_line], 2)
+                optimized_lines = [
+                    f'{matchA.group(1)}jmp{matchA.group(2)}{subr}'
+                ]
+                return (optimized_lines, 2)
 
     if USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY:
 
@@ -7146,8 +7197,10 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
                 if 0 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
-                    optimized_line = f'{matchA.group(1)}ror.w{matchA.group(3)}#{8-x},{dN}'
-                    return ([optimized_line], 2)
+                    optimized_lines = [
+                        f'{matchA.group(1)}ror.w{matchA.group(3)}#{8-x},{dN}'
+                    ]
+                    return (optimized_lines, 2)
 
             # 1 <= x <= 7
             # moveq    #8+x,dM    ->    swap    dN           ; Saves 4*x cycles. Wrong flags, dM different
@@ -7200,8 +7253,10 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
                 if 8 <= x <= 15 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
-                    optimized_line = f'{matchA.group(1)}ror.l{matchA.group(3)}#{16-x},{dN}'
-                    return ([optimized_line], 2)
+                    optimized_lines = [
+                        f'{matchA.group(1)}ror.l{matchA.group(3)}#{16-x},{dN}'
+                    ]
+                    return (optimized_lines, 2)
 
     ############################################################################
     # Rotates Right
@@ -7223,8 +7278,10 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
                 if 0 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
-                    optimized_line = f'{matchA.group(1)}rol.w{matchA.group(3)}#{8-x},{dN}'
-                    return ([optimized_line], 2)
+                    optimized_lines = [
+                        f'{matchA.group(1)}rol.w{matchA.group(3)}#{8-x},{dN}'
+                    ]
+                    return (optimized_lines, 2)
 
             # 1 <= x <= 7
             # moveq    #8+x,dM    ->    swap    dN           ; Saves 4*x cycles. Wrong flags, dM different
@@ -7277,8 +7334,10 @@ def optimizeMultiLines_2(i_line: int, lines: list[str], modified_lines: list[str
                 if 8 <= x <= 15 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
-                    optimized_line = f'{matchA.group(1)}rol.l{matchA.group(3)}#{16-x},{dN}'
-                    return ([optimized_line], 2)
+                    optimized_lines = [
+                        f'{matchA.group(1)}rol.l{matchA.group(3)}#{16-x},{dN}'
+                    ]
+                    return (optimized_lines, 2)
 
     ############################################################################
     # Logical Shift Left and Arithmetic Shift Left
@@ -10154,7 +10213,7 @@ set_directive_pattern = re.compile(
 def process_non_used_and_single_use_functions(lines: list[str]):
     """
     Remove non used functions.
-    Improve single use (ie called only once) functions ABI interface by reducing call pressure.
+    Improve single use functions (ie called from only once location) ABI interface by reducing call pressure.
     """
     global declared_functions_all_set
     global declared_functions_interrupts_only_set
@@ -10223,7 +10282,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     unused_funcs = declared_functions_all_set - calling_functions_set  # set_a - set_b = Elements in set_a but not in set_b
     unused_funcs = unused_funcs - global_functions_set
     unused_funcs = unused_funcs - declared_functions_interrupts_only_set
-    print('[OPT_LOG] Non explicitly  used functions to remove:')
+    print('[OPT_LOG] Non explicitly used functions to remove:')
     print(sorted(unused_funcs))
 
     # Phase 5:
@@ -10260,7 +10319,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     for func_name, count in functions_called_counter.items():
         if count == 1:
             functions_called_only_once.add(func_name)
-    print('[OPT_LOG] Functions called only once for ABI contract reduction (experimental):')
+    print('[OPT_LOG] Functions called from only one location eligible for ABI contract reduction (experimental):')
     print(sorted(functions_called_only_once))
 
     # Phase 7:
@@ -11240,7 +11299,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     # Collect all the functions declared in this assembly unit and store them into a global variable
     collect_declared_functions(modified_lines)
 
-    # Remove non used functions and improve single use functions (ie called only once) ABI interface by reducing call pressure
+    # Remove non used functions and improve single use functions (ie called from only once location) ABI interface by reducing call pressure
     process_non_used_and_single_use_functions(modified_lines)
 
     # Remove ABI when possible
