@@ -1,7 +1,7 @@
 ## GCC M68K Assembler Optimizer
 
 Pattern matching peephole optimizer, static data flow analysis for registers liveness, branch instruction size reduction, 
-use word size on address to exploit address register sign extension, and many more optimizations.
+exploit address register sign extension, and many more optimizations.
 
 Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds a m68k elf artifact prior 
 to the final binary rom artifact.
@@ -10,9 +10,9 @@ This script is intended to be executed with gcc plugin feature at `PLUGIN_FINISH
 the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
 At `PLUGIN_FINISH` phase we can access the m68k assembly code generated from all the **.c units** in our project 
-and those by the **SGDK** library, including the inline asm blocks. Assembly **.s, .S, .asm units** are excluded from this phase.
+and those by the **SGDK** library, including the inline asm blocks. Assembly units **.s, .S, .asm** are excluded from this phase.
 
-The optimizer depends heavily on the project you run it. On some, it saves 1% of CPU per frame 
+The optimization output depends heavily on the project you run it. On some, it saves 1% of CPU per frame 
 (approximately 2 scanlines), which is a sign that the project's hot path might be better rewritten in asm (if not already).
 
 See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of reference web sites where I took the peepholes, 
