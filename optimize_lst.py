@@ -1979,20 +1979,20 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                     collected_lines.append(line)
                     break  # Stop the analysis at current flow
 
-            # If pushing into stack then consider the regs as used
+            # If pushing into stack then consider the reg as used
             elif push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
                 regs_list = extract_registers(push_match.group(3), PUSH_OP)
                 if xN in regs_list:
                     collected_lines.append(line)
                     break  # Stop the analysis at current flow
 
-            # If poping from stack then consider the regs as overwritten
+            # If poping from stack then consider the reg as overwritten
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 regs_list = extract_registers(pop_match.group(3), POP_OP)
                 if xN in regs_list:
                     break  # Stop the analysis at current flow
 
-            # xN it's a target operand?
+            # xN it's a target operand? Consider the reg as used
             if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
                 if xN == match.group(1):
                     collected_lines.append(line)
@@ -5554,6 +5554,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 3)
 
+        # TODO: uncomment when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed.
         # Case for a potentially new free register.
         # Clear higher word of data register
         # moveq[.l]   #0,dN    ->     swap    dM           ; Saves 0 cycles. But leaves 1 potential free register.
@@ -6288,26 +6289,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
-        # Unnecessary redundant use of register dM.
-        # add.s  dN,dM     ->   add.s  dN,dP           ; Saves 4 cycles. Leaves dM as a potential free register.
-        # move.s dM,dP
-        # s: b,w,l
-        # Only valid if dM is not used afterwards as source or in any indirection, before it's clear or overwritten.
-        # Leaves dM as a potential free register.
-        matchA = re.match(r'^(\s*)add\.([bwl])(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
-        if matchA:
-            s = matchA.group(2)
-            dN = matchA.group(4)
-            dM = matchA.group(5)
-            matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
-            if matchB and s == matchB.group(1) and dM == matchB.group(2):
-                dP = matchB.group(3)
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
-                    optimized_lines = [
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{dN},{dP}'
-                    ]
-                    return (optimized_lines, 2)
-
         # Calculates offset indexes for accessing arrays.
         # lea     symbol_or_mem,aN    ->   move.l  *,aN                    ; Saves [6,8] cycles.
         # add.l   *,aN                     lea     symbol_or_mem(aN),aN
@@ -6818,10 +6799,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Move word constants into consecutive memory.
-    # If mem1+2 == mem2
-    # move.w   #x,mem1    ->    move.l  #xy,mem1       ; Saves 12 cycles.
-    # move.w   #y,mem2
-    # xy = (x << 16) | (y & 0xffff)
     move_constant_word_to_mem_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?;?$'
     matchA = re.match(move_constant_word_to_mem_pattern, line_A)
     if matchA:
@@ -6831,11 +6808,28 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             y = parseConstantUnsigned(matchB.group(3))
             mem1 = parseConstantSigned(matchA.group(4), 32)
             mem2 = parseConstantSigned(matchB.group(4), 32)
+
+            # If mem1+2 == mem2
+            # move.w   #x,mem1    ->    move.l  #xy,mem1       ; Saves 12 cycles.
+            # move.w   #y,mem2
+            # xy = (x << 16) | (y & 0xffff)
             if mem1+2 == mem2:
                 s_mem = '' if not matchA.group(5) else matchA.group(5)
                 xy = ((x << 16) | (y & 0xffff)) & 0xffffffff
                 optimized_lines = [
                     f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},{mem1}{s_mem}'
+                ]
+                return (optimized_lines, 2)
+
+            # If mem1-2 == mem2
+            # move.w   #x,mem1    ->    move.l  #yx,mem2       ; Saves 12 cycles.
+            # move.w   #y,mem2
+            # yx = (y << 16) | (x & 0xffff)
+            if mem1-2 == mem2:
+                s_mem = '' if not matchA.group(5) else matchA.group(5)
+                yx = ((y << 16) | (x & 0xffff)) & 0xffffffff
+                optimized_lines = [
+                    f'{matchA.group(1)}move.l{matchA.group(2)}#{yx},{mem2}{s_mem}'
                 ]
                 return (optimized_lines, 2)
 
@@ -6884,10 +6878,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Move byte constants into consecutive memory calculated from effective address.
-    # If disp1+2 == disp2
-    # move.w   #x,disp1(aN)   ->   move.l  #xy,disp1(aN)     ; Saves 8 cycles.
-    # move.w   #y,disp2(aN)
-    # xy = (x << 16) | (y & 0xffff)
     move_constant_word_to_mem_ea_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
     matchA = re.match(move_constant_word_to_mem_ea_pattern, line_A)
     if matchA:
@@ -6898,11 +6888,28 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 32)
             disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 32)
             aN = matchA.group(5)
-            if (disp1 % 2 == 0) and disp1+2 == disp2 and aN == matchB.group(5):
+
+            # If disp1+2 == disp2
+            # move.w   #x,disp1(aN)   ->   move.l  #xy,disp1(aN)     ; Saves 8 cycles.
+            # move.w   #y,disp2(aN)
+            # xy = (x << 16) | (y & 0xffff)
+            if disp1+2 == disp2 and aN == matchB.group(5):
                 xy = ((x << 16) | (y & 0xffff)) & 0xffffffff
                 disp1_str = '' if disp1 == 0 else str(disp1)
                 optimized_lines = [
                     f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},{disp1_str}({aN})'
+                ]
+                return (optimized_lines, 2)
+
+            # If disp1-2 == disp2
+            # move.w   #x,disp1(aN)   ->   move.l  #yx,disp2(aN)     ; Saves 8 cycles.
+            # move.w   #y,disp2(aN)
+            # yx = (y << 16) | (x & 0xffff)
+            if disp1-2 == disp2 and aN == matchB.group(5):
+                yx = ((y << 16) | (x & 0xffff)) & 0xffffffff
+                disp2_str = '' if disp2 == 0 else str(disp2)
+                optimized_lines = [
+                    f'{matchA.group(1)}move.l{matchA.group(2)}#{yx},{disp2_str}({aN})'
                 ]
                 return (optimized_lines, 2)
 
