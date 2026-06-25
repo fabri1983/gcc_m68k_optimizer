@@ -78,7 +78,7 @@ SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 # NOTE: if you get error like next
 #   /tmp/cccA4k6v.s:10923: Error: value -132 out of range
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
-# then it means I didn't consider a gcc directive or similar that conflicts with the calculation of instruciton size,
+# then it means I didn't consider a gcc directive or similar that conflicts with the calculation of instruction size,
 # try to reduce the limits by 4 bytes and see if that helps.
 MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128-2
@@ -6775,11 +6775,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             return (optimized_lines, 2)
 
     # Move byte constants into consecutive memory.
-    # If mem1+1 == mem2
-    # move.b   #x,mem1    ->    move.w  #xy,mem1       ; Saves 20 cycles.
-    # move.b   #y,mem2
-    # xy = (x << 8) | (y & 0xff)
-    # mem1 must be an even address
     move_constant_byte_to_mem_pattern = r'^(\s*)move\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?;?$'
     matchA = re.match(move_constant_byte_to_mem_pattern, line_A)
     if matchA:
@@ -6789,6 +6784,12 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             y = parseConstantUnsigned(matchB.group(3))
             mem1 = parseConstantSigned(matchA.group(4), 32)
             mem2 = parseConstantSigned(matchB.group(4), 32)
+
+            # If mem1+1 == mem2
+            # move.b   #x,mem1    ->    move.w  #xy,mem1       ; Saves 20 cycles.
+            # move.b   #y,mem2
+            # xy = (x << 8) | (y & 0xff)
+            # mem1 must be an even address
             if (mem1 % 2 == 0) and mem1+1 == mem2:
                 # This optimization won't work if inside a sound related function
                 # since we can only send bytes to the Z80 ports
@@ -6797,6 +6798,22 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     xy = ((x << 8) | (y & 0xff)) & 0xffff
                     optimized_lines = [
                         f'{matchA.group(1)}move.w{matchA.group(2)}#{xy},{mem1}{s_mem}'
+                    ]
+                    return (optimized_lines, 2)
+
+            # If mem1-1 == mem2
+            # move.b   #x,mem1    ->    move.w  #yx,mem2       ; Saves 20 cycles.
+            # move.b   #y,mem2
+            # yx = (y << 8) | (x & 0xff)
+            # mem2 must be an even address
+            if (mem2 % 2 == 0) and mem1-1 == mem2:
+                # This optimization won't work if inside a sound related function
+                # since we can only send bytes to the Z80 ports
+                if not in_a_SGDK_sound_related_routine(modified_lines):
+                    s_mem = '' if not matchA.group(5) else matchA.group(5)
+                    yx = ((y << 8) | (x & 0xff)) & 0xffff
+                    optimized_lines = [
+                        f'{matchA.group(1)}move.w{matchA.group(2)}#{yx},{mem2}{s_mem}'
                     ]
                     return (optimized_lines, 2)
 
@@ -6823,11 +6840,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
     # Move byte constants into consecutive memory calculated from effective address.
-    # If disp1+1 == disp2
-    # move.b   #x,disp1(aN)   ->   move.w  #xy,disp1(aN)     ; Saves 16 cycles.
-    # move.b   #y,disp2(aN)
-    # xy = (x << 8) | (y & 0xff)
-    # disp1 must be an even number
     move_constant_byte_to_mem_ea_pattern = r'^(\s*)move\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
     matchA = re.match(move_constant_byte_to_mem_ea_pattern, line_A)
     if matchA:
@@ -6838,14 +6850,36 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 32)
             disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 32)
             aN = matchA.group(5)
+
+            # If disp1+1 == disp2
+            # move.b   #x,disp1(aN)   ->   move.w  #xy,disp1(aN)     ; Saves 16 cycles.
+            # move.b   #y,disp2(aN)
+            # xy = (x << 8) | (y & 0xff)
+            # disp1 must be an even number
             if (disp1 % 2 == 0) and disp1+1 == disp2 and aN == matchB.group(5):
                 # This optimization won't work if inside a sound related function
                 # since we can only send bytes to the Z80 ports
                 if not in_a_SGDK_sound_related_routine(modified_lines):
                     xy = ((x << 8) | (y & 0xff)) & 0xffff
-                    disp_str = '' if disp1 == 0 else str(disp1)
+                    disp1_str = '' if disp1 == 0 else str(disp1)
                     optimized_lines = [
-                        f'{matchA.group(1)}move.w{matchA.group(2)}#{xy},{disp_str}({aN})'
+                        f'{matchA.group(1)}move.w{matchA.group(2)}#{xy},{disp1_str}({aN})'
+                    ]
+                    return (optimized_lines, 2)
+
+            # If disp1-1 == disp2
+            # move.b   #x,disp1(aN)   ->   move.w  #yx,disp2(aN)     ; Saves 16 cycles.
+            # move.b   #y,disp2(aN)
+            # yx = (y << 8) | (x & 0xff)
+            # disp2 must be an even number
+            if (disp2 % 2 == 0) and disp1-1 == disp2 and aN == matchB.group(5):
+                # This optimization won't work if inside a sound related function
+                # since we can only send bytes to the Z80 ports
+                if not in_a_SGDK_sound_related_routine(modified_lines):
+                    yx = ((y << 8) | (x & 0xff)) & 0xffff
+                    disp2_str = '' if disp2 == 0 else str(disp2)
+                    optimized_lines = [
+                        f'{matchA.group(1)}move.w{matchA.group(2)}#{yx},{disp2_str}({aN})'
                     ]
                     return (optimized_lines, 2)
 
@@ -6866,9 +6900,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             aN = matchA.group(5)
             if (disp1 % 2 == 0) and disp1+2 == disp2 and aN == matchB.group(5):
                 xy = ((x << 16) | (y & 0xffff)) & 0xffffffff
-                disp_str = '' if disp1 == 0 else str(disp1)
+                disp1_str = '' if disp1 == 0 else str(disp1)
                 optimized_lines = [
-                    f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},{disp_str}({aN})'
+                    f'{matchA.group(1)}move.l{matchA.group(2)}#{xy},{disp1_str}({aN})'
                 ]
                 return (optimized_lines, 2)
 
@@ -6993,22 +7027,30 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If clearing symbolName and symbolName+1.
             # clr.b   symbolName       ->    clr.w   symbolName    ; Saves 20 cycles.
             # clr.b   symbolName+1
+            # Offset (if any) from 1st instruction must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
-                if symbolName_1 == symbolName_2 and (symbolName_1_op + 1 == symbolName_2_op):
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_1}{op_1_str}'
-                    ]
-                    return (optimized_lines, 2)
+                if symbolName_1 == symbolName_2 and (symbolName_1_op + 1 == symbolName_2_op) and (symbolName_1_op % 2 == 0):
+                    # This optimization won't work if inside a sound related function
+                    # since we can only send bytes to the Z80 ports
+                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_1}{op_1_str}'
+                        ]
+                        return (optimized_lines, 2)
 
             # If clearing symbolName and symbolName-1.
             # clr.b   symbolName       ->    clr.w   symbolName-1  ; Saves 20 cycles.
             # clr.b   symbolName-1
+            # Offset (if any) from 2nd instruction must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
-                if symbolName_1 == symbolName_2 and (symbolName_1_op - 1 == symbolName_2_op):
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_2}{op_2_str}'
-                    ]
-                    return (optimized_lines, 2)
+                if symbolName_1 == symbolName_2 and (symbolName_1_op - 1 == symbolName_2_op) and (symbolName_2_op % 2 == 0):
+                    # This optimization won't work if inside a sound related function
+                    # since we can only send bytes to the Z80 ports
+                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_2}{op_2_str}'
+                        ]
+                        return (optimized_lines, 2)
 
             # If clearing symbolName and symbolName+2.
             # clr.w   symbolName       ->    clr.l   symbolName    ; Saves 12 cycles.
@@ -7044,24 +7086,32 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If mem1+1 == mem2
             # clr.b   mem1       ->    clr.w   mem1        ; Saves 20 cycles.
             # clr.b   mem2
+            # mem1 address must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
-                if mem1+1 == mem2:
-                    s_mem = '' if not matchA.group(5) else matchA.group(5)
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.w{matchA.group(3)}{mem1}{s_mem}'
-                    ]
-                    return (optimized_lines, 2)
+                if mem1+1 == mem2 and mem1 % 2 == 0:
+                    # This optimization won't work if inside a sound related function
+                    # since we can only send bytes to the Z80 ports
+                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                        s_mem = '' if not matchA.group(5) else matchA.group(5)
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{mem1}{s_mem}'
+                        ]
+                        return (optimized_lines, 2)
 
             # If mem1-1 == mem2
             # clr.b   mem1       ->    clr.w   mem2        ; Saves 20 cycles.
             # clr.b   mem2
+            # mem2 address must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
-                if mem1-1 == mem2:
-                    s_mem = '' if not matchB.group(5) else matchB.group(5)
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.w{matchA.group(3)}{mem2}{s_mem}'
-                    ]
-                    return (optimized_lines, 2)
+                if mem1-1 == mem2 and mem2 % 2 == 0:
+                    # This optimization won't work if inside a sound related function
+                    # since we can only send bytes to the Z80 ports
+                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                        s_mem = '' if not matchB.group(5) else matchB.group(5)
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{mem2}{s_mem}'
+                        ]
+                        return (optimized_lines, 2)
 
             # If mem1+2 == mem2
             # clr.w   mem1       ->    clr.l   mem1        ; Saves 12 cycles.
@@ -7095,30 +7145,38 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If disp1+1 == disp2
             # clr.b   disp1(aN)      ->    clr.w   disp1(aN)       ; Saves 16 cycles.
             # clr.b   disp2(aN)
+            # Displacement (if any) from 1st instruction must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
                 disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
                 disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 aN = matchA.group(5)
-                if disp1+1 == disp2 and aN == matchB.group(5):
-                    disp1_str = '' if disp1 == 0 else str(disp1)
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.w{matchA.group(3)}{disp1_str}({aN})'
-                    ]
-                    return (optimized_lines, 2)
+                if disp1+1 == disp2 and disp1 % 2 == 0 and aN == matchB.group(5):
+                    # This optimization won't work if inside a sound related function
+                    # since we can only send bytes to the Z80 ports
+                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                        disp1_str = '' if disp1 == 0 else str(disp1)
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{disp1_str}({aN})'
+                        ]
+                        return (optimized_lines, 2)
 
             # If disp1-1 == disp2
             # clr.b   disp1(aN)      ->    clr.w   disp2(aN)       ; Saves 16 cycles.
             # clr.b   disp2(aN)
+            # Displacement (if any) from 2nd instruction must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
                 disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
                 disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 aN = matchA.group(5)
-                if disp1-1 == disp2 and aN == matchB.group(5):
-                    disp2_str = '' if disp2 == 0 else str(disp2)
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.w{matchA.group(3)}{disp2_str}({aN})'
-                    ]
-                    return (optimized_lines, 2)
+                if disp1-1 == disp2 and disp2 % 2 == 0 and aN == matchB.group(5):
+                    # This optimization won't work if inside a sound related function
+                    # since we can only send bytes to the Z80 ports
+                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                        disp2_str = '' if disp2 == 0 else str(disp2)
+                        optimized_lines = [
+                            f'{matchA.group(1)}clr.w{matchA.group(3)}{disp2_str}({aN})'
+                        ]
+                        return (optimized_lines, 2)
 
             # If disp1+2 == disp2
             # clr.w   disp1(aN)      ->    clr.l   disp1(aN)       ; Saves 8 cycles.
