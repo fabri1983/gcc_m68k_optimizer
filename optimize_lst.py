@@ -56,7 +56,7 @@
 # -----------------
 
 import sys
-#sys.stdout.reconfigure(line_buffering=False)  # Uncomment when debugging so printed lines appear in correct order
+#sys.stdout.reconfigure(line_buffering=True)  # Uncomment when debugging so printed lines appear in correct order
 import operator
 import re
 from typing import Callable
@@ -78,8 +78,8 @@ SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 # NOTE: if you get error like next
 #   /tmp/cccA4k6v.s:10923: Error: value -132 out of range
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
-# then it means I didn't consider a gcc directive or similar that conflicts with the calculation of instruction size,
-# try to reduce the limits by 4 bytes and see if that helps.
+# then it means I didn't consider a gcc directive or alike that conflicts with the calculation of instruction size
+# Try to reduce the limits by 2 or 4 bytes and see if that helps.
 MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128-2
 
@@ -120,8 +120,8 @@ USE_FIND_NOT_USED_REG_FUNCTION = True
 USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION = False  # TODO: Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 # Custom optimizations found from the analyzis of gcc -S listings.
-USE_FABRI1983_MOVEM_OPTIMIZATIONS = True
-USE_FABRI1983_COOL_OPTIMIZATIONS = True
+USE_MOVEM_OPTIMIZATIONS = True
+USE_COOL_OPTIMIZATIONS = True
 
 # Set to True if you want to allow the use of TAS instruction with mapped I/O memory.
 # This is risky if the mapped memory points to read-only memory (ie: a device).
@@ -187,7 +187,7 @@ def export_class(cls: type) -> type:
     _PUBLIC_FUNCS_AND_CLASSES.append(cls.__name__)
     return cls
 
-def print_optimized_diff(original_lines: list[str], i_line: int, optimized_lines: list[str]):
+def print_diff(original_lines: list[str], i_line: int, optimized_lines: list[str]):
     """
     Prints the original and optimized lines in two columns fashion or in one single line.
     """
@@ -644,7 +644,7 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r')'                             # End capturing group of alternatives
     r',\s*'                          # Comma and optional whitespace
     r'|'                             # OR
-    r'(clr)(\.[bwl])\s+'             # Clear instruction and size
+    r'(clr|scc|scs|seq|sf|sge|sgt|shi|sle|sls|slt|smi|sne|spl|st|svc|svs)(\.[bwl])?\s+'  # Clear or Set Conditionally instructions
     r')'                             # End alternatives
     r'(%[ad][0-7])\b'                # Register being overwritten
 )
@@ -967,7 +967,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     """
     Search for free after use register xM:
     Phase 1: Look backwards which regs have been used until reaching current line.
-    Phase 2: Look forwards over the lines in lines array starting at i_line + 1:
+    Phase 2: Look forwards over lines array starting at i_line + 1:
        - if xM is entirely overwritten/cleared by a move/lea or sub/eor itself, or clr, before it is 
          actually used in remaining lines and all possible flows, then xM is free to use immediately.
        - If xM is not used as source operand nor in any indirection (in both source and target) 
@@ -1176,8 +1176,8 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                 instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
                 instr_size = match.group(2)  # Might be None
                 src_complex = match.group(3)  # source operand for move/lea/sub/eor
-                instr_clr = match.group(4)
-                clr_size = match.group(5)
+                instr_clr_or_sc = match.group(4)
+                clr_or_sc_size = match.group(5)
                 dest = match.group(6)  # reg being overwritten or cleared
                 if dest.startswith(reg_type):
                     reg_index = int(dest[2])  # Extract digit after '%x'
@@ -1190,19 +1190,21 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                                 # Only consider when the reg is totally overwritten, not partially
                                 if instr_size == ".l":
                                     overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                                continue
+                                #continue
                         # if matching move or lea
                         elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
+                            # make sure destination reg is not being used in the indirection
+                            if dest not in src_complex:
+                                # Only consider when the reg is totally overwritten, not partially
+                                if instr_size is None or instr_size == ".l":
+                                    overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
+                                #continue
+                        # matching the clr or sc instructions
+                        elif instr_clr_or_sc:
                             # Only consider when the reg is totally overwritten, not partially
-                            if instr_size is None or instr_size == ".l":
+                            if clr_or_sc_size == ".l":
                                 overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                            continue
-                        # just matching the clr instruction
-                        elif instr_clr:
-                            # Only consider when the reg is totally overwritten, not partially
-                            if clr_size == ".l":
-                                overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                            continue
+                            #continue
                         else:
                             # Instruction not considered?
                             print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} (1) At {func_name}: instruction not considered as clear or overwrite: {line}")
@@ -1679,7 +1681,7 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
             if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
                 instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
                 src_complex = match.group(3)  # source operand for move/lea/sub/eor
-                instr_clr = match.group(4)
+                instr_clr_or_sc = match.group(4)
                 dest = match.group(6)  # reg being overwritten or cleared
                 # if matching sub or eor
                 if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
@@ -1695,8 +1697,8 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         xN_overwritten_or_cleared = True
                         # We have to continue visiting lines until a movem/move pops the xN register
                         continue
-                # just matching the clr instruction
-                elif instr_clr:
+                # matching the clr or sc instructions
+                elif instr_clr_or_sc:
                     if xN == dest:
                         xN_overwritten_or_cleared = True
                         # We have to continue visiting lines until a movem/move pops the xN register
@@ -1818,7 +1820,7 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         newRegs_str = '/'.join(sortedRegs)
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
-def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> list[str]:
+def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> list[str]:
     """
     Search over the remaining lines using control flow starting at i_line + 1 for one of next conditions:
     - xN is used as source operand or in any indirection (in both source and target) operand:
@@ -1948,24 +1950,23 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
                             rem_end = len(target_array)
                 continue
 
-            # xN is overwritten/cleared by a move, sub or eor itself, or clr
+            # xN is overwritten/cleared by a lea/move, sub/eor itself, or clr/sc
             if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
-                instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr
+                instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr/sc
                 src_complex = match.group(3)  # source operand for move/lea/sub/eor
-                instr_clr = match.group(4)
+                instr_clr_or_sc = match.group(4)
                 dest = match.group(6)  # reg being overwritten or cleared
                 # if matching sub or eor
                 if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
                     # sub or eor it self?
-                    if dest in src_complex and xN == dest:
+                    if xN in src_complex and xN == dest:
                         break  # Stop the analysis at current flow
                 # if matching move
                 elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
-                    #if dest not in src_complex and xN == dest:
-                    if xN == dest:
+                    if xN not in src_complex and xN == dest:
                         break  # Stop the analysis at current flow
-                # just matching the clr instruction
-                elif instr_clr:
+                # matching the clr or sc instructions
+                elif instr_clr_or_sc:
                     if xN == dest:
                         break  # Stop the analysis at current flow
                 else:
@@ -2020,24 +2021,24 @@ def get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(x
 
     return collected_lines
 
-def is_reg_used_before_being_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
+def is_reg_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
     """
     Param ignore_N_previous_lines only affects modified_lines.
     lines[i_line] will be commented in the inner method.
     """
-    matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
     return len(matching_lines) > 0
 
-def is_reg_used_as_word_or_byte_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
+def is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
     """
     Param ignore_N_previous_lines only affects modified_lines.
     lines[i_line] will be commented in the inner method.
     """
-    matching_lines = get_lines_where_reg_is_used_before_being_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
     if len(matching_lines) == 0:
         return False
 
-    # When a matching line doesn't satisfy the criteria it means that the path flow of that line is the culprit.
+    # Ensure all lines are using the reg xN as word or byte
     for matching_line in matching_lines:
 
         # Condition 1: Check if the register is used in any indirection: 'xN.s)'
@@ -2048,11 +2049,10 @@ def is_reg_used_as_word_or_byte_afterwards(xN: str, i_line: int, lines: list[str
         match_instr_size = INSTRUCTION_WITH_SIZE_REGEX.match(matching_line)
         if match_instr_size:
             s = match_instr_size.group(2)
-            s = s[1:] if s else ''
-            if s and s in ('b','w'):
+            if s and s in ('.b','.w'):
                 continue  # This line meets the condition, check next line
 
-        # If we get here, this line doesn't meet either condition
+        # This line doesn't meet either of previous conditions
         return False
 
     # All lines met at least one of the conditions
@@ -2691,7 +2691,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
             if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
                 instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matched with the clr
                 src_complex = match.group(3)  # source operand for move/lea/sub/eor
-                instr_clr = match.group(4)
+                instr_clr_or_sc = match.group(4)
                 dest = match.group(6)  # reg being overwritten or cleared
                 if dest.startswith("%a"):
                     # if matching sub or eor
@@ -2704,9 +2704,9 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                         #if dest not in src_complex and aN == dest:
                         if aN == dest:
                             break  # Stop the analysis at current flow
-                    # just matching the clr instruction
-                    elif instr_clr:
-                        if aN == dest:
+                    # matching the clr or sc instructions
+                    elif instr_clr_or_sc:
+                        if aN == dest:  # This won't never happen in a clr or sc instruction
                             break  # Stop the analysis at current flow
                     else:
                         # Instruction not considered?
@@ -3620,7 +3620,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                     ]
                                                 return (optimized_lines, 6)
 
-    if USE_FABRI1983_COOL_OPTIMIZATIONS:
+    if USE_COOL_OPTIMIZATIONS:
 
         # Pushing word memory values into stack with word adjustments for ABI long args compliance.
         # move.w  symbol_or_mem[+-*N],-(sp)   ->   move.w    symbol_or_mem[+-*N],-(sp)     ; Saves 4 cycles
@@ -3674,7 +3674,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                         if matchE and aN == matchE.group(1) and dN == matchE.group(2):
                             matchF = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%a[0-7])', line_F)
                             if matchF and dN == matchF.group(1) and aN == matchF.group(2):
-                                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6):
+                                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6):
                                     optimized_lines = [
                                         f'{matchA.group(1)}moveq {matchA.group(2)}#0,{dN}',
                                         f'{matchA.group(1)}move.b{matchA.group(2)}{src_B},{dN}',
@@ -3783,8 +3783,8 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 aM = matchF.group(3)
                                 dispF = 0 if not matchF.group(2) else parseConstantSigned(matchF.group(2), 16)
                                 disp_str = '' if dispF == 0 else str(dispF)
-                                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6):
-                                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 6):
+                                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6):
+                                    if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 6):
                                         optimized_lines = [
                                             f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                                             f'{matchA.group(1)}move.w{matchA.group(3)}{aN},{dN}',
@@ -3970,7 +3970,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                 matchE = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_E)
                 # Do both match with dN and dM?
                 if matchD and matchE and dN == matchD.group(1) and dM == matchE.group(1):
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 5):
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 5):
                         label_or_val = '' if not matchA.group(3) else matchA.group(3)
                         # Ensure dN is smaller than dM
                         d_reg_1 = int(dN[2])  # reg index
@@ -3998,7 +3998,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                 matchE = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_E)
                 # Do both match with dN and dM?
                 if matchC and matchE and dN == matchC.group(1) and dM == matchE.group(1):
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 5):
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 5):
                         label_or_val = '' if not matchA.group(3) else matchA.group(3)
                         # Ensure dN is smaller than dM
                         d_reg_1 = int(dN[2])  # reg index
@@ -4010,7 +4010,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 5)
 
-    if USE_FABRI1983_MOVEM_OPTIMIZATIONS:
+    if USE_MOVEM_OPTIMIZATIONS:
 
         # Consecutively push into stack a sequence of registers.
         # move.[wl]  xN5,-(aN)   ->   movem.[wl]  xN5/xN4/xN3/xN2/xN1,-(aN)    ; Saves 12 cycles
@@ -4082,7 +4082,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                 ]
                                 return (optimized_lines, 5)
 
-    if USE_FABRI1983_COOL_OPTIMIZATIONS:
+    if USE_COOL_OPTIMIZATIONS:
 
         # Unnecessary clear of data register to load 2 word values.
         # moveq[.l]  #0,dN     ->   move.w  *,dN               ; Saves 8 cycles
@@ -4130,7 +4130,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                         if matchE and aN == matchE.group(3):
                             alu = matchE.group(1)
                             val = matchE.group(2)
-                            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5):
+                            if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5):
                                 optimized_lines = [
                                     f'{matchA.group(1)}add.l{matchA.group(3)}{aN},{aN}',
                                     f'{matchA.group(1)}add.l{matchA.group(3)}{aN},{aN}',
@@ -4159,7 +4159,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                         if matchE and aM == matchE.group(3):
                             alu = matchE.group(1)
                             val = matchE.group(2)
-                            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5):
+                            if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5):
                                 optimized_lines = [
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{aM}',
                                     f'{matchA.group(1)}add.l {matchA.group(3)}{aM},{aM}',
@@ -4554,7 +4554,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     ]
                                     return (optimized_lines, 4)
 
-    if USE_FABRI1983_MOVEM_OPTIMIZATIONS:
+    if USE_MOVEM_OPTIMIZATIONS:
 
         # Consecutively push into stack a sequence of registers.
         # move.[wl]  xN4,-(aN)   ->   movem.[wl]  xN4/xN3/xN2/xN1,-(aN)      ; Saves 8 cycles
@@ -4869,7 +4869,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     ]
                                     return (optimized_lines, 4)
 
-    if USE_FABRI1983_COOL_OPTIMIZATIONS:
+    if USE_COOL_OPTIMIZATIONS:
 
         # Pushing word memory values into stack with word adjustments for ABI long args compliance.
         # move.w  symbol_or_mem,-(sp)    ->    move.w    symbol_or_mem,-(sp)     ; Saves 4 cycles
@@ -4990,7 +4990,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                 if matchC and dN == matchC.group(2) and aN == matchC.group(3):
                     matchD = re.match(r'^\s*(add|adda|sub|suba)\.l\s+(%a[0-7]),\s*(%a[0-7])', line_D)
                     if matchD and aN == matchD.group(2) and aN == matchD.group(3):
-                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4):
+                        if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4):
                             alu = matchD.group(1)
                             optimized_lines = [
                                 f'{matchA.group(1)}{alu}.l{matchA.group(3)}{aN},{aN}'
@@ -5015,7 +5015,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     if matchD and aN == matchD.group(3):
                         alu = matchD.group(1)
                         val = matchD.group(2)
-                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4):
+                        if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4):
                             optimized_lines = [
                                 f'{matchA.group(1)}add.l{matchA.group(2)}{aN},{aN}',
                                 f'{matchA.group(1)}add.l{matchA.group(2)}{aN},{aN}',
@@ -5039,8 +5039,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                 if matchC and dN == matchC.group(2):
                     matchD = re.match(r'^\s*move\.l?\s+(%d[0-7]),(%d[0-7])', line_D)
                     if matchD and dN == matchD.group(1) and dN != matchD.group(2):
-                        is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
-                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 4)
+                        is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
                         if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                             dM = matchD.group(2)
                             optimized_lines = [
@@ -5070,8 +5070,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         if dM is None:
                             dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
                         if dM is not None:
-                            is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
-                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 4)
+                            is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
+                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
                             if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                                 aN = matchD.group(2)
                                 optimized_lines = [
@@ -5238,7 +5238,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             val = parseConstantSigned(matchB.group(3), 16)
             matchC = re.match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_C)
             if matchC and dN == matchC.group(5):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
                     sC = matchC.group(1)
                     dM = matchC.group(2)
                     disp = 0 if not matchC.group(3) else parseConstantSigned(matchC.group(3), 16)
@@ -5369,7 +5369,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 3)
 
-    if USE_FABRI1983_MOVEM_OPTIMIZATIONS:
+    if USE_MOVEM_OPTIMIZATIONS:
 
         # Consecutively push into stack a sequence of registers.
         # move.[wl]  xN3,-(aN)   ->   movem.[wl]  xN3/xN2/xN1,-(aN)     ; Saves 4 cycles
@@ -5399,7 +5399,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 3)
 
-    if USE_FABRI1983_COOL_OPTIMIZATIONS:
+    if USE_COOL_OPTIMIZATIONS:
 
         # Calculates offset indexes for accessing arrays.
         # add/sub.l  dM,dN                ->    add/sub.w  dM,dN            ; Saves 4 cycles
@@ -5474,7 +5474,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 dN = matchB.group(4)
                 matchC = re.match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*-\(%sp\)', line_C)
                 if matchC and s == matchC.group(1) and dN == matchC.group(2):
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
                         optimized_lines = [
                             f'{matchA.group(1)}{alu}.{s} {matchA.group(4)}{dM},{dN}',
                             f'{matchA.group(1)}move.{s}{matchA.group(4)}{dN},-(%sp)'
@@ -5519,7 +5519,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     if matchC and dM == matchC.group(2):
                         instr_C = matchC.group(1)
                         dN = matchC.group(3)
-                        if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 3):
+                        if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 3):
                             optimized_lines = [
                                 f'{matchA.group(1)}{instr_C}.b{matchA.group(2)}({aN}),{dN}',
                                 f'{matchA.group(1)}{instr_and}.w{matchA.group(2)}#255,{dN}'
@@ -5544,8 +5544,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     if matchC and dN == matchC.group(3):
                         instr_C = matchC.group(1)
                         dM = matchC.group(2)
-                        is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3)
-                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 3)
+                        is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3)
                         if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                             optimized_lines = [
                                 f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
@@ -5573,7 +5573,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         #        if matchC and dN == matchC.group(1) and dM == matchC.group(2):
         #            # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
         #            if current_pass == 2:
-        #                if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 3):
+        #                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3):
         #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
         #                    optimized_lines = [
         #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
@@ -5708,13 +5708,29 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB and dN == matchB.group(2):
             ea = matchB.group(3)
             if dN not in ea:
-                dn_used = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 2)
+                dn_used = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
+                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
                 if not dn_used or dn_used_as_word_or_byte:
                     optimized_lines = [
-                        lineB
+                        line_B
                     ]
                     return (optimized_lines, 2)
+
+    # Unnecessary sign extension.
+    # Particularly added by FF32_toInt() which does >> 16, but gcc also adds an extra ext.l.
+    # swap   dN     ->    swap   dN       ; Saves 4 cycles
+    # ext.l  dN
+    # Ensure dN is used as word or byte afterwards before is overwritten or cleared.
+    matchA = re.match(r'^(\s*)swap(\.l)?(\s+)(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(4)
+        matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(1):
+            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                optimized_lines = [
+                    line_A
+                ]
+                return (optimized_lines, 2)
 
     # Fast sign-extend bytes into words, and words into longs, when the sign bit is at position N.
     # lsl.w/l  #val,dN     ->   move.w/l  #mask,dM     ; Saves ?? cycles as long as N decreases.
@@ -5737,14 +5753,13 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 2)[0]
                 if dM is None:
                     dM = find_unused_data_register([dN], i_line, lines, modified_lines, 2)[0]
-                if dM is not None:
-                    if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                        optimized_lines = [
-                            f'{matchA.group(1)}move.{s}{matchA.group(3)}#{mask},{dM}',
-                            f'{matchA.group(1)}add.{s} {matchA.group(3)}{dM},{dN}',
-                            f'{matchA.group(1)}eor.{s} {matchA.group(3)}{dM},{dN}'
-                        ]
-                        return (optimized_lines, 2)
+                if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                    optimized_lines = [
+                        f'{matchA.group(1)}move.{s}{matchA.group(3)}#{mask},{dM}',
+                        f'{matchA.group(1)}add.{s} {matchA.group(3)}{dM},{dN}',
+                        f'{matchA.group(1)}eor.{s} {matchA.group(3)}{dM},{dN}'
+                    ]
+                    return (optimized_lines, 2)
 
     # Clear register except lower byte and then shifet left 1 <= val <= 8 positions.
     # and.l  #255,dN    ->    and.l  #255,dN           ; Saves 2 cycles
@@ -5936,7 +5951,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # bne    label
             matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbf{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5945,7 +5960,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # beq    label
             matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5954,7 +5969,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # bpl    label
             matchB = re.match(r'^\s*[jb]pl(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5963,7 +5978,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # bmi    label
             matchB = re.match(r'^\s*[jb]mi(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5972,7 +5987,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # bge    label
             matchB = re.match(r'^\s*[jb]ge(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5981,7 +5996,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # blt    label
             matchB = re.match(r'^\s*[jb]lt(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5990,7 +6005,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # bhi    label
             matchB = re.match(r'^\s*[jb]hi(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbeq{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -5999,7 +6014,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # bls    label
             matchB = re.match(r'^\s*[jb]ls(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
             if matchB:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
                     optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
@@ -6201,7 +6216,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             ]
             return (optimized_lines, 2)
 
-    if USE_FABRI1983_COOL_OPTIMIZATIONS:
+    if USE_COOL_OPTIMIZATIONS:
 
         # Increment by 1 byte after reading 1 byte from memory.
         # move.b   (aN),xN      ->    move.b   (aN)+,xN        ; Saves 8 cycles.
@@ -6349,7 +6364,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^\s*move\.([wl])\s+(%a[0-7]),\s*(%d[0-7])', line_B)
             if matchB and aM == matchB.group(2):
                 if 1 <= abs(disp) <= 8:
-                    if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 2):
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 2):
                         s = matchB.group(1)
                         dN = matchB.group(3)
                         if disp > 0:
@@ -6584,7 +6599,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if dP != xN:
             matchB = re.match(r'^\s*(add|adda)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 2):
                     xM = matchB.group(6)
                     optimized_lines = [
                         f'{matchA.group(1)}adda.{z}{matchA.group(4)}{dP},{aN}',
@@ -6605,7 +6620,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if dP != xN:
             matchB = re.match(r'^\s*(sub|suba)\.([bwl])\s+\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(3) and dP == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 2):
                     xM = matchB.group(6)
                     optimized_lines = [
                         f'{matchA.group(1)}suba.{z}{matchA.group(4)}{dP},{aN}',
@@ -6964,6 +6979,28 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
+    # Move value from memory to memory
+    # move.s  symbolName1+off1,dN     ->    move.s  symbolName1+off1,symbolName2+off2     ; Saves 4 cycles
+    # move.s  dN,symbolName2+off2
+    # symbolName1 can be symbolName2.
+    # off1 and off2 can be omitted or 0.
+    # Ensure dN is not used afterwards before cleared or overwritten.
+    matchA = re.match(r'^(\s*)move\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(2)
+        dN = matchA.group(8)
+        matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?;?$', line_B)
+        if matchB and s == matchB.group(1) and dN == matchB.group(2):
+            symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
+            symbolName_2 = ''.join(matchB.group(i) for i in range(3, 5) if matchB.group(i))
+            op_1_str = '' if not matchA.group(6) else matchA.group(6)
+            op_2_str = '' if not matchB.group(5) else matchB.group(5)
+            if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                optimized_lines = [
+                    f'{matchA.group(1)}move.{s}{matchA.group(3)}{symbolName_1+op_1_str},{symbolName_2+op_2_str}'
+                ]
+                return (optimized_lines, 2)
+
     # Negate a dN and then add/sub into dM or same dN.
     matchA = re.match(r'^(\s*)neg\.([bwl])(\s+)(%d[0-7])', line_A)
     if matchA:
@@ -6978,7 +7015,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB and sA == matchB.group(1) and dN == matchB.group(2):
             dM = matchB.group(3)
             if dM != dN:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     optimized_lines = [
                         f'{matchA.group(1)}add.{sA}{matchA.group(3)}{dN},{dM}'
                     ]
@@ -7011,7 +7048,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB and sA == matchB.group(1) and dN == matchB.group(2):
             dM = matchB.group(3)
             if dM != dN:
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     optimized_lines = [
                         f'{matchA.group(1)}sub.{sA}{matchA.group(3)}{dN},{dM}'
                     ]
@@ -7024,8 +7061,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchB = re.match(clr_mem_from_symbol_pattern, line_B)
         if matchB:
 
-            symbolName_1 = ''.join(matchA.group(4) for i in range(4, 6) if matchA.group(i))
-            symbolName_2 = ''.join(matchB.group(4) for i in range(4, 6) if matchB.group(i))
+            symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
+            symbolName_2 = ''.join(matchB.group(i) for i in range(4, 6) if matchB.group(i))
             op_1_str = '' if not matchA.group(6) else matchA.group(6)
             op_2_str = '' if not matchB.group(6) else matchB.group(6)
             symbolName_1_op = 0 if not op_1_str else int(op_1_str)
@@ -7265,7 +7302,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
                         ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
                     # Check on adjusted <ea>
-                    if ea_adjusted and is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+                    if ea_adjusted and is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
                         optimized_lines = [
                             f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                             f'{matchA.group(1)}move.b{matchA.group(3)}{ea_adjusted},{dN}'
@@ -7282,8 +7319,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         dN = matchA.group(5)
         matchB = re.match(r'^\s*move\.w\s+([,^]),\s*(%d[0-7])', line_B)
         if matchB and dN == matchB.group(3):
-            is_reg_used_before_overwrite_or_clear = is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 2)
+            is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
+            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
             if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                 ea = matchB.group(1)
                 optimized_lines = [
@@ -7367,7 +7404,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(rol\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 0 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7381,7 +7418,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(rol\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 1 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7394,7 +7431,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # rol.l    dM,dN
             matchB = re.match(r'^(\s*)(rol\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 16 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7408,7 +7445,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(rol\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 1 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7423,7 +7460,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(rol\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 8 <= x <= 15 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 8 <= x <= 15 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7448,7 +7485,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(ror\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 0 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7462,7 +7499,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(ror\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 1 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7475,7 +7512,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # ror.l    dM,dN
             matchB = re.match(r'^(\s*)(ror\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 16 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7489,7 +7526,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(ror\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 1 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7504,7 +7541,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(ror\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 8 <= x <= 15 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 8 <= x <= 15 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7530,7 +7567,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.b|asl\.b)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 1 <= x <= 47 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 47 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7544,7 +7581,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           add.w    dN,dN
             matchB = re.match(r'^(\s*)(lsl\.w|asl\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 9 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7561,7 +7598,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.w|asl\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 2 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 2 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
@@ -7577,7 +7614,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.w|asl\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 0 <= x <= 47 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 47 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7592,7 +7629,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 3 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 3 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
@@ -7607,7 +7644,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # lsl.l    dM,dN            clr.w    dN
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 16 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7621,7 +7658,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           clr.w    dN
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 17 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7637,7 +7674,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           clr.w    dN
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 18 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7655,7 +7692,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 3 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 3 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7672,7 +7709,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           clr.w    dN
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 24 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7692,7 +7729,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           clr.w    dN
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 25 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7713,7 +7750,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 24
-                if 2 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 2 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
@@ -7731,7 +7768,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsl\.l|asl\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 32
-                if 0 <= x <= 31 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 31 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7756,7 +7793,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.b)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 1 <= x <= 47 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 47 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7770,7 +7807,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 2 <= x <= 6 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 2 <= x <= 6 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
@@ -7785,7 +7822,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           neg.w    dN
             matchB = re.match(r'^(\s*)(lsr\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 15 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7801,7 +7838,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 0 <= x <= 47 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 47 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7816,7 +7853,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 3 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 3 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
@@ -7831,7 +7868,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # lsr.l    dM,dN            swap     dN
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 16 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7847,7 +7884,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 1 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7863,7 +7900,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           move.b   (sp)+,dN
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 24 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7882,7 +7919,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 24
-                if 1 <= x <= 6 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 6 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
@@ -7899,7 +7936,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           addx.w   dN,dN
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 31 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7915,7 +7952,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(lsr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 32
-                if 0 <= x <= 31 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 31 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7941,7 +7978,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(asr\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 8
-                if 2 <= x <= 6 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 2 <= x <= 6 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7957,7 +7994,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(asr\.w)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 15
-                if 0 <= x <= 48 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 48 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7970,7 +8007,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # asr.l    dM,dN            ext.l  dN
             matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 16 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -7986,7 +8023,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 16
-                if 1 <= x <= 7 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 1 <= x <= 7 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -8003,7 +8040,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           ext.w  dN
             matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 24 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -8021,7 +8058,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                           asr.w  dM,dN
             matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if val == 25 and matchB and dM == matchB.group(4):
-                if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     optimized_lines = [
                         f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
@@ -8040,7 +8077,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 24
-                if 2 <= x <= 6 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 2 <= x <= 6 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -8058,7 +8095,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(r'^(\s*)(asr\.l)(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
                 x = val - 31
-                if 0 <= x <= 32 and not is_reg_used_before_being_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
+                if 0 <= x <= 32 and not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
@@ -8404,7 +8441,7 @@ def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolN
                                     print_start_asm_block = False
                                     print_end_asm_block = True
                                 # Print optimization log
-                                print_optimized_diff([line_end], original_line_num, [opt_line])
+                                print_diff([line_end], original_line_num, [opt_line])
             else:
                 break
 
@@ -8532,20 +8569,17 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # cmp.s  #val,dN   ->    subq/addq.s   #abs(val),dN      ; Saves [4,6] cycles. Leaves dN different.
     #                        (subq if val > 0, addq if val < 0)
     # Only if dN is not used anymore until is overwritten or cleared.
+# acá: this breaks sprites on Metal Slug project
     match = re.match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantSigned(match.group(5), 8)
         if 1 <= abs(val) <= 8:
             s = match.group(3)
             dN = match.group(6)
-            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
-                if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 0)
-                if val > 0:
-                    optimized_line = f'{match.group(1)}subq.{s}{match.group(4)}#{abs(val)},{dN}'
-                    return ([optimized_line], True)
-                else:
-                    optimized_line = f'{match.group(1)}addq.{s}{match.group(4)}#{abs(val)},{dN}'
-                    return ([optimized_line], True)
+            if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+                instr = "subq" if val > 0 else "addq"
+                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{abs(val)},{dN}'
+                return ([optimized_line], True)
 
     # cmp.s  #0,aN     ->    move.s   aN,dM        ; Saves [6,10] cycles.
     # Needs a free data register dM.
@@ -8597,14 +8631,10 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if 1 <= abs(val) <= 8:
             s = match.group(3)
             aN = match.group(6)
-            if not is_reg_used_before_being_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
-                if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 0)
-                if val > 0:
-                    optimized_line = f'{match.group(1)}subq.{s}{match.group(4)}#{abs(val)},{aN}'
-                    return ([optimized_line], True)
-                else:
-                    optimized_line = f'{match.group(1)}addq.{s}{match.group(4)}#{abs(val)},{aN}'
-                    return ([optimized_line], True)
+            if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
+                instr = "subq" if val > 0 else "addq"
+                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{abs(val)},{aN}'
+                return ([optimized_line], True)
 
     ############################################################################
     # Set constants
@@ -8829,19 +8859,20 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         dN = match.group(5)
 
         # Keep lower byte with mask 0xFF (255).
-        # and.l   #255,dN      ->     move.b  dN,dM      ; Saves 4 cycles.
-        #                             moveq   #0,dN
-        #                             move.b  dM,dN
+        # and.l   #255,dN      ->     moveq   #0,dM      ; Saves 4 cycles.
+        #                             move.b  dN,dM
+        #                             move.l  dM,dN
         # Needs a free data register dM.
+# acá: this breaks player sprite on Metal Slug project
         if val == 255:
             dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
+                    f'{match.group(1)}moveq {match.group(3)}#0,{dM}',
                     f'{match.group(1)}move.b{match.group(3)}{dN},{dM}',
-                    f'{match.group(1)}moveq {match.group(3)}#0,{dN}',
-                    f'{match.group(1)}move.b{match.group(3)}{dM},{dN}'
+                    f'{match.group(1)}move.l{match.group(3)}{dM},{dN}'
                 ]
                 return (optimized_lines, True)
 
@@ -9047,7 +9078,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -9078,7 +9109,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                         f'{match.group(1)}add.w{match.group(3)}{dM},{dN}'
@@ -9114,7 +9145,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -9145,7 +9176,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                if is_reg_used_as_word_or_byte_afterwards(dN, i_line, lines, modified_lines, 0):
+                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                         f'{match.group(1)}sub.w{match.group(3)}{dM},{dN}'
@@ -9201,7 +9232,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_afterwards(aN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{aN}'
                 return ([optimized_line], True)
@@ -9265,7 +9296,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_afterwards(aN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{aN}'
                 return ([optimized_line], True)
@@ -9987,7 +10018,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
                     print_start_asm_block = False
                     print_end_asm_block = True
                 # Print optimization log
-                print_optimized_diff([line], original_line_num, optimized_lines)
+                print_diff([line], original_line_num, optimized_lines)
             # Save the optimized lines
             modified_lines.extend(optimized_lines)
         else:
@@ -10139,7 +10170,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
                             print_start_asm_block = False
                             print_end_asm_block = True
                         # Print optimization log
-                        print_optimized_diff(original_lines, (i_line-1)-(lines_to_remove-1), optimized_multilines)
+                        print_diff(original_lines, (i_line-1)-(lines_to_remove-1), optimized_multilines)
 
     # Copy the reamining content
     if skip_optimization_and_just_copy != -1:
@@ -11222,7 +11253,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     print_start_asm_block = False
                     print_end_asm_block = True
                 # Print optimization log
-                print_optimized_diff([line], i_line, [optimized_line])
+                print_diff([line], i_line, [optimized_line])
 
     return (num_updated_lines_found, num_patterns_found, line_indexes_updated, symbol_with_additional_ops_by_mem_address)
 
@@ -11434,7 +11465,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
             # Print findings?
             if PRINT_OPTIMIZATION_LOG:
                 # Print optimization log
-                print_optimized_diff([line], i_line, [accomodated_line])
+                print_diff([line], i_line, [accomodated_line])
 
     return (num_updated_lines_found, num_patterns_found)
 
