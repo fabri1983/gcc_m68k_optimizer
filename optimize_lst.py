@@ -70,6 +70,10 @@ except ImportError:
     exit(1)
 
 
+# These filenames must coincide with the those defined in makefile.gen
+SYMBOLS_OPT_FILENAME = "symbol_opt.txt"
+SYMBOLS_CANONICAL_FILENAME = "symbol_canonical.txt"
+
 # These memory boundaries are used to exploit the sign extension that some instructions apply to address registers.
 SGDK_LOW_ROM_END = 0x00007FFF
 SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
@@ -11481,7 +11485,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     if symbols_canonical_filename:
         # WARNING: Super dupped fix for a mega weird bug where symbols_opt_filename is empty even when the c plugin is setting it correctly
         if not symbols_opt_filename:
-            symbols_opt_filename = symbols_canonical_filename.replace("symbol_canonical.txt", "symbol_opt.txt", 1)
+            symbols_opt_filename = symbols_canonical_filename.replace(SYMBOLS_CANONICAL_FILENAME, SYMBOLS_OPT_FILENAME, 1)
             print(f'[OPT_LOG] Symbols opt file: {symbols_opt_filename}')
         print(f'[OPT_LOG] Symbols canonical file: {symbols_canonical_filename}')
 
@@ -11593,6 +11597,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
         for line in modified_lines:
             outfile.write(line)
             outfile.write('\n')
+
 
 if __name__ == "__main__":
     args_len = len(sys.argv)
