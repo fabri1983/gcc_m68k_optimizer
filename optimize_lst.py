@@ -82,14 +82,14 @@ SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 # NOTE: if you get error like next
 #   /tmp/cccA4k6v.s:10923: Error: value -132 out of range
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
-# then it means I didn't consider a gcc directive or alike that conflicts with the calculation of instruction size
+# then it means I didn't consider a gcc directive or alike which conflicts with the calculation of instruction size.
 # Try to reduce the limits by 2 or 4 bytes and see if that helps.
 MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128-2
 
 # NOT_WORKING
 # Those lines in this script marked with NOT_WORKING keyword are mean to be skipped from optimization.
-# They produce errors in Blastem emulator.
+# They produce crashes when testing the rom.
 
 # Set to False if you don't want to persist the optimizations into output file. 
 # Use in conjunction with PRINT_OPTIMIZATION_LOG to print the findings as candidates.
@@ -104,13 +104,13 @@ PRINT_LOG_IN_TWO_COLUMNS_FASHION = True
 # If False then inlined asm blocks won't be optimized, which is good because they're probably already optimized by the user.
 OPTIMIZE_INLINE_ASM_BLOCKS = False
 # In case you want to optimize inline asm blocks but certain instructions must be ommited from optimization,
-# then put this text at the end of the instruction:
+# then put this text at the end of the instruction (in the c unit):
 SKIP_OPTIMIZATION_FLAG = ";# DO_NOT_OPTIMIZE"
 # There is also the possibility to manually mark any inline asm block to be always optimized:
-# surround the block with "\n#NO_APP\n\t" and "\n#APP"
+# surround the block with "\n#NO_APP\n\t" and "\n#APP" (in the c unit).
 
-# If True then control flow analysis continues with next line and leave the branching at the end of the block.
-# If False then it jumps into target label and continue analysis from there.
+# If True then control flow analysis continues with next line and therefore postpone the branching to the end of the block.
+# If False then it jumps into target label and continue analysis from there, and then comes back and analyzes the remaon of the block.
 CONTROL_FLOW_ANALYSIS_BRANCH_LATER = False
 
 # This refers to the function that searches for any register not used at the current location of the code in the 
@@ -171,7 +171,8 @@ USE_AGGRESSIVE_CLR_SP_OPTIMIZATION = False
 # WARNING: In scenarios where dN >= 0x8000 it produces glitches due to sign extension. Test thoroughly.
 USE_AGGRESSIVE_REPLACE_LONG_INDIRECT_ADDRESSING_BY_WORD = False
 
-# By lowering the value you can skip patterns requiring bigger number of lines. 1 means no multi line optimizations.
+# By lowering the value you can skip patterns requiring bigger number of lines.
+# Value 1 disables multi line optimizations.
 MULTIPLE_LINES_OPTIMIZATION_LIMIT = 8
 
 # Up to how may consecutive lines we cover searching for re use an address reg plus an offset to replace 
@@ -9910,7 +9911,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
 # Adding (?![^;#\n]*[-+]) at the end which is a negative lookahead that ensures the target label is 
 # not followed by any characters (except ';', '#', 'newlines') containing - or +.
 shorten_branches_pattern = re.compile(
-    r'^(\s*)(bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bra|bsr|bvc|bvs|jsr|jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jra|jvc|jvs)(\.[sbw])?'
+    r'^(\s*)(bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bra|bsr|bvc|bvs|jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jra|jsr|jvc|jvs)(\.[sbw])?'
     r'(\s+)([0-9a-zA-Z_\.]+)(?![^;#\n]*[-+])'
 )
 
@@ -10416,6 +10417,10 @@ align_2_directive_pattern = re.compile(
 set_directive_pattern = re.compile(
     r'^\s*\.set\s+([a-zA-Z_\.][0-9a-zA-Z_\.]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)$'
 )
+# Use next pattern with .findall(). We only want to capture all the disp(sp) or (sp).
+disp_sp_pattern = re.compile(
+    r'(-?\d+)?\(%sp\)'     # disp(sp) or (sp)
+)
 
 def process_non_used_and_single_use_functions(lines: list[str]):
     """
@@ -10450,12 +10455,16 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     # declared functions are not being called.
     calling_functions_set: set[str] = set()
     functions_called_counter: dict[str, int] = {}
+    functions_loaded_into_reg_or_mem: set[str] = set()
+    functions_full_invoke: set[str] = set()
 
     for i in range(0, len(lines)):
         line = lines[i]
+
         # Whenever we detect the first declaration of a .bss section we can stop the analysis
         if BSS_SECTION_REGEX.match(line):
             break
+
         # Is calling one of the declared functions?
         if uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
             func_name = uncond_match.group(2)
@@ -10467,17 +10476,22 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                 calling_functions_set.add(func_name)
                 # Increment by 1 the counter tracking called functions
                 functions_called_counter[func_name] = functions_called_counter.get(func_name, 0) + 1
+                # Discern between direct jump from routine invocation
+                if uncond_match.group(1) in ('bsr','jsr'):
+                    functions_full_invoke.add(func_name)
         # Is loading symbol name into a register or mem location?
-        if match := (move_functionName_into_any_pattern.match(line) or lea_functionName_into_an_pattern.match(line)):
+        elif match := (move_functionName_into_any_pattern.match(line) or lea_functionName_into_an_pattern.match(line)):
             func_name = match.group(1)
             if func_name in declared_functions_all_set:
                 # Collect the function name
                 calling_functions_set.add(func_name)
                 # Increment by 1 the counter tracking called functions
                 functions_called_counter[func_name] = functions_called_counter.get(func_name, 0) + 1
+                # Flag this function name accordingly
+                functions_loaded_into_reg_or_mem.add(func_name)
         # Gcc uses directive .set to assign a handler a function name. 
         # If that happens then we have to consider that function name as called
-        if match_set := set_directive_pattern.match(line):
+        elif match_set := set_directive_pattern.match(line):
             func_name = match_set.group(2)
             if func_name in declared_functions_all_set:
                 # Collect the function name
@@ -10489,7 +10503,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     unused_funcs = declared_functions_all_set - calling_functions_set  # set_a - set_b = Elements in set_a but not in set_b
     unused_funcs = unused_funcs - global_functions_set
     unused_funcs = unused_funcs - declared_functions_interrupts_only_set
-    print('[OPT_LOG] Non explicitly used functions to remove:')
+    print('[OPT_LOG] Non explicitly used functions to remove: ' + str(len(unused_funcs)))
     print(sorted(unused_funcs))
 
     # Phase 5:
@@ -10508,9 +10522,11 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                 # if previous line is .align 2 then replace it by empty line
                 if align_2_directive_pattern.match(lines[i-1]):
                     lines[i-1] = ''
+
         # If we are inside a non used function then replace its line by an empty line
         if inside_unused_func:
             lines[i] = ''
+
         # End of function declaration
         if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
             inside_unused_func = False
@@ -10521,26 +10537,106 @@ def process_non_used_and_single_use_functions(lines: list[str]):
         if (func_name in global_functions_set) or (func_name in declared_functions_interrupts_only_set):
             del functions_called_counter[func_name]
 
-    # Collect functions called only once
+    # Collect functions called only once. 
+    # Skips functions called from a reg or mem address since them can't be optimized anyways.
+    # Keep functions which are invoked as full blown routine: bsr/jsr
     functions_called_only_once: set[str] = set()
     for func_name, count in functions_called_counter.items():
-        if count == 1:
+        if count == 1 and func_name not in functions_loaded_into_reg_or_mem and func_name in functions_full_invoke and func_name:
             functions_called_only_once.add(func_name)
-    print('[OPT_LOG] Functions called from only one location eligible for ABI contract reduction (experimental):')
+    print('[OPT_LOG] Functions called from only one location eligible for ABI contract reduction (experimental): ' + str(len(functions_called_only_once)))
     print(sorted(functions_called_only_once))
 
+    return
+
     # Phase 7:
-    # TODO:
-    # Subroutine call pressure reduction. Saves [12,14] cycles.
-    # If a subroutine (other than an interrupt routine) is called always from the same code location then we can:
-    #    replace bsr/jsr routine_name by:
-    #            ... code here ...
-    #            bra/jmp routine_name
-    #        rts_from_routine_name:
-    #            ... code here ...
-    #    replace every rts detected inside the body of routine_name by:
-    #            bra/jmp rts_from_routine_name
-    # Accomodate the SP usage inside the subroutine given that there won't be return address (4 bytes) pushed into stack.
+    # Subroutine call pressure reduction. Saves 12 cycles.
+    # If a subroutine (non an interrupt routine) is called always from the same code location then we can:
+    # - Replace bsr/jsr routine_name by:
+    #     jmp routine_name
+    # - Add immediatelly after: 
+    #     rts_target_routine_name:
+    # - Replace every rts detected inside the body of routine_name by:
+    #     jmp rts_target_routine_name
+    # - Accomodate the SP usage inside the subroutine given that there won't be any return address (4 bytes) pushed into stack.
+    #     - search for any instruction (except lea) using sp as indirect access: disp(sp)
+    #     - discard instruction with pre-decrement and post-increment on sp: -(sp) and (sp)+
+    #     - replace disp by disp-4. If 0 then use disp='' (empty string)
+    
+    insertions_at_line: dict[int, str] = {}
+    inside_one_time_called_func = False
+    current_routine_name: str = ''
+
+    for i in range(0, len(lines)):
+        line = lines[i]
+
+        # Whenever we detect the first declaration of a .bss section we can stop the analysis
+        if BSS_SECTION_REGEX.match(line):
+            break
+
+        if FUNCTION_EXIT_REGEX.match(line):
+            if inside_one_time_called_func:
+                # - Replace every rts detected inside the body of routine_name by:
+                #     jmp rts_target_routine_name
+                lines[i] = '\tjmp rts_target_' + current_routine_name
+
+        # Is calling one of the declared functions?
+        elif uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+            func_name = uncond_match.group(2)
+            # Skip jsr/jmp (aN)
+            if func_name.startswith('%a'):
+                continue
+            if uncond_match.group(1) in ('bsr','jsr') and func_name in functions_called_only_once:
+                # - Replace bsr/jsr routine_name by:
+                #     jmp routine_name
+                # - Add immediatelly after: 
+                #     rts_target_routine_name:
+                lines[i] = '\tjmp ' + func_name
+                insertions_at_line[i+1] = 'rts_target_' + func_name + ':'
+
+        # Is loading symbol name into a register or mem location?
+        #elif match := (move_functionName_into_any_pattern.match(line) or lea_functionName_into_an_pattern.match(line)):
+        #    continue
+
+        # Function declaration
+        elif match_func := FUNCTION_DECLARATION_REGEX.match(line):
+            func_name = match_func.group(1)
+            current_routine_name = func_name
+            if func_name in functions_called_only_once:
+                inside_one_time_called_func = True
+                print(func_name)
+
+        # End of function declaration
+        elif FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+            inside_one_time_called_func = False
+
+        elif inside_one_time_called_func:
+            # Accomodate the SP usage inside the subroutine given that there won't be any return address (4 bytes) pushed into stack:
+            # - any instruction (except lea) using sp as indirect access: disp(sp)
+            # - discard instruction with pre-decrement and post-increment on sp: -(sp) and (sp)+
+            # - replace disp by disp-4. If 0 then use disp='' (empty string)
+            if '-(%sp)' in line or '(%sp)+' in line:
+                continue
+            if match := INSTRUCTION_WITH_SIZE_REGEX.match(line):
+                if match.group(1) == 'lea':
+                    continue
+            if disp_matches := disp_sp_pattern.findall(line):
+                new_line = line
+                for disp in disp_matches:
+                    if disp == '':  # Handle case where no displacement is present
+                        new_line = new_line.replace('(%sp)', '-4(%sp)', 1)
+                    else:
+                        disp_correct = str(int(disp) - 4)
+                        new_line = new_line.replace(disp + '(%sp)', disp_correct + '(%sp)', 1)
+                lines[i] = new_line
+                print(line + "   " + new_line)
+
+    # Phase 8:
+    # Add the new insertions into lines array.
+    lines.extend([''] * len(insertions_at_line))
+    for insert_idx in sorted(insertions_at_line.keys(), reverse=True):
+        lines[insert_idx+1:] = lines[insert_idx:-1]
+        lines[insert_idx] = insertions_at_line[insert_idx]
 
 # move.l #symbolName[.wl],aN
 move_symbolName_into_an_pattern = re.compile(

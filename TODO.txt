@@ -109,6 +109,20 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+	movem.l %a6/%a5/%a4/%a3/%a2/%d7/%d6/%d5/%d4/%d3/%d2,-(%sp)
+	move.l 68(%sp),%a4
+	move.l 72(%sp),%d1
+	move.l 76(%sp),%d4
+	move.l 80(%sp),%d0
+	move.l 88(%sp),%a5
+; Saves 4 cycles
+	movem.l 68(sp),d0-d3
+	move.l d0,a4
+    move.l d2,d4
+    move.l d3,d0
+    move.l 88(sp),a5
+
+
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
     addq.w #1,44(sp)
