@@ -55,8 +55,8 @@
 # jra      |   bra
 # -----------------
 
+import os
 import sys
-#sys.stdout.reconfigure(line_buffering=True)  # Uncomment when debugging so printed lines appear in correct order
 import operator
 import re
 from typing import Callable
@@ -179,6 +179,9 @@ MULTIPLE_LINES_OPTIMIZATION_LIMIT = 8
 # a load of a constant. Using bigger values increase considerably the time of analysis.
 SYMBOL_OR_MEM_LOAD_BY_OFFSET_WINDOW_MAX_SIZE = 64
 
+# Helps to identify the many invocations of the plugin
+THIS_INVOKE_ID: str = '0'
+
 # Registry for public functions
 _PUBLIC_FUNCS_AND_CLASSES: list[str] = []
 
@@ -205,10 +208,10 @@ def print_diff(original_lines: list[str], i_line: int, optimized_lines: list[str
     # Logging line info
     log = ''
     if not SAVE_OPTIMIZATIONS:
-        log = f'{Fore.GREEN}[CANDIDATE at {(i_line+1):5d}]{Style.RESET_ALL}'
+        log = f'{Fore.GREEN}[CANDIDATE {THIS_INVOKE_ID}][{(i_line+1):5d}]{Style.RESET_ALL}'
         left_padding_from_log = " " * (20 + 1)
     else:
-        log = f'{Style.BRIGHT}{Fore.GREEN}[OPTIMIZED at {(i_line+1):5d}]{Style.RESET_ALL}'
+        log = f'{Style.BRIGHT}{Fore.GREEN}[OPTIMIZED {THIS_INVOKE_ID}][{(i_line+1):5d}]{Style.RESET_ALL}'
         left_padding_from_log = " " * (20 + 1)
 
     if not PRINT_LOG_IN_TWO_COLUMNS_FASHION:
@@ -1212,7 +1215,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                             #continue
                         else:
                             # Instruction not considered?
-                            print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} (1) At {func_name}: instruction not considered as clear or overwrite: {line}")
+                            print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (1) At {func_name}: instruction not considered as clear or overwrite: {line}")
 
             # If pushing into stack then consider the regs as used
             if push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
@@ -1291,9 +1294,9 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
 
     # No candidates?
     #if candidates[0] is None:
-    #    print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND]{Style.RESET_ALL} At {func_name} for: {lines[i_line].lstrip()}")
+    #    print(f"{Fore.YELLOW}[FREE AFTER USE REG NOT FOUND {THIS_INVOKE_ID}]{Style.RESET_ALL} At {func_name} for: {lines[i_line].lstrip()}")
     #else:
-    #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
+    #    print(f"{Fore.CYAN}[FREE AFTER USE REG FOUND {THIS_INVOKE_ID}]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_line_at(lines, i_line)
@@ -1515,9 +1518,9 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
 
     # No candidates?
     #if candidates[0] is None:
-    #    print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
+    #    print(f"{Fore.YELLOW}[UNUSED REG NOT FOUND {THIS_INVOKE_ID}]{Style.RESET_ALL} At {func_name} for:  {lines[i_line].lstrip()}")
     #else:
-    #    print(f"{Fore.CYAN}[UNUSED REG FOUND]{Style.RESET_ALL} At {func_name}: {candidates}")
+    #    print(f"{Fore.CYAN}[UNUSED REG FOUND {THIS_INVOKE_ID}]{Style.RESET_ALL} At {func_name}: {candidates}")
 
     # Restore them
     uncomment_line_at(lines, i_line)
@@ -1566,7 +1569,7 @@ def get_routine_first_instruction_pos(modified_lines: list[str]) -> int:
                         return k+1
             break
 
-    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} Couldn't find first instruction in routine {func_name}")
+    print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} Couldn't find first instruction in routine {func_name}")
     return (2**31) - 1
 
 # Pattern: <any_instr> *,sp
@@ -1710,7 +1713,7 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         continue
                 else:
                     # Instruction not considered?
-                    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} (2) At {func_name}: instruction not considered as clear or overwrite: {line}")
+                    print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (2) At {func_name}: instruction not considered as clear or overwrite: {line}")
 
             # Check for register usage and collect the line index
             if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
@@ -1976,7 +1979,7 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
                         break  # Stop the analysis at current flow
                 else:
                     # Instruction not considered?
-                    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} (3) At {func_name}: instruction not considered as clear or overwrite: {line}")
+                    print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (3) At {func_name}: instruction not considered as clear or overwrite: {line}")
 
             # xN is used as source operand or in any indirection (in both source and target) operand
             if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
@@ -2207,7 +2210,7 @@ def add_regs_into_push_pop_if_not_scratch_or_in_interrupt(regs_to_add: list[str]
                     regs_were_added_into_movem_push = True
                 else:
                     # TODO: analyze the function that prints next warning
-                    print(f"{Fore.YELLOW}[WARNING at {func_name}]{Style.RESET_ALL} There is more than one MOVEM push into stack")
+                    print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} At {func_name}. There is more than one MOVEM push into stack")
 
         # Is a movem/move pop instruction?
         elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
@@ -2469,7 +2472,7 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
                                 modified_lines[i] = line.replace(regs_str, newRegs_str)
                     else:
                         # TODO: analyze the function that prints next warning
-                        print(f"{Fore.YELLOW}[WARNING at {func_name}]{Style.RESET_ALL} There is more than one MOVEM push into stack")
+                        print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} At {func_name}.There is more than one MOVEM push into stack")
 
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 is_before_rts_rte = True if FUNCTION_EXIT_REGEX.match(modified_lines[i+1]) else False
@@ -2715,7 +2718,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                             break  # Stop the analysis at current flow
                     else:
                         # Instruction not considered?
-                        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} (4) At {func_name}: instruction not considered as clear or overwrite: {line}")
+                        print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (4) At {func_name}: instruction not considered as clear or overwrite: {line}")
 
         # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1]
         if target_array is modified_lines and i == rem_end:
@@ -2749,7 +2752,7 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
     # Check for basic pattern: optional sign followed by digits and optional operator with more digits
     match_expr = re.fullmatch(r'^(-?\d+)(\.[bwl])?([\+\-\*]\d+)?(\.[bwl])?$', expr)
     if not match_expr:
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): match_expr didn't match: {expr}")
+        print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} on evaluate_instr_math_expression(): match_expr didn't match: {expr}")
         return None
 
     # Only one operand?
@@ -2789,7 +2792,7 @@ def evaluate_instr_math_expression(expr: str) -> int | None:
         return result
 
     except (ValueError, IndexError, KeyError):
-        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluate_instr_math_expression(): {expr_clean} (original: {expr})")
+        print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} on evaluate_instr_math_expression(): {expr_clean} (original: {expr})")
         return None
 
 def get_displacement_and_addr_reg(match) -> tuple[int | None, str | None]:
@@ -2966,7 +2969,7 @@ def classify_operand(instr_op_base: str, op_size: str, operator: str) -> str | N
     # Not considered:
     #   xN/xM... and xN-xM... which are part of movem
     # But they are encoded into the instr_op_base. So returning None won't add up in size calculation.
-    #print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} {operator}")
+    #print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} {operator}")
     return None
 
 def split_operands(operand_field: str) -> list[str]:
@@ -3089,7 +3092,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
                         result = eval(expr)
                         variables[var_name] = result
                     except:
-                        print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluation of: {stripped}")
+                        print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} on evaluation of: {stripped}")
                 continue
 
             # Skip lines inside .if block when it evaluates to false
@@ -3109,7 +3112,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
                     result = eval(if_condition_expr)
                     condition_result = bool(result)
                 except:
-                    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluation of: {stripped}")
+                    print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} on evaluation of: {stripped}")
 
                 if not condition_result:
                     if_count = 1
@@ -3140,7 +3143,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
                 try:
                     rept_count = eval(rept_count_expr)
                 except:
-                    print(f"{Fore.RED}[ERROR]{Style.RESET_ALL} on evaluation of: {stripped}")
+                    print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} on evaluation of: {stripped}")
                     rept_count = 1  # Default to 1 if evaluation fails
 
                 rept_stack.append({
@@ -5799,7 +5802,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB:
             s_branch = '  ' if not matchB.group(1) else matchB.group(1)
             label = matchB.group(2)
-            print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} Next optimization won't compile for PC indirection")
+            print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization won't compile for PC indirection")
             optimized_lines = [
                 f'{matchA.group(1)}tst.b{matchA.group(2)}{ea}',
                 f'{matchA.group(1)}bpl{s_branch}{matchA.group(2)}{label}'
@@ -5816,7 +5819,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB:
             s_branch = '  ' if not matchB.group(1) else matchB.group(1)
             label = matchB.group(2)
-            print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} Next optimization won't compile for PC indirection")
+            print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization won't compile for PC indirection")
             optimized_lines = [
                 f'{matchA.group(1)}tst.b{matchA.group(2)}{ea}',
                 f'{matchA.group(1)}bmi{s_branch}{matchA.group(2)}{label}'
@@ -7042,7 +7045,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 optimized_lines = [
                     f'{matchA.group(1)}eor.{sA}{matchA.group(3)}#{val-1},{dN}'
                 ]
-                print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} Next optimization might fail if dN >= val")
+                print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization might fail if dN >= val")
                 return (optimized_lines, 2)
 
         # neg.s    dN         ->    sub.s   dN,dM       ; Saves 4 cycles. Leaves dN different.
@@ -8304,7 +8307,7 @@ def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolN
         elif line.startswith("#NO_APP"):
             if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
                 if print_end_asm_block:
-                    print('[OPT_LOG] <-- End inline asm block')
+                    print(f'[OPT_LOG {THIS_INVOKE_ID}] <-- End inline asm block')
             print_start_asm_block = False
             print_end_asm_block = False
             inside_inline_asm_block = False
@@ -8442,7 +8445,7 @@ def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolN
                                 original_line_num = line_number_map.get(window_end_idx, window_end_idx)
                                 # Print starting or ending an inline asm block
                                 if print_start_asm_block:
-                                    print('[OPT_LOG] --> Start inline asm block')
+                                    print(f'[OPT_LOG {THIS_INVOKE_ID}] --> Start inline asm block')
                                     print_start_asm_block = False
                                     print_end_asm_block = True
                                 # Print optimization log
@@ -9026,14 +9029,14 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         match = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line)
         if match:
             optimized_line = f'{match.group(1)}subq.l{match.group(2)}#2,%sp'
-            print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
+            print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
             return ([optimized_line], True)
 
         # clr.l   -(sp)     ->    subq.l  #4,sp     ; Saves 14 cycles.
         match = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line)
         if match:
             optimized_line = f'{match.group(1)}subq.l{match.group(2)}#4,%sp'
-            print(f"{Fore.YELLOW}[WARNING]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
+            print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
             return ([optimized_line], True)
     else:
 
@@ -9960,7 +9963,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
     skip_optimization_and_just_copy = -1
     num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
 
-    print(f'[OPT_LOG] {step_name}')
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] {step_name}')
 
     rem_start = 0
     rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
@@ -9986,7 +9989,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
         elif line.startswith("#NO_APP"):
             if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
                 if print_end_asm_block:
-                    print('[OPT_LOG] <-- End inline asm block')
+                    print(f'[OPT_LOG {THIS_INVOKE_ID}] <-- End inline asm block')
             print_start_asm_block = False
             print_end_asm_block = False
             inside_inline_asm_block = False
@@ -10019,7 +10022,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
                 original_line_num = line_number_map.get(i_line-1, i_line-1)
                 # Print starting or ending an inline asm block
                 if print_start_asm_block:
-                    print('[OPT_LOG] --> Start inline asm block')
+                    print(f'[OPT_LOG {THIS_INVOKE_ID}] --> Start inline asm block')
                     print_start_asm_block = False
                     print_end_asm_block = True
                 # Print optimization log
@@ -10068,7 +10071,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
     print_end_asm_block = False
 
     # Step 1: Optimze multiple lines first
-    print('[OPT_LOG] Multi line patterns (common and new patterns)')
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] Multi line patterns (common and new patterns)')
 
     modified_multi_lines = []
     skip_optimization_and_just_copy = -1
@@ -10098,7 +10101,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
         elif stripped.startswith("#NO_APP"):
             if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
                 if print_end_asm_block:
-                    print('[OPT_LOG] <-- End inline asm block')
+                    print(f'[OPT_LOG {THIS_INVOKE_ID}] <-- End inline asm block')
             print_start_asm_block = False
             print_end_asm_block = False
             inside_inline_asm_block = False
@@ -10171,7 +10174,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
                     if PRINT_OPTIMIZATION_LOG:
                         # Print starting or ending an inline asm block
                         if print_start_asm_block:
-                            print('[OPT_LOG] --> Start inline asm block')
+                            print(f'[OPT_LOG {THIS_INVOKE_ID}] --> Start inline asm block')
                             print_start_asm_block = False
                             print_end_asm_block = True
                         # Print optimization log
@@ -10187,7 +10190,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
     # NOTE: At this point we know that code lines in modified_multi_lines have not trealing whitespace
 
     # Iterate over different amount of multiple lines and try to exploit the offset between symbols loaded into aN
-    print('[OPT_LOG] Multi line patterns (use offset when loading a symbol near other loaded symbol)')
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] Multi line patterns (use offset when loading a symbol near other loaded symbol)')
     num_updated_offsets = optimizeMultiLines_SymbolOrMemByOffset(
         modified_multi_lines, mem_addr_by_symbolName_dict, line_number_map
     )
@@ -10503,7 +10506,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     unused_funcs = declared_functions_all_set - calling_functions_set  # set_a - set_b = Elements in set_a but not in set_b
     unused_funcs = unused_funcs - global_functions_set
     unused_funcs = unused_funcs - declared_functions_interrupts_only_set
-    print('[OPT_LOG] Non explicitly used functions to remove: ' + str(len(unused_funcs)))
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] Non explicitly used functions to remove: ' + str(len(unused_funcs)))
     print(sorted(unused_funcs))
 
     # Phase 5:
@@ -10544,7 +10547,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     for func_name, count in functions_called_counter.items():
         if count == 1 and func_name not in functions_loaded_into_reg_or_mem and func_name in functions_full_invoke and func_name:
             functions_called_only_once.add(func_name)
-    print('[OPT_LOG] Functions called from only one location eligible for ABI contract reduction (experimental): ' + str(len(functions_called_only_once)))
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] Functions called from only one location eligible for ABI contract reduction (experimental): ' + str(len(functions_called_only_once)))
     print(sorted(functions_called_only_once))
 
     return
@@ -10604,7 +10607,6 @@ def process_non_used_and_single_use_functions(lines: list[str]):
             current_routine_name = func_name
             if func_name in functions_called_only_once:
                 inside_one_time_called_func = True
-                print(func_name)
 
         # End of function declaration
         elif FUNCTION_SIZE_CALCULATION_REGEX.match(line):
@@ -10629,7 +10631,6 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                         disp_correct = str(int(disp) - 4)
                         new_line = new_line.replace(disp + '(%sp)', disp_correct + '(%sp)', 1)
                 lines[i] = new_line
-                print(line + "   " + new_line)
 
     # Phase 8:
     # Add the new insertions into lines array.
@@ -11016,7 +11017,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             inside_inline_asm_block = False
             if OPTIMIZE_INLINE_ASM_BLOCKS and inside_inline_asm_block:
                 if print_end_asm_block:
-                    print('[OPT_LOG] <-- End inline asm block')
+                    print(f'[OPT_LOG {THIS_INVOKE_ID}] <-- End inline asm block')
             print_start_asm_block = False
             print_end_asm_block = False
             continue
@@ -11349,7 +11350,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
             if PRINT_OPTIMIZATION_LOG:
                 # Print starting or ending an inline asm block
                 if print_start_asm_block:
-                    print('[OPT_LOG] --> Start inline asm block')
+                    print(f'[OPT_LOG {THIS_INVOKE_ID}] --> Start inline asm block')
                     print_start_asm_block = False
                     print_end_asm_block = True
                 # Print optimization log
@@ -11572,18 +11573,21 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
 @export_func
 def optimize_file(input_filename: str, output_filename: str, symbols_opt_filename: str | None, symbols_canonical_filename: str | None):
     global PRINT_OPTIMIZATION_LOG
+    global THIS_INVOKE_ID
 
-    print(f'[OPT_LOG] Optimizing {input_filename}')
+    THIS_INVOKE_ID = str(os.getpid() % 100)
+
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] Optimizing {input_filename}')
 
     if symbols_opt_filename:
-        print(f'[OPT_LOG] Symbols opt file: {symbols_opt_filename}')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] Symbols opt file: {symbols_opt_filename}')
 
     if symbols_canonical_filename:
         # WARNING: Super dupped fix for a mega weird bug where symbols_opt_filename is empty even when the c plugin is setting it correctly
         if not symbols_opt_filename:
             symbols_opt_filename = symbols_canonical_filename.replace(SYMBOLS_CANONICAL_FILENAME, SYMBOLS_OPT_FILENAME, 1)
-            print(f'[OPT_LOG] Symbols opt file: {symbols_opt_filename}')
-        print(f'[OPT_LOG] Symbols canonical file: {symbols_canonical_filename}')
+            print(f'[OPT_LOG {THIS_INVOKE_ID}] Symbols opt file: {symbols_opt_filename}')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] Symbols canonical file: {symbols_canonical_filename}')
 
     # Disable printing log if we are in one of the symbols phase
     old_state_printing_flag = PRINT_OPTIMIZATION_LOG
@@ -11606,7 +11610,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     process_non_used_and_single_use_functions(modified_lines)
 
     # Remove ABI when possible
-    #print('[OPT_LOG] -- Simple ABI removal pass --')
+    #print(f'[OPT_LOG {THIS_INVOKE_ID}] -- Simple ABI removal pass --')
     #modified_lines = remove_simple_abi(modified_lines)
 
     # Decide which symbols file we have to read for the optimize_asm() function
@@ -11617,13 +11621,13 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
         symbols_for_optimize_asm = symbols_opt_filename
 
     # 1st pass
-    print('[OPT_LOG] -- FIRST pass --')
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] -- FIRST pass --')
     modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 1)
     num_updated_lines_found += num_updated_lines_found_1st_pass
     num_patterns_found += num_patterns_found_1st_pass
 
     # 2nd pass: catch new opportunities and optimize branches
-    print('[OPT_LOG] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
     modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 2)
     num_updated_lines_found += num_updated_lines_found_2nd_pass
     num_patterns_found += num_patterns_found_2nd_pass
@@ -11636,9 +11640,9 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
         # Loading a canonical address into aN register on instructions lea/movea/jmp/jsr can be reduced
         # to its lower word .w, therefor taking advantage of the sign extension the instruction does.
         # It needs the symbols file generated in a previous compilation stage.
-        print('[OPT_LOG] -- Reduce load and branch of a canonical address using sign extension --')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] -- Reduce load and branch of a canonical address using sign extension --')
 
-        print('[OPT_LOG] Single line patterns (use .w on symbol or address when possible)')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] Single line patterns (use .w on symbol or address when possible)')
         result_func = reduce_canonical_address_using_sign_extension(modified_lines, symbols_opt_filename)
         num_reduced_lines, num_reduced_patterns, line_indexes_updated, symbol_with_additional_ops_by_mem_address = result_func
         num_updated_lines_found += num_reduced_lines
@@ -11663,29 +11667,29 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
 
             # Given that previous step forces gcc to relocate some symbols we have used in the optimization,
             # now we have to read from updated symbols_canonical_filename and accomodate the symbols having an updated mem address
-            print('[OPT_LOG] -- Accomodate canonical address from previous step --')
+            print(f'[OPT_LOG {THIS_INVOKE_ID}] -- Accomodate canonical address from previous step --')
 
-            print('[OPT_LOG] Single line patterns (remap relocated symbols)')
+            print(f'[OPT_LOG {THIS_INVOKE_ID}] Single line patterns (remap relocated symbols)')
             result_func = accomodate_canonical_address(modified_lines, line_indexes_updated, symbol_with_additional_ops_by_mem_address, symbols_opt_filename, symbols_canonical_filename)
             num_accomodated_lines, num_accomodated_patterns = result_func
-            print('[OPT_LOG] Remapped symbols: ' + str(num_accomodated_lines))
+            print(f'[OPT_LOG {THIS_INVOKE_ID}] Remapped symbols: ' + str(num_accomodated_lines))
 
     patterns_label = "pattern" if num_patterns_found == 1 else "patterns"
     if not SAVE_OPTIMIZATIONS:
         candidates_label = "candidate" if num_patterns_found == 1 else "candidates"
-        print(f'[OPT_LOG] TOTAL: {num_patterns_found} {patterns_label}')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] TOTAL: {num_patterns_found} {patterns_label}')
     else:
-        print(f'[OPT_LOG] TOTAL: {num_patterns_found} {patterns_label}')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] TOTAL: {num_patterns_found} {patterns_label}')
 
     lines_label = "line" if num_updated_lines_found == 1 else "lines"
     if not SAVE_OPTIMIZATIONS:
         candidates_label = "candidate" if num_updated_lines_found == 1 else "candidates"
-        print(f'[OPT_LOG] TOTAL: {num_updated_lines_found} {lines_label} found as {candidates_label}')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] TOTAL: {num_updated_lines_found} {lines_label} found as {candidates_label}')
     else:
-        print(f'[OPT_LOG] TOTAL: {num_updated_lines_found} {lines_label} were updated')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] TOTAL: {num_updated_lines_found} {lines_label} were updated')
 
     if not SAVE_OPTIMIZATIONS:
-        print('[OPT_LOG] CHANGES NOT PERSISTED, as per SAVE_OPTIMIZATIONS = False')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] CHANGES NOT PERSISTED, as per SAVE_OPTIMIZATIONS = False')
         with open(input_filename, 'r', encoding='utf-8') as infile:
             modified_lines = infile.readlines()
 
