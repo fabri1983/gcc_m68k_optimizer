@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------
 # Copyright (c) 2025-2026 fabri1983
-# Author: fabri1983
+# Author: Pablo L (fabri1983)
 # fabri1983@gmail.com
 #
 # GCC's GAS assembly optimizer for cpu m68000.
@@ -61,6 +61,7 @@ import operator
 import re
 from typing import Callable
 from dataclasses import dataclass, field
+from enum import Enum
 try:
     from colorama import Fore, Back, Style, init
     # Initialize colorama (auto-detects Windows and enables ANSI).
@@ -2542,12 +2543,14 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
     uncomment_line_at(lines, i_line)
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
-jsr_aN_pattern = re.compile(r'^\s*jsr\s+\((%a[0-7])\)')
+jsr_aN_pattern = re.compile(
+    r'^\s*jsr\s+\((%a[0-7])\)'
+)
 lea_subroutine_into_aN_pattern = re.compile(
     r'^\s*lea\s+([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
 )
 move_subroutine_into_aN_pattern = re.compile(
-    r'^\s*move[a]?\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
+    r'^\s*move[a]?\.[wl]\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])'
 )
         
 def count_replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modified_lines: list[str], subr: str, new_line: str, ignore_N_previous_lines: int) -> int:
@@ -3045,6 +3048,10 @@ def is_size_directive_nearby_backwards(lines: list[str], i: int) -> bool:
             return True
     return False
 
+class RangeScanDirection(Enum):
+    FORWARD = "forward"
+    BACKWARD = "backward"
+
 def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], modified_lines: list[str]) -> bool:
     """
     Checks if a label is within an 8-byte range (backwards or forwards).
@@ -3052,7 +3059,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
     target_label_def = label + ":"
 
     # Helper function to scan lines and check for label
-    def check_if_label_is_in_range(target_lines: list[str], start_idx: int, end_idx: int, max_bytes: int) -> bool:
+    def check_if_label_is_in_range(target_lines: list[str], start_idx: int, end_idx: int, max_bytes: int, range_scan_direction: RangeScanDirection) -> bool:
         bytes_accum = 0
         i = start_idx
         rept_stack = []  # Stack to track nested .rept blocks
@@ -3066,6 +3073,10 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
 
             if stripped.startswith('#'):
                 continue
+
+            # Whenever we detect the first declaration of a .bss section we can stop the analysis
+            if range_scan_direction == RangeScanDirection.FORWARD and BSS_SECTION_REGEX.match(line):
+                return False
 
             # Stop if exceeding max bytes
             if bytes_accum > max_bytes:
@@ -3201,7 +3212,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
         line = modified_lines[i]
         # Remove leading whitespaces for next checks. Trailing whitespaces were removed in an earlier stage
         stripped = line.lstrip()
-        # Check if this is the target label
+        # Check if this line is where the target label is defined
         if stripped.startswith(target_label_def):
             # Special case for infnite loops (like the one in VDP_resetScreen())
             if i == start_idx:
@@ -3212,7 +3223,8 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
                 modified_lines,
                 target_label_def_position + 1,
                 len(modified_lines),
-                MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS
+                MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS,
+                RangeScanDirection.BACKWARD
             )
             if is_in_range:
                 return True
@@ -3223,8 +3235,10 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
         lines,
         i_line + 1,
         len(lines),
-        MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS
+        MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS,
+        RangeScanDirection.FORWARD
     )
+
     return is_in_range
 
 def comment_line_at(lines: list[str], i_line: int):
@@ -10395,9 +10409,9 @@ def applyGccConversions(lines: list[str]) -> list[str]:
 
     return modified_lines
 
-# move.l #functionName[.wl],<any>
+# move.[wl] #functionName[.wl],<any>
 move_functionName_into_any_pattern = re.compile(
-    r'^\s*move\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(.+);?$'
+    r'^\s*move[a]?\.[wl]\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(.+);?$'
 )
 # lea functionName[.wl],aN
 lea_functionName_into_an_pattern = re.compile(
@@ -10425,7 +10439,7 @@ disp_sp_pattern = re.compile(
     r'(-?\d+)?\(%sp\)'     # disp(sp) or (sp)
 )
 
-def process_non_used_and_single_use_functions(lines: list[str]):
+def process_non_used_and_single_use_functions(lines: list[str]) -> tuple[int, int]:
     """
     Remove non used functions.
     Improve single use functions (ie called from only once location) ABI interface by reducing call pressure.
@@ -10479,7 +10493,7 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                 calling_functions_set.add(func_name)
                 # Increment by 1 the counter tracking called functions
                 functions_called_counter[func_name] = functions_called_counter.get(func_name, 0) + 1
-                # Discern between direct jump from routine invocation
+                # Discern between direct routine invocation from pointers or a jump
                 if uncond_match.group(1) in ('bsr','jsr'):
                     functions_full_invoke.add(func_name)
         # Is loading symbol name into a register or mem location?
@@ -10542,15 +10556,13 @@ def process_non_used_and_single_use_functions(lines: list[str]):
 
     # Collect functions called only once. 
     # Skips functions called from a reg or mem address since them can't be optimized anyways.
-    # Keep functions which are invoked as full blown routine: bsr/jsr
+    # Keep functions which are directly invoked and not by a pointer: bsr/jsr
     functions_called_only_once: set[str] = set()
     for func_name, count in functions_called_counter.items():
-        if count == 1 and func_name not in functions_loaded_into_reg_or_mem and func_name in functions_full_invoke and func_name:
+        if count == 1 and func_name not in functions_loaded_into_reg_or_mem and func_name in functions_full_invoke:
             functions_called_only_once.add(func_name)
     print(f'[OPT_LOG {THIS_INVOKE_ID}] Functions called from only one location eligible for ABI contract reduction (experimental): ' + str(len(functions_called_only_once)))
     print(sorted(functions_called_only_once))
-
-    return
 
     # Phase 7:
     # Subroutine call pressure reduction. Saves 12 cycles.
@@ -10561,14 +10573,21 @@ def process_non_used_and_single_use_functions(lines: list[str]):
     #     rts_target_routine_name:
     # - Replace every rts detected inside the body of routine_name by:
     #     jmp rts_target_routine_name
-    # - Accomodate the SP usage inside the subroutine given that there won't be any return address (4 bytes) pushed into stack.
-    #     - search for any instruction (except lea) using sp as indirect access: disp(sp)
-    #     - discard instruction with pre-decrement and post-increment on sp: -(sp) and (sp)+
-    #     - replace disp by disp-4. If 0 then use disp='' (empty string)
-    
+    # - Accomodate the SP usage inside the subroutine given that there won't be any return address (4 bytes) in the stack:
+    #   TODO: revisit the conditions. They are wrong or insufficient.
+    #   - discard operand if it's pre-decrement or post-increment on sp: -(sp) and (sp)+
+    #   - any instruction using sp as indirection: disp(sp) or (sp)
+    #     - replace disp by disp-4. If resuolt is 0 then use disp='' (empty string)
+    #     - discard lea disp(sp),target  where target is sp
+
+    return (0,0)
     insertions_at_line: dict[int, str] = {}
     inside_one_time_called_func = False
     current_routine_name: str = ''
+
+    # Keep track of total number of updated lines and patterns
+    num_updated_lines_found = 0
+    num_patterns_found = 0
 
     for i in range(0, len(lines)):
         line = lines[i]
@@ -10582,6 +10601,9 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                 # - Replace every rts detected inside the body of routine_name by:
                 #     jmp rts_target_routine_name
                 lines[i] = '\tjmp rts_target_' + current_routine_name
+                num_updated_lines_found += 1
+                num_patterns_found += 1
+                print(lines[i])
 
         # Is calling one of the declared functions?
         elif uncond_match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
@@ -10596,10 +10618,10 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                 #     rts_target_routine_name:
                 lines[i] = '\tjmp ' + func_name
                 insertions_at_line[i+1] = 'rts_target_' + func_name + ':'
-
-        # Is loading symbol name into a register or mem location?
-        #elif match := (move_functionName_into_any_pattern.match(line) or lea_functionName_into_an_pattern.match(line)):
-        #    continue
+                num_updated_lines_found += 2
+                num_patterns_found += 1
+                print(lines[i])
+                print(insertions_at_line[i+1])
 
         # Function declaration
         elif match_func := FUNCTION_DECLARATION_REGEX.match(line):
@@ -10607,16 +10629,23 @@ def process_non_used_and_single_use_functions(lines: list[str]):
             current_routine_name = func_name
             if func_name in functions_called_only_once:
                 inside_one_time_called_func = True
+                print("--------- ENTER")
+                print(func_name)
 
         # End of function declaration
         elif FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+            if inside_one_time_called_func:
+                print("--------- EXIT")
             inside_one_time_called_func = False
+            current_routine_name = ''
 
         elif inside_one_time_called_func:
-            # Accomodate the SP usage inside the subroutine given that there won't be any return address (4 bytes) pushed into stack:
-            # - any instruction (except lea) using sp as indirect access: disp(sp)
-            # - discard instruction with pre-decrement and post-increment on sp: -(sp) and (sp)+
-            # - replace disp by disp-4. If 0 then use disp='' (empty string)
+            # Accomodate the SP usage inside the subroutine given that there won't be any return address (4 bytes) in the stack:
+            # TODO: revisit the conditions. They are wrong or insufficient.
+            # - discard operand if it's pre-decrement or post-increment on sp: -(sp) and (sp)+
+            # - any instruction using sp as indirection: disp(sp) or (sp)
+            #   - replace disp by disp-4. If resuolt is 0 then use disp='' (empty string)
+            #   - discard lea disp(sp),target  where target is sp
             if '-(%sp)' in line or '(%sp)+' in line:
                 continue
             if match := INSTRUCTION_WITH_SIZE_REGEX.match(line):
@@ -10631,17 +10660,22 @@ def process_non_used_and_single_use_functions(lines: list[str]):
                         disp_correct = str(int(disp) - 4)
                         new_line = new_line.replace(disp + '(%sp)', disp_correct + '(%sp)', 1)
                 lines[i] = new_line
+                num_updated_lines_found += 1
+                print(line + "    " + new_line)
 
     # Phase 8:
     # Add the new insertions into lines array.
-    lines.extend([''] * len(insertions_at_line))
-    for insert_idx in sorted(insertions_at_line.keys(), reverse=True):
-        lines[insert_idx+1:] = lines[insert_idx:-1]
-        lines[insert_idx] = insertions_at_line[insert_idx]
+    if len(insertions_at_line) > 0:
+        lines.extend([''] * len(insertions_at_line))
+        for insert_idx in sorted(insertions_at_line.keys(), reverse=True):
+            lines[insert_idx+1:] = lines[insert_idx:-1]
+            lines[insert_idx] = insertions_at_line[insert_idx]
 
-# move.l #symbolName[.wl],aN
+    return (num_updated_lines_found,num_patterns_found)
+
+# move.[wl] #symbolName[.wl],aN
 move_symbolName_into_an_pattern = re.compile(
-    r'^\s*move\.l\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
+    r'^\s*move[a]?\.[wl]\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(%a[0-7])'
 )
 # lea symbolName[.wl],aN
 lea_symbolName_into_an_pattern = re.compile(
@@ -11607,7 +11641,9 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     collect_declared_functions(modified_lines)
 
     # Remove non used functions and improve single use functions (ie called from only once location) ABI interface by reducing call pressure
-    process_non_used_and_single_use_functions(modified_lines)
+    num_updated_lines_found_clean_pass, num_patterns_found_clean_pass = process_non_used_and_single_use_functions(modified_lines)
+    num_updated_lines_found += num_updated_lines_found_clean_pass
+    num_patterns_found += num_patterns_found_clean_pass
 
     # Remove ABI when possible
     #print(f'[OPT_LOG {THIS_INVOKE_ID}] -- Simple ABI removal pass --')
