@@ -3,7 +3,7 @@
 # Author: Pablo L (fabri1983)
 # fabri1983@gmail.com
 #
-# GCC's GAS assembly optimizer for cpu m68000.
+# GCC's GAS assembly optimizer for CPU M68000.
 #
 # This script processes assembly output in GAS syntax generated at the PLUGIN_FINISH phase.
 # It searches for known single and multi line patterns that can be turned into peephole 
@@ -31,6 +31,7 @@
 # http://www.ibaug.de/vasm/doc/vasm.pdf
 # http://www.csua.berkeley.edu/~muchandr/m68k
 # https://github.com/Samuel-DEVULDER/popt
+# https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
 # Custom patterns found from gcc -S outputs
 
 # Mnemocis equivalence
@@ -79,14 +80,14 @@ SYMBOLS_CANONICAL_FILENAME = "symbol_canonical.txt"
 SGDK_LOW_ROM_END = 0x00007FFF
 SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 
-# How many bytes the short branch does span. Subtract 2 to account for the branch instruction short size.
+# How many bytes the short branch does span.
 # NOTE: if you get error like next
 #   /tmp/cccA4k6v.s:10923: Error: value -132 out of range
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
 # then it means I didn't consider a gcc directive or alike which conflicts with the calculation of instruction size.
 # Try to reduce the limits by 2 or 4 bytes and see if that helps.
-MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2
-MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128-2
+MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2  # Subtract 2 to account for the branch instruction short size.
+MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128
 
 # NOT_WORKING
 # Those lines in this script marked with NOT_WORKING keyword are mean to be skipped from optimization.
@@ -210,10 +211,10 @@ def print_diff(original_lines: list[str], i_line: int, optimized_lines: list[str
     log = ''
     if not SAVE_OPTIMIZATIONS:
         log = f'{Fore.GREEN}[CANDIDATE {THIS_INVOKE_ID}][{(i_line+1):5d}]{Style.RESET_ALL}'
-        left_padding_from_log = " " * (20 + 1)
+        left_padding_from_log = " " * (20 + 2)
     else:
         log = f'{Style.BRIGHT}{Fore.GREEN}[OPTIMIZED {THIS_INVOKE_ID}][{(i_line+1):5d}]{Style.RESET_ALL}'
-        left_padding_from_log = " " * (20 + 1)
+        left_padding_from_log = " " * (20 + 2)
 
     if not PRINT_LOG_IN_TWO_COLUMNS_FASHION:
         original_joined = " / ".join(lineOrig.lstrip() for lineOrig in original_lines)
@@ -658,6 +659,24 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r'(%[ad][0-7])\b'                # Register being overwritten
 )
 
+# Set of instructions that modifies any of the CCR flags used by conditional branch instructions
+instr_modify_ccr_flags_for_bcc_set = {
+    "tst", "cmp", "cmpi",
+    "move", "moveq",
+    "add", "addi", "addq","sub", "subi", "subq",
+    "and", "andi","or", "ori","eor", "eori",
+    "clr", "neg", "not", "ext", "swap",
+    "muls", "mulu", "divs", "divu",
+    "asl", "asr", "lsl", "lsr","rol", "ror", "roxl", "roxr"
+}
+
+def is_istruction_modifying_CCR_flags_for_BCC(mnemonic: str) -> bool:
+    """
+    Returns True if the instruction modifies any of the CCR flags that can be used by 
+    a conditional branch instruction: N, Z, V, C. X is not used by bCC.
+    """
+    return mnemonic in instr_modify_ccr_flags_for_bcc_set
+
 declared_functions_all_set: set[str] = set()
 declared_functions_interrupts_only_set: set[str] = set()
 
@@ -711,7 +730,7 @@ PUSH_OTHER_INTO_STACK_REGEX = re.compile(
 )
 
 # Labels: 1:, .L37:, _loc1:, abcABC:, xlt_all.0:
-LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):;?$')
+LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):\s*;?$')
 
 backward_number_labels = {'0b','1b','2b','3b','4b','5b','6b','7b','8b','9b'}
 forward_number_labels = {'0f','1f','2f','3f','4f','5f','6f','7f','8f','9f'}
@@ -722,10 +741,10 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
     Converts local lables of the type 0,1,..,9 where branching instruction use them with prefix 'b' or 'f'.
     This way we made it easier for the creation of the control flow dictionary.
     """
-    global_label_prefix = '.ulbl_'
+    global_label_prefix = '.unq_lbl_'
     global_label_counter = 1
 
-    search_limit = 40
+    search_limit_lines = 60
 
     for i in range(0, len(lines)):  # forwards
         line = lines[i]
@@ -745,7 +764,7 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
                 lines[i] = line.replace(number_label, new_label, 1)
 
                 # Search backwards for any usage of label and replace it by new label
-                for k in range(i-1, max(0, i-search_limit)-1, -1):  # backwards
+                for k in range(i-1, max(0, i-search_limit_lines)-1, -1):  # backwards
                     this_line = lines[k]
                     # If reaching the start of the routine then stop the analysis
                     if FUNCTION_DECLARATION_REGEX.match(this_line):
@@ -761,7 +780,7 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
                                 lines[k] = this_line.replace(this_label, new_label, 1)
 
                 # Search forwards for any usage of label and replace it by new label
-                for k in range(i+1, min(i+search_limit, len(lines))):  # forwards
+                for k in range(i+1, min(i+search_limit_lines, len(lines))):  # forwards
                     this_line = lines[k]
                     # If reaching the end of the routine then stop the analysis
                     if FUNCTION_SIZE_CALCULATION_REGEX.match(this_line):
@@ -3205,7 +3224,6 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
 
     # Phase 1: Backward scan (modified_lines)
     # But we are going to scan it in forward fashion. So first find target_label_def position
-    target_label_def_position = len(modified_lines) - 1  # fail safe position in case we can't find target_label_def
     start_idx = len(modified_lines) - 1
     end_idx = 0
     for i in range(start_idx, end_idx - 1, -1):  # Backwards scan
@@ -3214,7 +3232,7 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
         stripped = line.lstrip()
         # Check if this line is where the target label is defined
         if stripped.startswith(target_label_def):
-            # Special case for infnite loops (like the one in VDP_resetScreen())
+            # Special case for infinite loops (like the one in VDP_resetScreen())
             if i == start_idx:
                 return True  # target label is in range
             target_label_def_position = i
@@ -3373,9 +3391,46 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
+move_add_sub_ea_into_dN_pattern = re.compile(
+    r'^(\s*)(move|moveq|add|addi|addq|sub|subi|subq)(\.[bwl])?(\s+)'
+    r'(?:'
+    r'(%d[0-7]|%a[0-7]|%sp|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN/aN or (aN) or -(aN) or (aN)+
+    r'|'
+    r'(#?[a-zA-Z_\.][0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label[.s] or symbol[.s] or #symbol[.s].
+    r'|'
+    r'(#?(?:-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?)'  # ABS[.s] or #value[.s]
+    r'|'
+    r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/PC,xN.s)
+    r'|'
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
+    r'|'
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/PC,xN.s)
+    r')'
+    r',\s*(%d[0-7])\b'
+)
+
 copy_memory_by_indirection_pattern = re.compile(
     r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\);?$'
 )
+
+def is_valid_for_redundant_tst_optimization(line: str, dN: str) -> bool:
+    """
+    Return False when line is an instruction that modifies dN, or modifies CCR flags (N,Z,V,C) used by bCC,
+    or is it an unconditional branch instruciton (bra/jmp/bsr/jsr).
+    Otherwise True.
+    """
+    if match_reg_target := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+        if dN == match_reg_target.group(1):
+            return False
+    if match_over := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+        if dN == match_over.group(6):  # reg being overwritten or cleared
+            return False
+    if match_instr := INSTRUCTION_WITH_SIZE_REGEX.match(line):
+        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+            return False
+    if UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+        return False
+    return True
 
 def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
@@ -3387,6 +3442,32 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     line_F = modified_lines[-3]
     line_G = modified_lines[-2]
     line_H = modified_lines[-1]
+
+    # Redundant tst instruction. Saves 4 cycles.
+    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
+    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # ... instructions not modifying dN         ...
+    # ... and not modifying CCR: N,Z,V,C        ...
+    # ... and none of bra/jmp/bsr/jsr           ...
+    # tst.s  dN                                 bCC    label
+    # bCC    label
+    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
+        dN = matchA.group(11)
+        if is_valid_for_redundant_tst_optimization(line_B, dN):
+            if is_valid_for_redundant_tst_optimization(line_C, dN):
+                if is_valid_for_redundant_tst_optimization(line_D, dN):
+                    if is_valid_for_redundant_tst_optimization(line_E, dN):
+                        if is_valid_for_redundant_tst_optimization(line_F, dN):
+                            matchG = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_G)
+                            if matchG and s == matchG.group(1) and dN == matchG.group(2):
+                                matchH = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_H)
+                                if matchH:
+                                    optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_F, line_H]
+                                    #acá
+                                    print_diff([line_A,line_B,line_C,line_D,line_E,line_F,line_G,line_H], i_line, optimized_lines)
+                                    return (optimized_lines, 8)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [20,24] cycles
@@ -3484,6 +3565,31 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     line_F = modified_lines[-2]
     line_G = modified_lines[-1]
 
+    # Redundant tst instruction. Saves 4 cycles.
+    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
+    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # ... instructions not modifying dN         ...
+    # ... and not modifying CCR: N,Z,V,C        ...
+    # ... and none of bra/jmp/bsr/jsr           ...
+    # tst.s  dN                                 bCC    label
+    # bCC    label
+    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
+        dN = matchA.group(11)
+        if is_valid_for_redundant_tst_optimization(line_B, dN):
+            if is_valid_for_redundant_tst_optimization(line_C, dN):
+                if is_valid_for_redundant_tst_optimization(line_D, dN):
+                    if is_valid_for_redundant_tst_optimization(line_E, dN):
+                        matchF = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_F)
+                        if matchF and s == matchF.group(1) and dN == matchF.group(2):
+                            matchG = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_G)
+                            if matchG:
+                                optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_G]
+                                #acá
+                                print_diff([line_A,line_B,line_C,line_D,line_E,line_F,line_G], i_line, optimized_lines)
+                                return (optimized_lines, 7)
+
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [16,20] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
@@ -3571,6 +3677,30 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     line_D = modified_lines[-3]
     line_E = modified_lines[-2]
     line_F = modified_lines[-1]
+
+    # Redundant tst instruction. Saves 4 cycles.
+    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
+    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # ... instructions not modifying dN         ...
+    # ... and not modifying CCR: N,Z,V,C        ...
+    # ... and none of bra/jmp/bsr/jsr           ...
+    # tst.s  dN                                 bCC    label
+    # bCC    label
+    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
+        dN = matchA.group(11)
+        if is_valid_for_redundant_tst_optimization(line_B, dN):
+            if is_valid_for_redundant_tst_optimization(line_C, dN):
+                if is_valid_for_redundant_tst_optimization(line_D, dN):
+                    matchE = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_E)
+                    if matchE and s == matchE.group(1) and dN == matchE.group(2):
+                        matchF = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_F)
+                        if matchF:
+                            optimized_lines = [line_A, line_B, line_C, line_D, line_F]
+                            #acá
+                            print_diff([line_A,line_B,line_C,line_D,line_E,line_F], i_line, optimized_lines)
+                            return (optimized_lines, 6)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [12,16] cycles
@@ -3825,6 +3955,29 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     line_C = modified_lines[-3]
     line_D = modified_lines[-2]
     line_E = modified_lines[-1]
+
+    # Redundant tst instruction. Saves 4 cycles.
+    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
+    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # ... instructions not modifying dN         ...
+    # ... and not modifying CCR: N,Z,V,C        ...
+    # ... and none of bra/jmp/bsr/jsr           ...
+    # tst.s  dN                                 bCC    label
+    # bCC    label
+    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
+        dN = matchA.group(11)
+        if is_valid_for_redundant_tst_optimization(line_B, dN):
+            if is_valid_for_redundant_tst_optimization(line_C, dN):
+                matchD = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_D)
+                if matchD and s == matchD.group(1) and dN == matchD.group(2):
+                    matchE = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_E)
+                    if matchE:
+                        optimized_lines = [line_A, line_B, line_C, line_E]
+                        #acá
+                        print_diff([line_A,line_B,line_C,line_D,line_E], i_line, optimized_lines)
+                        return (optimized_lines, 5)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [8,12] cycles
@@ -4324,6 +4477,28 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     line_B = modified_lines[-3]
     line_C = modified_lines[-2]
     line_D = modified_lines[-1]
+
+    # Redundant tst instruction. Saves 4 cycles.
+    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
+    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # ... instructions not modifying dN         ...
+    # ... and not modifying CCR: N,Z,V,C        ...
+    # ... and none of bra/jmp/bsr/jsr           ...
+    # tst.s  dN                                 bCC    label
+    # bCC    label
+    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
+        dN = matchA.group(11)
+        if is_valid_for_redundant_tst_optimization(line_B, dN):
+            matchC = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_C)
+            if matchC and s == matchC.group(1) and dN == matchC.group(2):
+                matchD = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_D)
+                if matchD:
+                    optimized_lines = [line_A, line_B, line_D]
+                    #acá
+                    print_diff([line_A,line_B,line_C,line_D], i_line, optimized_lines)
+                    return (optimized_lines, 4)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [4,8] cycles
@@ -5244,6 +5419,27 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     line_A = modified_lines[-3]
     line_B = modified_lines[-2]
     line_C = modified_lines[-1]
+
+    # Redundant tst instruction. Saves 4 cycles.
+    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
+    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # ... instructions not modifying dN         ...
+    # ... and not modifying CCR: N,Z,V,C        ...
+    # ... and none of bra/jmp/bsr/jsr           ...
+    # tst.s  dN                                 bCC    label
+    # bCC    label
+    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
+        dN = matchA.group(11)
+        matchB = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_B)
+        if matchB and s == matchB.group(1) and dN == matchB.group(2):
+            matchC = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_C)
+            if matchC:
+                optimized_lines = [line_A, line_C]
+                #acá
+                print_diff([line_A,line_B,line_C], i_line, optimized_lines)
+                return (optimized_lines, 3)
 
     # Calculation of addressing offset.
     # neg.s      dN                    ->    suba.s     dN,aN               ; Saves [2,12] cycles
@@ -8590,7 +8786,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # If 1 <= abs(val) <= 8
     # cmp.s  #val,dN   ->    subq/addq.s   #abs(val),dN      ; Saves [4,6] cycles. Leaves dN different.
     #                        (subq if val > 0, addq if val < 0)
-    # Only if dN is not used anymore until is overwritten or cleared.
+    # Ensure dN is not used anymore or cleared/overwritten before use.
 # acá: this breaks sprites on Metal Slug project
     match = re.match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:

@@ -63,6 +63,10 @@ Tested on Blastem nightly build
 
 TODO
 ====
+More possible optimizations: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
+
+Create Cost Based Check: count cycles of an optimized routine before and after.
+
 Revisit the removal of mem evaluation on constants or symbols having a .[wl]. Eg: move.w  #0x9FC0, (0xC00004).l
 
 Revisit the optimization for canonical address: using jmp label(pc) is faster than jmp label.

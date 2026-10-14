@@ -3,8 +3,9 @@
 Features:
 - Pattern matching peephole optimizer.
 - Multiplication and Division optimization when higher word IS NOT important and where it IS important.
-- Static data flow analysis for registers liveness: free-after-use and non-used registers.
-- Branch instruction size reduction when target label is inside a [-126,128] bytes window address.
+- Static data flow analysis for register liveness: free-after-use and non-used registers.
+- Branch instruction size reduction when target label is inside the [-126,128] bytes window address.
+- Remove redundant tst operation after register allocation.
 - Exploit address register sign extension.
 - Exploit address loading by addition or subtraction of an offset from another addres register already loaded.
 - Multiple lines span optimizations: up to 8 lines for pattern matching optimizations.
@@ -19,7 +20,7 @@ the last opportunity we have to access assembly code before exiting gcc and star
 At `PLUGIN_FINISH` phase we can access the m68k assembly code generated from all the **.c units** in our project 
 and those by the **SGDK** library, including the inline asm blocks. Assembly units **.s, .S, .asm** are excluded from this phase.
 
-The optimizations depend heavily on the project you run over it. On some, it saves 1% of CPU per frame 
+The optimizations depend heavily on the project you run on it. On some, it saves 1% of CPU per frame 
 (approximately 2 scanlines), which is a sign that the project's hot path might be better rewritten in asm (if not already).
 
 See [optimize_lst.py](optimize_lst.py "optimize_lst.py") at header section for a list of all the switches the optimizer provides for more cycles squishing.
@@ -40,7 +41,8 @@ https://wiki.neogeodev.org/index.php?title=Optimization
 http://www.ibaug.de/vasm/doc/vasm.pdf  
 http://www.csua.berkeley.edu/~muchandr/m68k  
 https://github.com/Samuel-DEVULDER/popt  
-Custom patterns found from gcc -S outputs  
+https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md  
+Custom patterns found from gcc -S outputs
 
 ### Build gcc and the plugin
 
