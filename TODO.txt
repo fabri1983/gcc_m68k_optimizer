@@ -65,6 +65,9 @@ TODO
 ====
 More possible optimizations: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
 
+Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
+Review if_reg_not_used_anymore_then_remove_from_push_pop().
+
 Create Cost Based Check: count cycles of an optimized routine before and after.
 
 Revisit the removal of mem evaluation on constants or symbols having a .[wl]. Eg: move.w  #0x9FC0, (0xC00004).l
@@ -73,8 +76,6 @@ Revisit the optimization for canonical address: using jmp label(pc) is faster th
 The same for the shorten branches optimization: replace jmp label_or_func by jmp label_or_func(pc).
 
 Review USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY when is True.
-
-Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 Reg expressions catching a symbol or mem address along with its size: [0-9a-zA-Z_\.]+)(\.[bwl])?
 Make sure the size is not part of the symbolName or the mem address.
@@ -118,20 +119,6 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Redundant move when preceding store sets CC.
-# First move sets CCR flags, so next move is not redundant.
-move.s  aN,(aM)      ->   move.s  aN,(aM)        ; Saves 4 cycles.
-move.s  aN,dN             beq     label
-beq     label
-# Ensure d0 is not used anymore or cleared/overwritten before use.
-
-# Extra register move cost between data reg and adddress reg, when using .w or .b.
-move.s  (aN),aM      ->   move.s  (aN),dM        ; Saves 4 cycles
-add.s   dN,aM             add.s   dN,dM
-move.s  aM,(aN)+          move.s  dM,(aN)+
-# s is b/w.
-# Needs a free data register dM. Ensure aM is not used anymore or cleared/overwritten before use.
-
 # Send 32 bytes (a tile) into memory
 move.l (a2),(a6)      ->    move.l (a2)+,(a6)       ; Saves 24 cycles.
 move.l 4(a2),(a6)           move.l (a2)+,(a6)

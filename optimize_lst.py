@@ -661,7 +661,7 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
 
 # Set of instructions that modifies any of the CCR flags used by conditional branch instructions
 instr_modify_ccr_flags_for_bcc_set = {
-    "tst", "cmp", "cmpi",
+    "tst", "cmp", "cmpi", "bset", "btst", "tas",
     "move", "moveq",
     "add", "addi", "addq","sub", "subi", "subq",
     "and", "andi","or", "ori","eor", "eori",
@@ -3551,8 +3551,9 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
-move_add_sub_ea_into_dN_pattern = re.compile(
-    r'^(\s*)(move|moveq|add|addi|addq|sub|subi|subq)(\.[bwl])?(\s+)'
+# Every instruction that modifies dN and sets CCR flags N,Z,V,C for later BCC usage
+instr_set_ea_into_dN_for_ccr_pattern = re.compile(
+    r'^(\s*)(?:move|add|sub|and|or|eor|clr|neg|not|ext|swap|mul|div|asl|asr|lsl|lsr|rol|ror|rox|tas)[^\s\.]*(\.[bwl])?(\s+)'
     r'(?:'
     r'(%d[0-7]|%a[0-7]|%sp|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN/aN or (aN) or -(aN) or (aN)+
     r'|'
@@ -3592,10 +3593,10 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     # ... and none of bra/jmp/bsr/jsr           ...
     # tst.s  dN                                 bCC    label
     # bCC    label
-    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
     if matchA:
-        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
-        dN = matchA.group(11)
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
         matchG = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_G)
         if matchG and dN == matchG.group(2):
             s_tst = matchG.group(1)
@@ -3613,7 +3614,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                     # Different instruction size. Check if we can use s_tst in the first instruction.
                                     # But avoid pre-decrement and post-increment.
                                     elif "-(" not in line_A and ")+" not in line_A:
-                                        ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                                        ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
                                         is_replacement_valid = False
                                         # We can't move a byte from aN or SP regs
                                         if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
@@ -3756,10 +3757,10 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     # ... and none of bra/jmp/bsr/jsr           ...
     # tst.s  dN                                 bCC    label
     # bCC    label
-    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
     if matchA:
-        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
-        dN = matchA.group(11)
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
         matchF = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_F)
         if matchF and dN == matchF.group(2):
             s_tst = matchF.group(1)
@@ -3776,7 +3777,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                 # Different instruction size. Check if we can use s_tst in the first instruction.
                                 # But avoid pre-decrement and post-increment.
                                 elif "-(" not in line_A and ")+" not in line_A:
-                                    ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                                    ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
                                     is_replacement_valid = False
                                     # We can't move a byte from aN or SP regs
                                     if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
@@ -3911,10 +3912,10 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     # ... and none of bra/jmp/bsr/jsr           ...
     # tst.s  dN                                 bCC    label
     # bCC    label
-    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
     if matchA:
-        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
-        dN = matchA.group(11)
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
         matchE = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_E)
         if matchE and dN == matchE.group(2):
             s_tst = matchE.group(1)
@@ -3930,7 +3931,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                             # Different instruction size. Check if we can use s_tst in the first instruction.
                             # But avoid pre-decrement and post-increment.
                             elif "-(" not in line_A and ")+" not in line_A:
-                                ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                                ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
                                 is_replacement_valid = False
                                 # We can't move a byte from aN or SP regs
                                 if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
@@ -4231,10 +4232,10 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     # ... and none of bra/jmp/bsr/jsr           ...
     # tst.s  dN                                 bCC    label
     # bCC    label
-    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
     if matchA:
-        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
-        dN = matchA.group(11)
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
         matchD = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_D)
         if matchD and dN == matchD.group(2):
             s_tst = matchD.group(1)
@@ -4249,7 +4250,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                         # Different instruction size. Check if we can use s_tst in the first instruction.
                         # But avoid pre-decrement and post-increment.
                         elif "-(" not in line_A and ")+" not in line_A:
-                            ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                            ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
                             is_replacement_valid = False
                             # We can't move a byte from aN or SP regs
                             if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
@@ -4795,10 +4796,10 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     # ... and none of bra/jmp/bsr/jsr           ...
     # tst.s  dN                                 bCC    label
     # bCC    label
-    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
     if matchA:
-        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
-        dN = matchA.group(11)
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
         matchC = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_C)
         if matchC and dN == matchC.group(2):
             s_tst = matchC.group(1)
@@ -4812,7 +4813,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     # Different instruction size. Check if we can use s_tst in the first instruction.
                     # But avoid pre-decrement and post-increment.
                     elif "-(" not in line_A and ")+" not in line_A:
-                        ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                        ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
                         is_replacement_valid = False
                         # We can't move a byte from aN or SP regs
                         if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
@@ -5527,7 +5528,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # move.w     aN,dN
         # move.l     dN,aN
         # add/sub.l  aN,aN
-        # Leaves dN with different value. Ensure is not used before cleared or overwritten.
+        # Leaves dN with different value. 
+        # Ensure dN is not used before cleared or overwritten.
         matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(4)
@@ -5550,7 +5552,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # lsl.l      #2,dN          add.l      aN,aN
         # move.l     dN,aN          add/sub.l  #val,aN
         # add/sub.l  #val,aN
-        # Leaves dN with different value. Ensure is not used before cleared or overwritten.
+        # Leaves dN with different value.
+        # Ensure dN is not used before cleared or overwritten.
         matchA = re.match(r'^(\s*)move\.w(\s+)(%a[0-7]),\s*(%d[0-7])', line_A)
         if matchA:
             aN = matchA.group(3)
@@ -5779,10 +5782,10 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     # ... and none of bra/jmp/bsr/jsr           ...
     # tst.s  dN                                 bCC    label
     # bCC    label
-    matchA = re.match(move_add_sub_ea_into_dN_pattern, line_A)
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
     if matchA:
-        s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
-        dN = matchA.group(11)
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
         matchB = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_B)
         if matchB and dN == matchB.group(2):
             s_tst = matchB.group(1)
@@ -5795,7 +5798,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 # Different instruction size. Check if we can use s_tst in the first instruction.
                 # But avoid pre-decrement and post-increment.
                 elif "-(" not in line_A and ")+" not in line_A:
-                    ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                    ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
                     is_replacement_valid = False
                     # We can't move a byte from aN or SP regs
                     if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
@@ -6164,6 +6167,58 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                                 f'{matchA.group(1)}{instr_C}.w{matchA.group(2)}{dM},{dN}'
                             ]
                             return (optimized_lines, 3)
+
+        # Redundant move when preceding store sets CCR flags for BCC.
+        # First move sets CCR flags, so next move is redundant.
+        # move.s  aN,(aM)     ->    move.s  aN,(aM)        ; Saves 4 cycles. Leaves dN different.
+        # move.s  aN,dN             bCC     label
+        # bCC     label
+        # Leaves dN with different value in upper word. 
+        # Ensure dN is not used anymore or cleared/overwritten before use.
+        matchA = re.match(r'^(\s*)move\.([bwl])(\s+)(%a[0-7]|%sp),\s*(-?\d+)?\((%a[0-7]|%sp)\)(\+)?', line_A)
+        if matchA:
+            s = matchA.group(2)
+            aN = matchA.group(4)
+            matchB = re.match(r'^\s*move\.([bwl])\s+(%a[0-7]|%sp),\s*(%d[0-7])', line_B)
+            if matchB and s == matchB.group(1) and aN == matchB.group(2):
+                dN = matchB.group(3)
+                matchC = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_C)
+                if matchC:
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3):
+                        optimized_lines = [line_A, line_C]
+                        return (optimized_lines, 3)
+                
+        # Extra register move cost between data reg and adddress reg.
+        # Optimization useful when using .w only.
+        # move.w  (aN),aM     ->    move.w  (aN),dM        ; Saves 4 cycles. Leaves aM different.
+        # add.w   dN,aM             add.w   dN,dM
+        # move.w  aM,(aN)+          move.w  dM,(aN)+
+        # Needs a free data register dM.
+        # Leaves aM with different value.
+        # Ensure aM is not used anymore or cleared/overwritten before use.
+        matchA = re.match(r'^(\s*)(move|movea)\.w(\s+)(-?\d+)?\((%a[0-7]|%sp)\),\s*(%a[0-7])', line_A)
+        if matchA:
+            disp = '' if not matchA.group(4) else matchA.group(4)
+            aN = matchA.group(5)
+            aM = matchA.group(6)
+            matchB = re.match(r'^\s*(add|adda|addq|sub|suba|subq)\.w\s+(%d[0-7]),\s*(%a[0-7]|%sp)', line_B)
+            if matchB and aM == matchB.group(3):
+                dN = matchB.group(2)
+                matchC = re.match(r'^\s*move\.w\s+(%a[0-7]|%sp),\s*\((%a[0-7]|%sp)\)\+', line_C)
+                if matchC and aM == matchC.group(1) and aN == matchC.group(2):
+                    dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                    if dM is None:
+                        dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                    if dM is not None:
+                        if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+                            if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 3):
+                                instr_B = matchB.group(1)
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{disp}({aN}),{dM}',
+                                    f'{matchA.group(1)}{instr_B}.w{matchA.group(3)}{dN},{dM}',
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{aM},({aN})+'
+                                ]
+                                return (optimized_lines, 3)
 
         # TODO: uncomment when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed.
         # Case for a potentially new free register.
