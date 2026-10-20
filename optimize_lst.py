@@ -730,7 +730,7 @@ PUSH_OTHER_INTO_STACK_REGEX = re.compile(
 )
 
 # Labels: 1:, .L37:, _loc1:, abcABC:, xlt_all.0:
-LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):\s*;?$')
+LABEL_REGEX = re.compile(r'^\s*([0-9a-zA-Z_\.]+):\s*$')
 
 backward_number_labels = {'0b','1b','2b','3b','4b','5b','6b','7b','8b','9b'}
 forward_number_labels = {'0f','1f','2f','3f','4f','5f','6f','7f','8f','9f'}
@@ -1848,15 +1848,20 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         newRegs_str = '/'.join(sortedRegs)
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
-def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> list[str]:
+class RegisterUsageOccurrenceMode(Enum):
+    AT_LEAST_ONE_PER_CONTROL_FLOW = "one_per_flow"
+    ALL_OCCURRENCES = "all"
+
+def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> list[str]:
     """
     Search over the remaining lines using control flow starting at i_line + 1 for one of next conditions:
-    - xN is used as source operand or in any indirection (in both source and target) operand:
-        collect the line and stop the analysis in current flow and continue any pending flow.
-    - if xN is used as a target (but not being actually overwritten/cleared):
-        collect the line and stop the analysis in current flow and continue any pending flow.
     - xN is overwritten/cleared by a move/lea/sub/eor itself, or clr, before is being used:
-        stop the analysis in current flow and continue any pending flow.
+        stop the analysis in current flow.
+    - xN is used as source operand or in any indirection (in both source and target) operand:
+        collect the line and stop/continue the analysis in current flow according to reg_use_occurr_mode.
+    - if xN is used as a target (but not being actually overwritten/cleared):
+        collect the line and stop/continue the analysis in current flow according to reg_use_occurr_mode.
+    - Repeat analysis in any pending flow.
     Param ignore_N_previous_lines only affects modified_lines.
     Returns [line1, line2, ...] or empty []
     """
@@ -2006,26 +2011,38 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
                 regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
                 if xN in regs_list:
                     collected_lines.append(line)
-                    break  # Stop the analysis at current flow
+                    if reg_use_occurr_mode == RegisterUsageOccurrenceMode.ALL_OCCURRENCES:
+                        continue  # 
+                    else:
+                        break  # Stop the analysis at current flow
 
             # If pushing into stack then consider the reg as used
             elif push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
                 regs_list = extract_registers(push_match.group(3), PUSH_OP)
                 if xN in regs_list:
                     collected_lines.append(line)
-                    break  # Stop the analysis at current flow
+                    if reg_use_occurr_mode == RegisterUsageOccurrenceMode.ALL_OCCURRENCES:
+                        continue  # 
+                    else:
+                        break  # Stop the analysis at current flow
 
             # If poping from stack then consider the reg as overwritten
             elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
                 regs_list = extract_registers(pop_match.group(3), POP_OP)
                 if xN in regs_list:
-                    break  # Stop the analysis at current flow
+                    if reg_use_occurr_mode == RegisterUsageOccurrenceMode.ALL_OCCURRENCES:
+                        continue  # 
+                    else:
+                        break  # Stop the analysis at current flow
 
             # xN it's a target operand? Consider the reg as used
             if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
                 if xN == match.group(1):
                     collected_lines.append(line)
-                    break  # Stop the analysis at current flow
+                    if reg_use_occurr_mode == RegisterUsageOccurrenceMode.ALL_OCCURRENCES:
+                        continue  # 
+                    else:
+                        break  # Stop the analysis at current flow
 
         # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1]
         if target_array is modified_lines and i == rem_end:
@@ -2054,15 +2071,15 @@ def is_reg_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, l
     Param ignore_N_previous_lines only affects modified_lines.
     lines[i_line] will be commented in the inner method.
     """
-    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
     return len(matching_lines) > 0
 
-def is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> bool:
+def is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> bool:
     """
     Param ignore_N_previous_lines only affects modified_lines.
     lines[i_line] will be commented in the inner method.
     """
-    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines)
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines, reg_use_occurr_mode)
     if len(matching_lines) == 0:
         return False
 
@@ -2078,6 +2095,35 @@ def is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(xN: str
         if match_instr_size:
             s = match_instr_size.group(2)
             if s and s in ('.b','.w'):
+                continue  # This line meets the condition, check next line
+
+        # This line doesn't meet either of previous conditions
+        return False
+
+    # All lines met at least one of the conditions
+    return True
+
+def is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> bool:
+    """
+    Param ignore_N_previous_lines only affects modified_lines.
+    lines[i_line] will be commented in the inner method.
+    """
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines, reg_use_occurr_mode)
+    if len(matching_lines) == 0:
+        return False
+
+    # Ensure all lines are using the reg xN as word or byte
+    for matching_line in matching_lines:
+
+        # Condition 1: Check if the register is used in any indirection: 'xN.s)'
+        if xN+".b)" in matching_line:
+             continue  # This line meets this condition, check next line
+
+        # Condition 2: Check for the instruction size
+        match_instr_size = INSTRUCTION_WITH_SIZE_REGEX.match(matching_line)
+        if match_instr_size:
+            s = match_instr_size.group(2)
+            if s and s in ('.b'):
                 continue  # This line meets the condition, check next line
 
         # This line doesn't meet either of previous conditions
@@ -3295,6 +3341,120 @@ def uncomment_last_N_lines(modified_lines: list[str], n_lines: int):
             if line != "#APP" and line != "#NO_APP":
                 modified_lines[i] = line[1:]
 
+def is_dN_set_for_ccr_for_bcc(lines: list[str], modified_lines: list[str], dN: str, target_label: str, control_flow_dict: dict[str, ControlFlowPosInArray]) -> bool:
+    """
+    Explores the context from where the code jumps to target_label, in search of any setup of dN for CCR flags.
+    Returns False if dN wasn't set as target by an instruction that sets CCR flags N,Z,V,C for BCC instruction.
+    Returns False if CCR flags N,Z,V,C were set before dN setup it is.
+    Returns True if none of the above happens.
+    """
+    if target_label not in control_flow_dict:
+        return False
+
+    lines_limit_backwards = 16
+    control_obj = control_flow_dict[target_label]
+    dN_set_for_ccr = False
+
+    if control_obj.inverted_for_lines:
+        for idx in control_obj.inverted_for_lines:
+
+            # search backwards for an instruction where dN is the target
+            start_idx = max(idx - 1, 0)
+            end_idx = max(start_idx - lines_limit_backwards, 0)
+            for i in range(start_idx, end_idx - 1, -1):  # backwards
+                line = lines[i]
+
+                # Break condition
+                if FUNCTION_DECLARATION_REGEX.match(line):
+                    break
+
+                if UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                    break
+
+                match_instr = INSTRUCTION_WITH_SIZE_REGEX.match(line)
+                is_dN_target = False
+
+                # When dN is the target -> make sure the instruction sets the CCR flags: N,Z,V,C
+                if match_reg_target := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+                    if dN == match_reg_target.group(1):
+                        is_dN_target = True
+                        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+                            dN_set_for_ccr = True
+                            break
+                elif match_over := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+                    if dN == match_over.group(6):  # reg being overwritten or cleared
+                        is_dN_target = True
+                        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+                            dN_set_for_ccr = True
+                            break
+
+                # If instruction does not contain dN as target but it sets CCR flags for BCC -> stop the analysis
+                if not is_dN_target and match_instr and is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+                    return False
+
+    if control_obj.inverted_for_modified_lines:
+        for idx in control_obj.inverted_for_modified_lines:
+
+            # search backwards for an instruction where dN is the target
+            start_idx = max(idx - 1, 0)
+            end_idx = max(start_idx - lines_limit_backwards, 0)
+            for i in range(start_idx, end_idx - 1, -1):  # backwards
+                line = modified_lines[i]
+
+                # Break condition
+                if FUNCTION_DECLARATION_REGEX.match(line):
+                    break
+
+                if UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                    break
+
+                match_instr = INSTRUCTION_WITH_SIZE_REGEX.match(line)
+                is_dN_target = False
+
+                # When dN is the target -> make sure the instruction sets the CCR flags: N,Z,V,C
+                if match_reg_target := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+                    if dN == match_reg_target.group(1):
+                        is_dN_target = True
+                        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+                            dN_set_for_ccr = True
+                            break
+                elif match_over := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+                    if dN == match_over.group(6):  # reg being overwritten or cleared
+                        is_dN_target = True
+                        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+                            dN_set_for_ccr = True
+                            break
+
+                # If instruction does not contain dN as target but it sets CCR flags for BCC -> stop the analysis
+                if not is_dN_target and match_instr and is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+                    return False
+
+    return dN_set_for_ccr
+
+def is_valid_for_redundant_tst_optimization(i_line: int, lines: list[str], modified_lines: list[str], line: str, dN: str) -> bool:
+    """
+    Return False when line is an instruction that modifies dN, or modifies CCR flags (N,Z,V,C) used by bCC,
+    or is it an unconditional branch instruction (bra/jmp/bsr/jsr).
+    Otherwise True.
+    """
+    if UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+        return False
+    if match_reg_target := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+        if dN == match_reg_target.group(1):
+            return False
+    if match_over := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+        if dN == match_over.group(6):  # reg being overwritten or cleared
+            return False
+    if match_instr := INSTRUCTION_WITH_SIZE_REGEX.match(line):
+        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
+            return False
+    if match_label := LABEL_REGEX.match(line):
+        control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
+        target_label = match_label.group(1)
+        return is_dN_set_for_ccr_for_bcc(lines, modified_lines, dN, target_label, control_flow_dict)
+
+    return True
+
 IS_ASL_INSTRUCTION_REGEX = re.compile(r'^\s*asl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
 IS_ASR_INSTRUCTION_REGEX = re.compile(r'^\s*asr\.[bwl]\s+[^,]+,\s*%d[0-7]')
@@ -3413,25 +3573,6 @@ copy_memory_by_indirection_pattern = re.compile(
     r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\);?$'
 )
 
-def is_valid_for_redundant_tst_optimization(line: str, dN: str) -> bool:
-    """
-    Return False when line is an instruction that modifies dN, or modifies CCR flags (N,Z,V,C) used by bCC,
-    or is it an unconditional branch instruciton (bra/jmp/bsr/jsr).
-    Otherwise True.
-    """
-    if match_reg_target := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
-        if dN == match_reg_target.group(1):
-            return False
-    if match_over := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
-        if dN == match_over.group(6):  # reg being overwritten or cleared
-            return False
-    if match_instr := INSTRUCTION_WITH_SIZE_REGEX.match(line):
-        if is_istruction_modifying_CCR_flags_for_BCC(match_instr.group(1)):
-            return False
-    if UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
-        return False
-    return True
-
 def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
 
     line_A = modified_lines[-8]
@@ -3443,7 +3584,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     line_G = modified_lines[-2]
     line_H = modified_lines[-1]
 
-    # Redundant tst instruction. Saves 4 cycles.
+    # Redundant tst instruction.
     # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
     # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
     # ... instructions not modifying dN         ...
@@ -3455,19 +3596,61 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
         dN = matchA.group(11)
-        if is_valid_for_redundant_tst_optimization(line_B, dN):
-            if is_valid_for_redundant_tst_optimization(line_C, dN):
-                if is_valid_for_redundant_tst_optimization(line_D, dN):
-                    if is_valid_for_redundant_tst_optimization(line_E, dN):
-                        if is_valid_for_redundant_tst_optimization(line_F, dN):
-                            matchG = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_G)
-                            if matchG and s == matchG.group(1) and dN == matchG.group(2):
-                                matchH = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_H)
-                                if matchH:
-                                    optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_F, line_H]
-                                    #acá
-                                    print_diff([line_A,line_B,line_C,line_D,line_E,line_F,line_G,line_H], i_line, optimized_lines)
-                                    return (optimized_lines, 8)
+        matchG = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_G)
+        if matchG and dN == matchG.group(2):
+            s_tst = matchG.group(1)
+            matchH = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_H)
+            if matchH:
+                if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_B, dN):
+                    if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_C, dN):
+                        if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_D, dN):
+                            if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_E, dN):
+                                if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_F, dN):
+                                    # Same instruction size
+                                    if s == s_tst:
+                                        optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_F, line_H]
+                                        return (optimized_lines, 8)
+                                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                                    # But avoid pre-decrement and post-increment.
+                                    elif "-(" not in line_A and ")+" not in line_A:
+                                        ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                                        is_replacement_valid = False
+                                        # We can't move a byte from aN or SP regs
+                                        if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
+                                            if is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 8, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                                is_replacement_valid = True
+                                        elif s == 'l' and s_tst == 'w':
+                                            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 8, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                                is_replacement_valid = True
+                                        # Ok for size replacement?
+                                        if is_replacement_valid:
+                                            line_A_opt = line_A.replace(s, s_tst, 1)
+
+                                            # label_or_disp[+-*N](aN/PC)
+                                            if match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
+                                                label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                                label_or_disp_updated = label_or_disp
+                                                if isValue(label_or_disp):
+                                                    disp = parseConstantSigned(label_or_disp, 16)
+                                                    add_disp_offset = 3 if s_tst == 'b' else 2
+                                                    label_or_disp_updated = str(disp + add_disp_offset)
+                                                ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                                                line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                            # label_or_disp[+-*N](aN/PC,xN.s)
+                                            elif match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
+                                                label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                                label_or_disp_updated = label_or_disp
+                                                if isValue(label_or_disp):
+                                                    disp = parseConstantSigned(label_or_disp, 8)
+                                                    add_disp_offset = 3 if s_tst == 'b' else 2
+                                                    label_or_disp_updated = str(disp + add_disp_offset)
+                                                aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                                                ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                                                line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                            optimized_lines = [line_A_opt, line_B, line_C, line_D, line_E, line_F, line_H]
+                                            return (optimized_lines, 8)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [20,24] cycles
@@ -3565,7 +3748,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     line_F = modified_lines[-2]
     line_G = modified_lines[-1]
 
-    # Redundant tst instruction. Saves 4 cycles.
+    # Redundant tst instruction.
     # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
     # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
     # ... instructions not modifying dN         ...
@@ -3577,18 +3760,60 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
         dN = matchA.group(11)
-        if is_valid_for_redundant_tst_optimization(line_B, dN):
-            if is_valid_for_redundant_tst_optimization(line_C, dN):
-                if is_valid_for_redundant_tst_optimization(line_D, dN):
-                    if is_valid_for_redundant_tst_optimization(line_E, dN):
-                        matchF = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_F)
-                        if matchF and s == matchF.group(1) and dN == matchF.group(2):
-                            matchG = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_G)
-                            if matchG:
-                                optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_G]
-                                #acá
-                                print_diff([line_A,line_B,line_C,line_D,line_E,line_F,line_G], i_line, optimized_lines)
-                                return (optimized_lines, 7)
+        matchF = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_F)
+        if matchF and dN == matchF.group(2):
+            s_tst = matchF.group(1)
+            matchG = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_G)
+            if matchG:
+                if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_B, dN):
+                    if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_C, dN):
+                        if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_D, dN):
+                            if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_E, dN):
+                                # Same instruction size
+                                if s == s_tst:
+                                    optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_G]
+                                    return (optimized_lines, 7)
+                                # Different instruction size. Check if we can use s_tst in the first instruction.
+                                # But avoid pre-decrement and post-increment.
+                                elif "-(" not in line_A and ")+" not in line_A:
+                                    ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                                    is_replacement_valid = False
+                                    # We can't move a byte from aN or SP regs
+                                    if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
+                                        if is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 7, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                            is_replacement_valid = True
+                                    elif s == 'l' and s_tst == 'w':
+                                        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 7, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                            is_replacement_valid = True
+                                    # Ok for size replacement?
+                                    if is_replacement_valid:
+                                        line_A_opt = line_A.replace(s, s_tst, 1)
+
+                                        # label_or_disp[+-*N](aN/PC)
+                                        if match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
+                                            label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                            label_or_disp_updated = label_or_disp
+                                            if isValue(label_or_disp):
+                                                disp = parseConstantSigned(label_or_disp, 16)
+                                                add_disp_offset = 3 if s_tst == 'b' else 2
+                                                label_or_disp_updated = str(disp + add_disp_offset)
+                                            ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                                            line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                        # label_or_disp[+-*N](aN/PC,xN.s)
+                                        elif match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
+                                            label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                            label_or_disp_updated = label_or_disp
+                                            if isValue(label_or_disp):
+                                                disp = parseConstantSigned(label_or_disp, 8)
+                                                add_disp_offset = 3 if s_tst == 'b' else 2
+                                                label_or_disp_updated = str(disp + add_disp_offset)
+                                            aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                                            ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                                            line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                        optimized_lines = [line_A_opt, line_B, line_C, line_D, line_E, line_G]
+                                        return (optimized_lines, 7)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [16,20] cycles
@@ -3678,7 +3903,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     line_E = modified_lines[-2]
     line_F = modified_lines[-1]
 
-    # Redundant tst instruction. Saves 4 cycles.
+    # Redundant tst instruction.
     # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
     # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
     # ... instructions not modifying dN         ...
@@ -3690,17 +3915,59 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
         dN = matchA.group(11)
-        if is_valid_for_redundant_tst_optimization(line_B, dN):
-            if is_valid_for_redundant_tst_optimization(line_C, dN):
-                if is_valid_for_redundant_tst_optimization(line_D, dN):
-                    matchE = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_E)
-                    if matchE and s == matchE.group(1) and dN == matchE.group(2):
-                        matchF = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_F)
-                        if matchF:
-                            optimized_lines = [line_A, line_B, line_C, line_D, line_F]
-                            #acá
-                            print_diff([line_A,line_B,line_C,line_D,line_E,line_F], i_line, optimized_lines)
-                            return (optimized_lines, 6)
+        matchE = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_E)
+        if matchE and dN == matchE.group(2):
+            s_tst = matchE.group(1)
+            matchF = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_F)
+            if matchF:
+                if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_B, dN):
+                    if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_C, dN):
+                        if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_D, dN):
+                            # Same instruction size
+                            if s == s_tst:
+                                optimized_lines = [line_A, line_B, line_C, line_D, line_F]
+                                return (optimized_lines, 6)
+                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                            # But avoid pre-decrement and post-increment.
+                            elif "-(" not in line_A and ")+" not in line_A:
+                                ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                                is_replacement_valid = False
+                                # We can't move a byte from aN or SP regs
+                                if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
+                                    if is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                        is_replacement_valid = True
+                                elif s == 'l' and s_tst == 'w':
+                                    if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                        is_replacement_valid = True
+                                # Ok for size replacement?
+                                if is_replacement_valid:
+                                    line_A_opt = line_A.replace(s, s_tst, 1)
+
+                                    # label_or_disp[+-*N](aN/PC)
+                                    if match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
+                                        label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                        label_or_disp_updated = label_or_disp
+                                        if isValue(label_or_disp):
+                                            disp = parseConstantSigned(label_or_disp, 16)
+                                            add_disp_offset = 3 if s_tst == 'b' else 2
+                                            label_or_disp_updated = str(disp + add_disp_offset)
+                                        ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                                        line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                    # label_or_disp[+-*N](aN/PC,xN.s)
+                                    elif match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
+                                        label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                        label_or_disp_updated = label_or_disp
+                                        if isValue(label_or_disp):
+                                            disp = parseConstantSigned(label_or_disp, 8)
+                                            add_disp_offset = 3 if s_tst == 'b' else 2
+                                            label_or_disp_updated = str(disp + add_disp_offset)
+                                        aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                                        ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                                        line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                    optimized_lines = [line_A_opt, line_B, line_C, line_D, line_F]
+                                    return (optimized_lines, 6)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [12,16] cycles
@@ -3956,7 +4223,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     line_D = modified_lines[-2]
     line_E = modified_lines[-1]
 
-    # Redundant tst instruction. Saves 4 cycles.
+    # Redundant tst instruction.
     # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
     # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
     # ... instructions not modifying dN         ...
@@ -3968,16 +4235,58 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
         dN = matchA.group(11)
-        if is_valid_for_redundant_tst_optimization(line_B, dN):
-            if is_valid_for_redundant_tst_optimization(line_C, dN):
-                matchD = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_D)
-                if matchD and s == matchD.group(1) and dN == matchD.group(2):
-                    matchE = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_E)
-                    if matchE:
-                        optimized_lines = [line_A, line_B, line_C, line_E]
-                        #acá
-                        print_diff([line_A,line_B,line_C,line_D,line_E], i_line, optimized_lines)
-                        return (optimized_lines, 5)
+        matchD = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_D)
+        if matchD and dN == matchD.group(2):
+            s_tst = matchD.group(1)
+            matchE = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_E)
+            if matchE:
+                if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_B, dN):
+                    if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_C, dN):
+                        # Same instruction size
+                        if s == s_tst:
+                            optimized_lines = [line_A, line_B, line_C, line_E]
+                            return (optimized_lines, 5)
+                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                        # But avoid pre-decrement and post-increment.
+                        elif "-(" not in line_A and ")+" not in line_A:
+                            ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                            is_replacement_valid = False
+                            # We can't move a byte from aN or SP regs
+                            if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
+                                if is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                    is_replacement_valid = True
+                            elif s == 'l' and s_tst == 'w':
+                                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                    is_replacement_valid = True
+                            # Ok for size replacement?
+                            if is_replacement_valid:
+                                line_A_opt = line_A.replace(s, s_tst, 1)
+
+                                # label_or_disp[+-*N](aN/PC)
+                                if match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
+                                    label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                    label_or_disp_updated = label_or_disp
+                                    if isValue(label_or_disp):
+                                        disp = parseConstantSigned(label_or_disp, 16)
+                                        add_disp_offset = 3 if s_tst == 'b' else 2
+                                        label_or_disp_updated = str(disp + add_disp_offset)
+                                    ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                                    line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                # label_or_disp[+-*N](aN/PC,xN.s)
+                                elif match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
+                                    label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                    label_or_disp_updated = label_or_disp
+                                    if isValue(label_or_disp):
+                                        disp = parseConstantSigned(label_or_disp, 8)
+                                        add_disp_offset = 3 if s_tst == 'b' else 2
+                                        label_or_disp_updated = str(disp + add_disp_offset)
+                                    aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                                    ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                                    line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                                optimized_lines = [line_A_opt, line_B, line_C, line_E]
+                                return (optimized_lines, 5)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [8,12] cycles
@@ -4478,7 +4787,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     line_C = modified_lines[-2]
     line_D = modified_lines[-1]
 
-    # Redundant tst instruction. Saves 4 cycles.
+    # Redundant tst instruction.
     # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
     # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
     # ... instructions not modifying dN         ...
@@ -4490,15 +4799,57 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
         dN = matchA.group(11)
-        if is_valid_for_redundant_tst_optimization(line_B, dN):
-            matchC = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_C)
-            if matchC and s == matchC.group(1) and dN == matchC.group(2):
-                matchD = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_D)
-                if matchD:
-                    optimized_lines = [line_A, line_B, line_D]
-                    #acá
-                    print_diff([line_A,line_B,line_C,line_D], i_line, optimized_lines)
-                    return (optimized_lines, 4)
+        matchC = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_C)
+        if matchC and dN == matchC.group(2):
+            s_tst = matchC.group(1)
+            matchD = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_D)
+            if matchD:
+                if is_valid_for_redundant_tst_optimization(i_line, lines, modified_lines, line_B, dN):
+                    # Same instruction size
+                    if s == s_tst:
+                        optimized_lines = [line_A, line_B, line_D]
+                        return (optimized_lines, 4)
+                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                    # But avoid pre-decrement and post-increment.
+                    elif "-(" not in line_A and ")+" not in line_A:
+                        ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                        is_replacement_valid = False
+                        # We can't move a byte from aN or SP regs
+                        if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
+                            if is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                is_replacement_valid = True
+                        elif s == 'l' and s_tst == 'w':
+                            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                                is_replacement_valid = True
+                        # Ok for size replacement?
+                        if is_replacement_valid:
+                            line_A_opt = line_A.replace(s, s_tst, 1)
+
+                            # label_or_disp[+-*N](aN/PC)
+                            if match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
+                                label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                label_or_disp_updated = label_or_disp
+                                if isValue(label_or_disp):
+                                    disp = parseConstantSigned(label_or_disp, 16)
+                                    add_disp_offset = 3 if s_tst == 'b' else 2
+                                    label_or_disp_updated = str(disp + add_disp_offset)
+                                ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                                line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                            # label_or_disp[+-*N](aN/PC,xN.s)
+                            elif match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
+                                label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                                label_or_disp_updated = label_or_disp
+                                if isValue(label_or_disp):
+                                    disp = parseConstantSigned(label_or_disp, 8)
+                                    add_disp_offset = 3 if s_tst == 'b' else 2
+                                    label_or_disp_updated = str(disp + add_disp_offset)
+                                aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                                ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                                line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                            optimized_lines = [line_A_opt, line_B, line_D]
+                            return (optimized_lines, 4)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [4,8] cycles
@@ -5237,7 +5588,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     matchD = re.match(r'^\s*move\.l?\s+(%d[0-7]),(%d[0-7])', line_D)
                     if matchD and dN == matchD.group(1) and dN != matchD.group(2):
                         is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
-                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
                         if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                             dM = matchD.group(2)
                             optimized_lines = [
@@ -5268,7 +5619,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
                         if dM is not None:
                             is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
-                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
+                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
                             if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                                 aN = matchD.group(2)
                                 optimized_lines = [
@@ -5420,7 +5771,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     line_B = modified_lines[-2]
     line_C = modified_lines[-1]
 
-    # Redundant tst instruction. Saves 4 cycles.
+    # Redundant tst instruction.
     # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
     # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
     # ... instructions not modifying dN         ...
@@ -5432,14 +5783,56 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = '' if not matchA.group(3) else matchA.group(3)[1:]  # removes the .
         dN = matchA.group(11)
-        matchB = re.match(r'^\s*tst\.[bwl]\s+(%d[0-7])', line_B)
-        if matchB and s == matchB.group(1) and dN == matchB.group(2):
+        matchB = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(2):
+            s_tst = matchB.group(1)
             matchC = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_C)
             if matchC:
-                optimized_lines = [line_A, line_C]
-                #acá
-                print_diff([line_A,line_B,line_C], i_line, optimized_lines)
-                return (optimized_lines, 3)
+                # Same instruction size
+                if s == s_tst:
+                    optimized_lines = [line_A, line_C]
+                    return (optimized_lines, 3)
+                # Different instruction size. Check if we can use s_tst in the first instruction.
+                # But avoid pre-decrement and post-increment.
+                elif "-(" not in line_A and ")+" not in line_A:
+                    ea = next((matchA.group(i) for i in range(5, 11) if matchA.group(i)), None)
+                    is_replacement_valid = False
+                    # We can't move a byte from aN or SP regs
+                    if (s == 'l' or s == 'w') and s_tst == 'b' and not ea.startswith(("%a","%sp")):
+                        if is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                            is_replacement_valid = True
+                    elif s == 'l' and s_tst == 'w':
+                        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                            is_replacement_valid = True
+                    # Ok for size replacement?
+                    if is_replacement_valid:
+                        line_A_opt = line_A.replace(s, s_tst, 1)
+
+                        # label_or_disp[+-*N](aN/PC)
+                        if match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
+                            label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                            label_or_disp_updated = label_or_disp
+                            if isValue(label_or_disp):
+                                disp = parseConstantSigned(label_or_disp, 16)
+                                add_disp_offset = 3 if s_tst == 'b' else 2
+                                label_or_disp_updated = str(disp + add_disp_offset)
+                            ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
+                            line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                        # label_or_disp[+-*N](aN/PC,xN.s)
+                        elif match_ea := re.match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+\*]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
+                            label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
+                            label_or_disp_updated = label_or_disp
+                            if isValue(label_or_disp):
+                                disp = parseConstantSigned(label_or_disp, 8)
+                                add_disp_offset = 3 if s_tst == 'b' else 2
+                                label_or_disp_updated = str(disp + add_disp_offset)
+                            aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
+                            ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
+                            line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
+
+                        optimized_lines = [line_A_opt, line_C]
+                        return (optimized_lines, 3)
 
     # Calculation of addressing offset.
     # neg.s      dN                    ->    suba.s     dN,aN               ; Saves [2,12] cycles
@@ -5763,7 +6156,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         instr_C = matchC.group(1)
                         dM = matchC.group(2)
                         is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3)
-                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
                         if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                             optimized_lines = [
                                 f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
@@ -5791,7 +6184,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         #        if matchC and dN == matchC.group(1) and dM == matchC.group(2):
         #            # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
         #            if current_pass == 2:
-        #                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3):
+        #                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
         #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
         #                    optimized_lines = [
         #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
@@ -5927,7 +6320,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             ea = matchB.group(3)
             if dN not in ea:
                 dn_used = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
+                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
                 if not dn_used or dn_used_as_word_or_byte:
                     optimized_lines = [
                         line_B
@@ -5944,7 +6337,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         dN = matchA.group(4)
         matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
         if matchB and dN == matchB.group(1):
-            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
                 optimized_lines = [
                     line_A
                 ]
@@ -7520,7 +7913,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
                         ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
                     # Check on adjusted <ea>
-                    if ea_adjusted and is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+                    if ea_adjusted and is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
                         optimized_lines = [
                             f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                             f'{matchA.group(1)}move.b{matchA.group(3)}{ea_adjusted},{dN}'
@@ -7538,7 +7931,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchB = re.match(r'^\s*move\.w\s+([,^]),\s*(%d[0-7])', line_B)
         if matchB and dN == matchB.group(3):
             is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
+            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
             if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                 ea = matchB.group(1)
                 optimized_lines = [
@@ -9296,7 +9689,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -9327,7 +9720,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                         f'{match.group(1)}add.w{match.group(3)}{dM},{dN}'
@@ -9363,7 +9756,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -9394,7 +9787,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0):
+                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                         f'{match.group(1)}sub.w{match.group(3)}{dM},{dN}'
@@ -9450,7 +9843,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{aN}'
                 return ([optimized_line], True)
@@ -9514,7 +9907,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{aN}'
                 return ([optimized_line], True)

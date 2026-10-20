@@ -102,15 +102,15 @@ Single instruction
 ==================
 Clear upper word of dN.
 We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
-and.l   #0xFFFF,dN   ->   ext.l   dN             ; Saves 12 cycles
+and.l   #0xFFFF,dN   ->   ext.l   dN             ; Saves 12 cycles.
 
 Clearing memory using existent dN already holding 0 value.
 Must find a dN holding 0 in bits s.
-clr.s   -(aN)        ->   move.s  dN,-(aN)       ; Saves [6,10] cycles
+clr.s   -(aN)        ->   move.s  dN,-(aN)       ; Saves [6,10] cycles.
 
 Replace usage of immediate by register.
 Must find a dM holding val in bits s.
-btst.s  #val,dN      ->   btst.s  dM,dN          ; Saves 4 cycles
+btst.s  #val,dN      ->   btst.s  dM,dN          ; Saves 4 cycles.
 
 Multiplication by a negative constant: see the comments in the optimizer script and implement accordingly.
 
@@ -118,28 +118,42 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+# Redundant move when preceding store sets CC.
+# First move sets CCR flags, so next move is not redundant.
+move.s  aN,(aM)      ->   move.s  aN,(aM)        ; Saves 4 cycles.
+move.s  aN,dN             beq     label
+beq     label
+# Ensure d0 is not used anymore or cleared/overwritten before use.
+
+# Extra register move cost between data reg and adddress reg, when using .w or .b.
+move.s  (aN),aM      ->   move.s  (aN),dM        ; Saves 4 cycles
+add.s   dN,aM             add.s   dN,dM
+move.s  aM,(aN)+          move.s  dM,(aN)+
+# s is b/w.
+# Needs a free data register dM. Ensure aM is not used anymore or cleared/overwritten before use.
+
 # Send 32 bytes (a tile) into memory
-move.l (a2),(a6)       ->    move.l (a2)+,(a6)    ; Saves 24 cycles
-move.l 4(a2),(a6)            move.l (a2)+,(a6)
-move.l 8(a2),(a6)            move.l (a2)+,(a6)
-move.l 12(a2),(a6)           move.l (a2)+,(a6)
-move.l 16(a2),(a6)           move.l (a2)+,(a6)
-move.l 20(a2),(a6)           move.l (a2)+,(a6)
-move.l 24(a2),(a6)           move.l (a2)+,(a6)
-move.l 28(a2),d7             move.l (a2),(a6)
-move.l d7,(a6)               lea    -28(a2),a2
+move.l (a2),(a6)      ->    move.l (a2)+,(a6)       ; Saves 24 cycles.
+move.l 4(a2),(a6)           move.l (a2)+,(a6)
+move.l 8(a2),(a6)           move.l (a2)+,(a6)
+move.l 12(a2),(a6)          move.l (a2)+,(a6)
+move.l 16(a2),(a6)          move.l (a2)+,(a6)
+move.l 20(a2),(a6)          move.l (a2)+,(a6)
+move.l 24(a2),(a6)          move.l (a2)+,(a6)
+move.l 28(a2),d7            move.l (a2),(a6)
+move.l d7,(a6)              lea    -28(a2),a2
 Ensure d7 is not used anymore or cleared/overwritten before use.
 
 # Send 32 bytes (a tile) into memory
-move.l (a2),(a6)       ->    move.l (a2)+,(a6)    ; Saves 20 cycles
-move.l 4(a2),(a6)            move.l (a2)+,(a6)
-move.l 8(a2),(a6)            move.l (a2)+,(a6)
-move.l 12(a2),(a6)           move.l (a2)+,(a6)
-move.l 16(a2),(a6)           move.l (a2)+,(a6)
-move.l 20(a2),(a6)           move.l (a2)+,(a6)
-move.l 24(a2),(a6)           move.l (a2)+,(a6)
-move.l 28(a2),(a6)           move.l (a2),(a6)
-                             lea    -28(a2),a2
+move.l (a2),(a6)      ->    move.l (a2)+,(a6)       ; Saves 20 cycles.
+move.l 4(a2),(a6)           move.l (a2)+,(a6)
+move.l 8(a2),(a6)           move.l (a2)+,(a6)
+move.l 12(a2),(a6)          move.l (a2)+,(a6)
+move.l 16(a2),(a6)          move.l (a2)+,(a6)
+move.l 20(a2),(a6)          move.l (a2)+,(a6)
+move.l 24(a2),(a6)          move.l (a2)+,(a6)
+move.l 28(a2),(a6)          move.l (a2),(a6)
+                            lea    -28(a2),a2
 
 # Load parameters from stack with no order
 	movem.l %a6/%a5/%a4/%a3/%a2/%d7/%d6/%d5/%d4/%d3/%d2,-(%sp)
