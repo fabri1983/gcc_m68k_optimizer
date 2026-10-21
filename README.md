@@ -100,11 +100,16 @@ You can find me in the SGDK Discord server: https://discord.gg/xmnBWQS
 ## GCC 15.2.0 experimental build
 
 The script [build_gcc_mint_15.2.0.sh](build_gcc_mint_15.2.0.sh "build_gcc_mint_15.2.0.sh") builds gcc-15.2.0 targeting m68k-elf from this experimenal branch: https://github.com/th-otto/m68k-atari-mint-gcc/tree/mint/gcc-15-experimental-v2.
+
 Is not the correct approach, but comes with a lot of improvements over the m68k backend: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
+
 It allows to use the gcc option `-mfastacall`.
+
 As well as an attribute:
 ```c
 void __attribute__((fastcall)) func(u16 a, u16 b);
 ```
+
 Unfortunatelly some of my projects crash, others boot with a black image, and others work well until some point.
+
 The script is written to be executed on a Ubuntu command console from WSL 2 (Windows Subsytem Linux).
