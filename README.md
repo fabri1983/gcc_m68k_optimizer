@@ -76,18 +76,18 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
 		@$(MKDIR) -p $(dir $@)
 		@$(RM) -f $(OUT_DIR)/symbol_opt.txt
 		@$(RM) -f $(OUT_DIR)/symbol_canonical.txt
-		$(CC) $(PLUGIN_PEEPHOLES_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
+		$(CC) $(PLUGIN_PEEPHOLES_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects -Wl,--relax -flto-partition=one
 		$(NM) $(LTO_PLUGIN) -n -l $(OUT_DIR)/rom.out > $(OUT_DIR)/symbol_opt.txt
-		$(CC) $(PLUGIN_SYMBOLS_OPTIMIZED_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
+		$(CC) $(PLUGIN_SYMBOLS_OPTIMIZED_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects -Wl,--relax -flto-partition=one
 		$(NM) $(LTO_PLUGIN) -n -l $(OUT_DIR)/rom.out > $(OUT_DIR)/symbol_canonical.txt
-		$(CC) $(PLUGIN_SYMBOLS_CANONICAL_OPTIMIZED_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
+		$(CC) $(PLUGIN_SYMBOLS_CANONICAL_OPTIMIZED_PARAMS) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects -Wl,--relax -flto-partition=one
 		@$(RM) -f $(OUT_DIR)/symbol_opt.txt
 		@$(RM) -f $(OUT_DIR)/symbol_canonical.txt
 		@$(RM) $(OUT_DIR)/cmd_
     else
     $(OUT_DIR)/rom.out: $(OUT_DIR)/sega.o $(OUT_DIR)/cmd_ $(LIBMD)
     	@$(MKDIR) -p $(dir $@)
-    	$(CC) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects
+    	$(CC) -m68000 -B$(BIN) -n -T $(GDK)/md.ld -nostdlib $(OUT_DIR)/sega.o @$(OUT_DIR)/cmd_ $(LIBMD) $(LIBGCC) -o $(OUT_DIR)/rom.out -Wl,--gc-sections -flto -flto=auto -ffat-lto-objects -Wl,--relax -flto-partition=one
     	@$(RM) $(OUT_DIR)/cmd_
     endif
     ```
@@ -96,3 +96,15 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
   - `make -f $GDK/makefile.gen release -j1`
 
 You can find me in the SGDK Discord server: https://discord.gg/xmnBWQS
+
+## GCC 15.2.0 experimental build
+
+The script `build_gcc_mint_15.2.0` builds gcc-15.2.0 targeting m68k-elf from this experimenal branch: https://github.com/th-otto/m68k-atari-mint-gcc/tree/mint/gcc-15-experimental-v2.
+Is not the correct approach, but comes with a lot of improvements over the m68k backend: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
+It allows to use the gcc option `-mfastacall`.
+As well as an attribute:
+```c
+void __attribute__((fastcall)) func(u16 a, u16 b);
+```
+Unfortunatelly some of my projects crash, others boot with a black image, and others work well until some point.
+The script is written to be executed on a Ubuntu command console from WSL 2 (Windows Subsytem Linux).

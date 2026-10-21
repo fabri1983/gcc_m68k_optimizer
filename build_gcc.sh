@@ -1,4 +1,5 @@
 #!/usr/bin/bash
+set -euo pipefail
 
 # Run this script in WSL with Ubuntu distro.
 # First install WSL for Windows. By default it will come with Ubuntu distro, but if not then:
@@ -297,7 +298,7 @@ echo "----------------------------------------------------"
 export PATH=${M68K_GCC_TOOLCHAIN}/bin:$PATH
 m68k-elf-gcc --version
 m68k-elf-as --version
-m68k-elf-gdb --version
+#m68k-elf-gdb --version
 echo ""
 echo "Check if plugins are supported in the linker"
 m68k-elf-ld --help | grep -i plugin

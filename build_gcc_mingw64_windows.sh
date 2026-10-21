@@ -1,4 +1,5 @@
 #!/usr/bin/bash
+set -euo pipefail
 
 # Copyright (c) 2014-2024, A.Haarer, All rights reserved. LGPLv3.
 # Modified by fabri1983 to add plugin support.
@@ -607,7 +608,7 @@ echo "----------------------------------------------------"
 
 m68k-elf-gcc --version
 m68k-elf-as --version
-m68k-elf-gdb --version
+#m68k-elf-gdb --version
 echo ""
 echo "Check if plugins are supported in the linker"
 m68k-elf-ld --help | grep -i plugin

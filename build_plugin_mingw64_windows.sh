@@ -1,4 +1,5 @@
 #!/usr/bin/bash
+set -euo pipefail
 
 # Please use the MSYS2 MinGW64 shell, not the UCRT shell nor the MSYS.
 # You can check which shell are you at by typing: 

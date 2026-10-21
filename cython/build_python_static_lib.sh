@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # First convert Windows EOL (CRLF) to Linux EOL (LF)
 #   sed -i 's/\r$//' build_python_static_lib.sh

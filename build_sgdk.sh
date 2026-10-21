@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Convert Windows EOL (CRLF) to Linux EOL (LF)
 #   sed -i 's/\r$//' build_sgdk.sh
@@ -33,7 +34,7 @@ deps_check() {
       echo "$i is not installed"
       if [ "$i" == "java" ]
       then
-        echo "install openjdk-17-jre"
+        echo "install openjdk-21-jre"
       elif [ "$i" == "makeinfo" ]
       then
         echo "install texinfo"
