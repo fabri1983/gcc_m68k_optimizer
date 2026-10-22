@@ -4,10 +4,10 @@ Features:
 - Pattern matching peephole optimizer.
 - Multiplication and Division optimization when higher word IS NOT important and where it IS important.
 - Static data flow analysis for register liveness: free-after-use and non-used registers.
-- Branch instruction size reduction when target label is inside the [-126,128] bytes window address.
-- Remove redundant tst operation after register allocation.
+- Branch instruction size reduction when target label is inside the [-126,128] bytes window address range.
+- Remove redundant tst operation after register allocation that sets CC flags.
 - Exploit address register sign extension.
-- Exploit address loading by addition or subtraction of an offset from another addres register already loaded.
+- Exploit address loading by a constant offset from another address register already loaded.
 - Multiple lines span optimizations: up to 8 lines for pattern matching optimizations.
 - Many more optimizations.
 
@@ -103,7 +103,7 @@ The script [build_gcc_mint_15.2.0.sh](build_gcc_mint_15.2.0.sh "build_gcc_mint_1
 
 Is not the correct approach, but comes with a lot of improvements over the m68k backend: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
 
-It allows to use the gcc option `-mfastacall`.
+It allows to use the gcc option `-mfastcall`.
 
 As well as an attribute:
 ```c
