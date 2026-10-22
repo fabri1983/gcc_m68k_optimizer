@@ -169,7 +169,7 @@ diff --git a/gcc/config.gcc b/gcc/config.gcc
 +++ b/gcc/config.gcc
 @@ -2391,5 +2391,6 @@ m68k-*-elf* | fido-*-elf*)
  	*)
- 		default_m68k_cpu=68020
+ 		default_m68k_cpu=68000
  		default_cf_cpu=5206
 +		extra_objs="${extra_objs} m68k_costs.o m68k-util.o m68k-pass-regalloc.o m68k-pass-memreorder.o m68k-pass-autoinc.o m68k-pass-shortopt.o m68k-pass-miscopt.o m68k-doloop.o"
  		;;

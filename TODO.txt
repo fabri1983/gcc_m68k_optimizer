@@ -119,6 +119,16 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+# When poping something from SP into a data reg and consecutively modifying the data reg 
+# with consecutive elements from SP. 
+# Better use auto increment on a free address reg to compensate for the poped elements.
+move.s disp1(sp),dN     ->    lea     disp1(sp),aN           ; Saves 4 cycles
+add.s  disp2(sp),dN           move.s  (aN)+,dN
+add.s  disp3(sp),dN           add.s   (aN)+,dN
+                              add.s   (aN),dN
+# Where disp2 = disp1 + s, disp3 = disp2 + s.
+# Needs a free address register aN.
+
 # Send 32 bytes (a tile) into memory
 move.l (a2),(a6)      ->    move.l (a2)+,(a6)       ; Saves 24 cycles.
 move.l 4(a2),(a6)           move.l (a2)+,(a6)
@@ -142,19 +152,20 @@ move.l 24(a2),(a6)          move.l (a2)+,(a6)
 move.l 28(a2),(a6)          move.l (a2),(a6)
                             lea    -28(a2),a2
 
-# Load parameters from stack with no order
-	movem.l %a6/%a5/%a4/%a3/%a2/%d7/%d6/%d5/%d4/%d3/%d2,-(%sp)
-	move.l 68(%sp),%a4
-	move.l 72(%sp),%d1
-	move.l 76(%sp),%d4
-	move.l 80(%sp),%d0
-	move.l 88(%sp),%a5
+# Unordered loading of parameters from stack
+	movem.l a6/a5/a4/a3/a2/d7/d6/d5/d4/d3/d2,-(sp)
+	move.l  68(sp),a4
+	move.l  72(sp),d1
+	move.l  76(sp),d4
+	move.l  80(sp),d0
+	move.l  88(sp),a5
 ; Saves 4 cycles
+    movem.l a6/a5/a4/a3/a2/d7/d6/d5/d4/d3/d2,-(sp)
 	movem.l 68(sp),d0-d3
-	move.l d0,a4
-    move.l d2,d4
-    move.l d3,d0
-    move.l 88(sp),a5
+	move.l  d0,a4
+    move.l  d2,d4
+    move.l  d3,d0
+    move.l  88(sp),a5
 
 
 Next optimization only valid for 3 or more disp(sp).
