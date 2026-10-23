@@ -10808,10 +10808,11 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
 
                     # Check if the replacement produced more lines than the current span.
                     # Restart the descending scan from the new (larger) size instead of continuing downward.
-                    growth = len(optimized_multilines) - multi_span_size
-                    if growth > 0:
-                        multi_span_size = min(MULTIPLE_LINES_OPTIMIZATION_LIMIT, multi_span_size + growth)
-                        continue
+                    # TODO: it causes and infinite loop given that there is at least one same pattern that is continously applied.
+                    #growth = len(optimized_multilines) - multi_span_size
+                    #if growth > 0:
+                    #    multi_span_size = min(MULTIPLE_LINES_OPTIMIZATION_LIMIT, multi_span_size + growth)
+                    #    continue
 
                 multi_span_size -= 1
 
