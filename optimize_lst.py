@@ -8780,145 +8780,108 @@ def optimizeMultiLines(multi_limit: int, i_line: int, lines: list[str], modified
     - lines_to_remove indicates how many lines will be removed prior to add the new optimized lines.
     """
 
-    # Check for patterns whenever we have at least 8 lines
-    if multi_limit == 8:
+    match multi_limit:
 
-        line_A = modified_lines[-8]
-        line_B = modified_lines[-7]
-        line_C = modified_lines[-6]
-        line_D = modified_lines[-5]
-        line_E = modified_lines[-4]
-        line_F = modified_lines[-3]
-        line_G = modified_lines[-2]
-        line_H = modified_lines[-1]
+        # Check for patterns whenever we have at least 8 lines
+        case 8:
 
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_C.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_D.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_E.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_F.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_G.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_H.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-8].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-7].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-6].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-5].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-4].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-3].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-        return optimizeMultiLines_8(i_line, lines, modified_lines, current_pass)
+            return optimizeMultiLines_8(i_line, lines, modified_lines, current_pass)
 
-    # Check for patterns whenever we have at least 7 lines
-    if multi_limit == 7:
+        # Check for patterns whenever we have at least 7 lines
+        case 7:
 
-        line_A = modified_lines[-7]
-        line_B = modified_lines[-6]
-        line_C = modified_lines[-5]
-        line_D = modified_lines[-4]
-        line_E = modified_lines[-3]
-        line_F = modified_lines[-2]
-        line_G = modified_lines[-1]
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-7].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-6].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-5].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-4].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-3].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_C.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_D.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_E.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_F.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_G.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
+            return optimizeMultiLines_7(i_line, lines, modified_lines, current_pass)
 
-        return optimizeMultiLines_7(i_line, lines, modified_lines, current_pass)
+        # Check for patterns whenever we have at least 6 lines
+        case 6:
 
-    # Check for patterns whenever we have at least 6 lines
-    if multi_limit == 6:
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-6].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-5].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-4].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-3].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-        line_A = modified_lines[-6]
-        line_B = modified_lines[-5]
-        line_C = modified_lines[-4]
-        line_D = modified_lines[-3]
-        line_E = modified_lines[-2]
-        line_F = modified_lines[-1]
+            return optimizeMultiLines_6(i_line, lines, modified_lines, current_pass)
 
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_C.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_D.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_E.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_F.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
+        # Check for patterns whenever we have at least 5 lines
+        case 5:
 
-        return optimizeMultiLines_6(i_line, lines, modified_lines, current_pass)
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-5].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-4].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-3].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-    # Check for patterns whenever we have at least 5 lines
-    if multi_limit == 5:
+            return optimizeMultiLines_5(i_line, lines, modified_lines, current_pass)
 
-        line_A = modified_lines[-5]
-        line_B = modified_lines[-4]
-        line_C = modified_lines[-3]
-        line_D = modified_lines[-2]
-        line_E = modified_lines[-1]
+        # Check for patterns whenever we have at least 4 lines
+        case 4:
 
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_C.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_D.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_E.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-4].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-3].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-        return optimizeMultiLines_5(i_line, lines, modified_lines, current_pass)
+            return optimizeMultiLines_4(i_line, lines, modified_lines, current_pass)
 
-    # Check for patterns whenever we have at least 4 lines
-    if multi_limit == 4:
+        # Check for patterns whenever we have at least 3 lines
+        case 3:
 
-        line_A = modified_lines[-4]
-        line_B = modified_lines[-3]
-        line_C = modified_lines[-2]
-        line_D = modified_lines[-1]
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-3].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_C.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_D.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
+            return optimizeMultiLines_3(i_line, lines, modified_lines, current_pass)
 
-        return optimizeMultiLines_4(i_line, lines, modified_lines, current_pass)
+        # Check for patterns whenever we have at least 2 lines
+        case 2:
 
-    # Check for patterns whenever we have at least 3 lines
-    if multi_limit == 3:
+            if OPTIMIZE_INLINE_ASM_BLOCKS:
+                # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
+                if (modified_lines[-2].endswith(SKIP_OPTIMIZATION_FLAG) or 
+                    modified_lines[-1].endswith(SKIP_OPTIMIZATION_FLAG)):
+                    return (None, 0)
 
-        line_A = modified_lines[-3]
-        line_B = modified_lines[-2]
-        line_C = modified_lines[-1]
+            return optimizeMultiLines_2(i_line, lines, modified_lines, current_pass)
 
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_C.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
-
-        return optimizeMultiLines_3(i_line, lines, modified_lines, current_pass)
-
-    # Check for patterns whenever we have at least 2 lines
-    if multi_limit == 2:
-
-        line_A = modified_lines[-2]
-        line_B = modified_lines[-1]
-
-        if OPTIMIZE_INLINE_ASM_BLOCKS:
-            # If any line (already right stripped) ends with the flag that mandates to skip it from be optimized -> do nothing and return
-            if (line_A.endswith(SKIP_OPTIMIZATION_FLAG) or 
-                line_B.endswith(SKIP_OPTIMIZATION_FLAG)):
-                return (None, 0)
-
-        return optimizeMultiLines_2(i_line, lines, modified_lines, current_pass)
+        case _:
+            pass
 
     return (None, 0)
 
@@ -10793,16 +10756,21 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
         # Otherwise minor optimizations might be applied first causing a miss of opportunities for broader optimizations.
         if len(modified_multi_lines) >= MULTIPLE_LINES_OPTIMIZATION_LIMIT:
 
-            # Range: from MULTIPLE_LINES_OPTIMIZATION_MAX_LIMIT lines down to 2 lines
-            for multi_span_size in range(MULTIPLE_LINES_OPTIMIZATION_LIMIT, 2 - 1, -1):
+            # Range: from MULTIPLE_LINES_OPTIMIZATION_LIMIT lines down to 2 lines
+            # while-loop so the upper bound can grow when an optimization adds lines
+            multi_span_size = MULTIPLE_LINES_OPTIMIZATION_LIMIT
+            while multi_span_size >= 2:
 
                 # It might happen that previous optimization removed one or more lines
                 if len(modified_multi_lines) < multi_span_size:
+                    multi_span_size -= 1
                     continue;
 
                 # Find optimizations spanning multiple lines
                 prev_rem_end = rem_end
-                optimized_multilines, lines_to_remove = optimizeMultiLines(multi_span_size, i_line-1, input_lines, modified_multi_lines, current_pass)
+                optimized_multilines, lines_to_remove = optimizeMultiLines(
+                    multi_span_size, i_line-1, input_lines, modified_multi_lines, current_pass
+                )
                 diff_lines = len(input_lines) - prev_rem_end
                 rem_end += diff_lines  # Adjust new limit
                 i_line += diff_lines  # Adjust next i_line value
@@ -10837,6 +10805,15 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
                             print_end_asm_block = True
                         # Print optimization log
                         print_diff(original_lines, (i_line-1)-(lines_to_remove-1), optimized_multilines)
+
+                    # Check if the replacement produced more lines than the current span.
+                    # Restart the descending scan from the new (larger) size instead of continuing downward.
+                    growth = len(optimized_multilines) - multi_span_size
+                    if growth > 0:
+                        multi_span_size = min(MULTIPLE_LINES_OPTIMIZATION_LIMIT, multi_span_size + growth)
+                        continue
+
+                multi_span_size -= 1
 
     # Copy the reamining content
     if skip_optimization_and_just_copy != -1:
