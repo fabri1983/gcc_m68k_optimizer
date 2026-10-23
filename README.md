@@ -112,5 +112,5 @@ As well as a function attribute:
 void __attribute__((fastcall)) func(u16 a, u16 b);
 ```
 
-Unfortunatelly some of my projects crash, and others work well up to some point. So is not production ready.
+Unfortunatelly some of my projects crash, and others work well up to a point. So is not production ready.
 You can go feature by feature (see _PeyloW_ github repo) and try diabling/enabling them to see which features work for your project.
