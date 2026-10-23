@@ -15,16 +15,16 @@ set -euo pipefail
 # So move to $HOME
 #   cd $HOME
 # Open a Explorer windows and locate into \\wsl.localhost\Ubuntu\home\<user_name>
-# Copy the script build_gcc_mint_15.2.0.sh here
+# Copy the script build_gcc_15.2.0_m68k_experimental_v2.sh here
 
 # Convert Windows EOL (CRLF) to Linux EOL (LF)
-#   sed -i 's/\r$//' build_gcc_mint_15.2.0.sh
+#   sed -i 's/\r$//' build_gcc_15.2.0_m68k_experimental_v2.sh
 # Set execution permissions
-#   chmod +x build_gcc_mint_15.2.0.sh
-#   ./build_gcc_mint_15.2.0.sh
+#   chmod +x build_gcc_15.2.0_m68k_experimental_v2.sh
+#   ./build_gcc_15.2.0_m68k_experimental_v2.sh
 
 BASE_BUILD_DIR=$HOME
-M68K_GCC_TOOLCHAIN=${BASE_BUILD_DIR}/m68k-elf-gcc-mint
+M68K_GCC_TOOLCHAIN=${BASE_BUILD_DIR}/m68k-elf-gcc-15.2.0
 
 TARGET="m68k-elf"
 TARGET_CPU="68000"
@@ -34,7 +34,13 @@ BUILD="x86_64-linux-gnu"
 GCC_MIRROR="https://mirrors.ocf.berkeley.edu/gnu"
 
 GCC_VERSION="15.2.0"
-GCC_DIR_NAME="m68k-atari-mint-gcc-${GCC_VERSION}-experimental-v2"
+GCC_DIR_NAME="gcc-${GCC_VERSION}-m68k-experimental-v2"
+GCC_TAG="releases/gcc-${GCC_VERSION}"
+MINT_REPO="https://github.com/th-otto/m68k-atari-mint-gcc.git"
+MINT_BRANCH="mint/gcc-15-experimental-v2"
+MINT_COMMIT="54d5dc5b5"   # pinned commit id. If left empty then it pulls branch tip
+# Optional: pre-generated patch next to this script (gcc-15.2.0-m68k-experimental-v2.patch)
+PATCH_FILE="$(cd "$(dirname "$0")" && pwd)/gcc-${GCC_VERSION}-m68k-experimental-v2.patch"
 
 BINUTILS_VERSION="2.45"
 BINUTILS_DIR="binutils-${BINUTILS_VERSION}"
@@ -47,6 +53,23 @@ GDB_FILE="${GDB_DIR}.tar.gz"
 GDB_URL="${GCC_MIRROR}/gdb/$GDB_FILE"
 
 CORE_COUNT=$(nproc)
+
+# Files of the experimental backend that are taken from the mint branch
+M68K_PATCH_FILES="
+gcc/config/m68k/constraints.md gcc/config/m68k/m68060.md gcc/config/m68k/m68k-doloop.cc
+gcc/config/m68k/m68k-pass-autoinc.cc gcc/config/m68k/m68k-pass-memreorder.cc
+gcc/config/m68k/m68k-pass-miscopt.cc gcc/config/m68k/m68k-pass-regalloc.cc
+gcc/config/m68k/m68k-pass-shortopt.cc gcc/config/m68k/m68k-passes.def
+gcc/config/m68k/m68k-util.cc gcc/config/m68k/m68k-util.h gcc/config/m68k/m68k-protos.h
+gcc/config/m68k/m68k.cc gcc/config/m68k/m68k.h gcc/config/m68k/m68k.md
+gcc/config/m68k/m68k.opt gcc/config/m68k/m68k_costs.cc
+gcc/common.opt gcc/dce.cc gcc/expr.cc gcc/gcse.cc gcc/hooks.cc gcc/hooks.h
+gcc/ira-build.cc gcc/ira-color.cc gcc/ira-costs.cc gcc/ira-int.h
+gcc/loop-doloop.cc gcc/loop-iv.cc gcc/loop-unroll.cc gcc/params.opt
+gcc/regrename.cc gcc/regs.h gcc/target.def gcc/targhooks.cc gcc/targhooks.h
+gcc/tree-ssa-loop-ch.cc gcc/tree-ssa-loop-ivopts.cc
+gcc/doc/tm.texi gcc/doc/tm.texi.in
+"
 
 # Install dependencies in WSL
 install_deps() {
@@ -111,13 +134,22 @@ download_and_unzip() {
   tar -xzf $GDB_FILE
   rm $GDB_FILE
 
-  echo "Downloading GCC..."
-  mkdir -p "$(dirname "$GCC_DIR_NAME")"
-  git clone -b mint/gcc-15-experimental-v2 https://github.com/th-otto/m68k-atari-mint-gcc.git $GCC_DIR_NAME
-  if [ $? -ne 0 ]; then
-    echo "Failed to download GCC from github"
-    exit 1
+  echo "Downloading official GCC ${GCC_VERSION}..."
+  git clone --depth 1 --branch "$GCC_TAG" https://github.com/gcc-mirror/gcc.git "$GCC_DIR_NAME"
+
+  # If patch file doesn't exist then create it
+  if [ ! -f "$PATCH_FILE" ]; then
+    echo "Patch file not found, generating it from the mint experimental branch..."
+    git -C "$GCC_DIR_NAME" remote add mint "$MINT_REPO"
+    git -C "$GCC_DIR_NAME" fetch --depth 1 mint "${MINT_COMMIT:-$MINT_BRANCH}"
+    # shellcheck disable=SC2086
+    git -C "$GCC_DIR_NAME" diff --full-index "$GCC_TAG" FETCH_HEAD -- $M68K_PATCH_FILES > "$PATCH_FILE"
   fi
+
+  echo "Applying m68k experimental backend patch..."
+  git -C "$GCC_DIR_NAME" apply --whitespace=nowarn "$PATCH_FILE"
+ 
+  echo "Create compilation rules for the experimental m68k backend objects..."
 
   echo "Create compilation rules for the experimental m68k backend objects..."
   cat > "$GCC_DIR_NAME/gcc/config/m68k/t-m68k-experimental-backend" <<'EOF'

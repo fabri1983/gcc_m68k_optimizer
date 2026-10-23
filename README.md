@@ -63,7 +63,7 @@ the new *m68k-elf-* binaries added to the PATH in previous step.
 
 ### Execution
 - Open SGDK's `makefile.gen`:
-  - Add next lines somewhere after the definition of **OUT_DIR** variable:  
+  - Add next lines somewhere after the definition of **OUT_DIR** variable and before the **.PHONY** rules:  
     ```
 	PLUGIN_PEEPHOLES_PARAMS := -fplugin=$(GDK)/tools/optimizer_plugin.so -fplugin-arg-optimizer_plugin-disable=0 -fplugin-arg-optimizer_plugin-keep-files=0
 	PLUGIN_SYMBOLS_OPTIMIZED_PARAMS := $(PLUGIN_PEEPHOLES_PARAMS) -fplugin-arg-optimizer_plugin-symbols-opt-path=$(OUT_DIR)/symbol_opt.txt
@@ -99,17 +99,19 @@ You can find me in the SGDK Discord server: https://discord.gg/xmnBWQS
 
 ## GCC 15.2.0 experimental build
 
-The script [build_gcc_mint_15.2.0.sh](build_gcc_mint_15.2.0.sh "build_gcc_mint_15.2.0.sh") builds gcc-15.2.0 targeting m68k-elf from this experimenal branch: https://github.com/th-otto/m68k-atari-mint-gcc/tree/mint/gcc-15-experimental-v2.
+The script [build_gcc_15.2.0_m68k_experimental_v2.sh](build_gcc_15.2.0_m68k_experimental_v2.sh "build_gcc_15.2.0_m68k_experimental_v2.sh") 
+builds gcc-15.2.0 targeting m68k-elf using the optimizations added by _PeyloW_ in this branch: https://github.com/th-otto/m68k-atari-mint-gcc/tree/mint/gcc-15-experimental-v2.
 
-Is not the correct approach, but comes with a lot of improvements over the m68k backend: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
+This is the list of improvements made to the m68k backend: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
 
 It allows to use the gcc option `-mfastcall`.
 
-As well as an attribute:
+As well as a function attribute:
 ```c
 void __attribute__((fastcall)) func(u16 a, u16 b);
 ```
 
-Unfortunatelly some of my projects crash, others boot with a black image, and others work well until some point.
+Unfortunatelly some of my projects crash, and others work well up to some point. So is not production ready.
+You can go feature by feature (see _PeyloW_ github repo) and try diabling it to see which features work for your project.
 
 The script is written to be executed on a Ubuntu command console from WSL 2 (Windows Subsytem Linux).
