@@ -86,7 +86,7 @@ SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
 # then it means I didn't consider a gcc directive or alike which conflicts with the calculation of instruction size.
 # Try to reduce the limits by 2 or 4 bytes and see if that helps.
-MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 126-2  # Subtract 2 to account for the branch instruction short size.
+MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 127-2  # Subtract 2 to account for the branch instruction short size.
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128
 
 # NOT_WORKING
@@ -583,7 +583,7 @@ REG_AS_TARGET_REGEX = re.compile(
     r'[^,]+?'                        # Non-greedy match for source operand (may contain comma in parentheses)
     r'(?:\([^)]+\)[^,]*)*'           # Handle nested structures with commas inside parentheses
     r',\s*'                          # Comma and optional whitespace before destination
-    r'(%[ad][0-7]);?$'               # Target register
+    r'(%[ad][0-7])\s*(?:;.*)?$'      # Target register
 )
 REG_AS_TARGET_ALONE_REGEX = re.compile(
     r'^\s*'                          # Optional leading whitespace
@@ -600,7 +600,7 @@ CONDITIONAL_DBCC_FLOW_REGEX = re.compile(
     r'djcc|djcs|djeq|djf|djra|djge|djgt|djhi|djhs|djle|djlo|djls|djlt|djmi|djne|djpl|djt|djvc|djvs'
     r')\s+'
     r'(?:%d[0-7]),\s*'
-    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?;?$'
+    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?\s*(?:;.*)?$'
 )
 # Conditional instructions except those of the form dbCC
 CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
@@ -608,7 +608,7 @@ CONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
     r'bcc|bcs|beq|bge|bgt|bhi|bhs|ble|blo|bls|blt|bmi|bne|bpl|bvc|bvs|'
     r'jcc|jcs|jeq|jge|jgt|jhi|jhs|jle|jlo|jls|jlt|jmi|jne|jpl|jvc|jvs'
     r')(?:\.[bsw])?\s+'
-    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?;?$'
+    r'([0-9a-zA-Z_\.]+)(?:\.[bwl])?\s*(?:;.*)?$'
 )
 # Unconditional instructions. We only want to capture all the different dN/aN registers.
 UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
@@ -620,7 +620,7 @@ UNCONDITIONAL_CONTROL_FLOW_REGEX = re.compile(
         r'|'
         r'\((?:%a[0-7])\)'  # (aN)
     r')'
-    r';?$'
+    r'\s*(?:;.*)?$'
 )
 # Use next pattern with .findall(). We only want to capture all the different dN/aN registers.
 REG_AS_SOURCE_OR_INDIRECT_USE_REGEX = re.compile(
@@ -721,7 +721,7 @@ def collect_declared_functions(lines: list[str]):
 
 # pea symbol_or_mem[.wl][+-*N][.bwl]
 PEA_REGEX = re.compile(
-    r'^\s*pea\s+(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^\s*pea\s+(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 
 # move.[wl] #symbol_or_mem[.wl][+-*N][.bwl],-(sp)
@@ -1849,8 +1849,8 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
 class RegisterUsageOccurrenceMode(Enum):
-    AT_LEAST_ONE_PER_CONTROL_FLOW = "one_per_flow"
-    ALL_OCCURRENCES = "all"
+    FIRST_OCCURRENCE_PER_CONTROL_FLOW = "first_in_flow"  # Use it as an existence check
+    ALL_OCCURRENCES = "all"  # Use it when you need to ensure every usage of the satisfies the requirement
 
 def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> list[str]:
     """
@@ -2071,7 +2071,7 @@ def is_reg_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, l
     Param ignore_N_previous_lines only affects modified_lines.
     lines[i_line] will be commented in the inner method.
     """
-    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines, RegisterUsageOccurrenceMode.FIRST_OCCURRENCE_PER_CONTROL_FLOW)
     return len(matching_lines) > 0
 
 def is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> bool:
@@ -2142,7 +2142,7 @@ sp_indexing_pattern_1 = re.compile(
     r'%sp(,%[ad][0-7](?:\.[bwl])?)?'  # sp, optional xN.s
     r'\)'                           # Literal closing parenthesis
     r'(?!\+)'                       # Negative lookahead: not followed by '+'
-    r'(.+)?'                        # Any characters
+    r'(.+)?'                        # Any characters (greedy)
 )
 
 # <any_instr> (disp,sp,xN.s)  where "disp," is optional and ",xN.s" is optional
@@ -2154,7 +2154,7 @@ sp_indexing_pattern_2 = re.compile(
     r'(-?\d+,)?%sp(,%[ad][0-7](?:\.[bwl])?)?'  # Optional displacement, sp, optional xN.s
     r'\)'                           # Literal closing parenthesis
     r'(?!\+)'                       # Negative lookahead: not followed by '+'
-    r'(.+)?'                        # Any characters
+    r'(.+)?'                        # Any characters (greedy)
 )
 
 # <any_instr> (sp)
@@ -2164,7 +2164,7 @@ sp_indexing_pattern_3 = re.compile(
     r'(?<!-)'                      # Negative lookbehind: not preceded by '-'
     r'\(%sp\)'                     # Literal (sp)
     r'(?!\+)'                      # Negative lookahead: not followed by '+'
-    r'(.+)?'                       # Any characters
+    r'(.+)?'                       # Any characters (greedy)
 )
 
 def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
@@ -3498,7 +3498,7 @@ btst_7_effective_address_pattern = re.compile(
         r'|'                              # OR
         r'-?\d+(?:[\-\+\*]\d+)?\(%pc,(?:%[ad][0-7](?:\.[bwl])?|%sp)\)'   # disp(pc,xN.s) where disp can be disp[+-*N]
     r')'                                  # End negative lookahead for invalid modes
-    r'(.+)'                               # Capture the valid effective address
+    r'(.+)'                               # Capture the valid effective address (greedy)
 )
 
 move_disp_aN_or_pc_into_aM_pattern = re.compile(
@@ -3571,7 +3571,7 @@ instr_set_ea_into_dN_for_ccr_pattern = re.compile(
 )
 
 copy_memory_by_indirection_pattern = re.compile(
-    r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\);?$'
+    r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\)\s*(?:;.*)?$'
 )
 
 def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
@@ -3586,8 +3586,8 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     line_H = modified_lines[-1]
 
     # Redundant tst instruction.
-    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
-    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
+    # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
     # ... instructions not modifying dN         ...
     # ... and not modifying CCR: N,Z,V,C        ...
     # ... and none of bra/jmp/bsr/jsr           ...
@@ -3750,8 +3750,8 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     line_G = modified_lines[-1]
 
     # Redundant tst instruction.
-    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
-    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
+    # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
     # ... instructions not modifying dN         ...
     # ... and not modifying CCR: N,Z,V,C        ...
     # ... and none of bra/jmp/bsr/jsr           ...
@@ -3905,8 +3905,8 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     line_F = modified_lines[-1]
 
     # Redundant tst instruction.
-    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
-    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
+    # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
     # ... instructions not modifying dN         ...
     # ... and not modifying CCR: N,Z,V,C        ...
     # ... and none of bra/jmp/bsr/jsr           ...
@@ -4082,7 +4082,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
         matchA = re.match(r'^(\s*)clr\.w(\s+)(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(3)
-            matchB = re.match(r'^\s*move\.b\s+([^,]+),\s*(%d[0-7]);?$', line_B)
+            matchB = re.match(r'^\s*move\.b\s+([^,]+),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
             if matchB and dN == matchB.group(2):
                 src_B = matchB.group(1)
                 matchC = re.match(r'^\s*move\.w\s+(%d[0-7]),\s*(%a[0-7])', line_C)
@@ -4225,8 +4225,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     line_E = modified_lines[-1]
 
     # Redundant tst instruction.
-    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
-    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
+    # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
     # ... instructions not modifying dN         ...
     # ... and not modifying CCR: N,Z,V,C        ...
     # ... and none of bra/jmp/bsr/jsr           ...
@@ -4578,13 +4578,13 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
         matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(4)
-            matchB = re.match(r'^\s*move\.w\s+([^,]+),\s*(%d[0-7]);?$', line_B)
+            matchB = re.match(r'^\s*move\.w\s+([^,]+),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
             if matchB and dN == matchB.group(2):
                 matchC = re.match(r'^\s*swap(\.w)?\s+(%d[0-7])', line_C)
                 if matchC and dN == matchC.group(2):
                     matchD = re.match(r'^\s*clr\.w?\s+(%d[0-7])', line_D)
                     if matchD and dN == matchD.group(1):
-                        matchE = re.match(r'^\s*move\.w\s+([^,]+),\s*(%d[0-7]);?$', line_E)
+                        matchE = re.match(r'^\s*move\.w\s+([^,]+),\s*(%d[0-7])\s*(?:;.*)?$', line_E)
                         if matchE and dN == matchE.group(2):
                             src_B = matchB.group(1)
                             src_E = matchE.group(1)
@@ -4789,8 +4789,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     line_D = modified_lines[-1]
 
     # Redundant tst instruction.
-    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
-    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
+    # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
     # ... instructions not modifying dN         ...
     # ... and not modifying CCR: N,Z,V,C        ...
     # ... and none of bra/jmp/bsr/jsr           ...
@@ -4851,6 +4851,31 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
 
                             optimized_lines = [line_A_opt, line_B, line_D]
                             return (optimized_lines, 4)
+
+    # Redundant tst instruction with instruction re order.
+    # In this particular case we can re order the first 2 instructions so the the optimization may apply.
+    # any_instr.s <ea>,dN      ->    any_instr.s <ea>,dM          ; Saves 4 cycles
+    # any_instr.s <ea>,dM            any_instr.s <ea>,dN
+    # tst.s  dN                      bCC    label
+    # bCC    label
+    # Ensure dN is not used in the other instruction, and dM is not used in the first instruction.
+    matchA = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_A)
+    if matchA:
+        s = '' if not matchA.group(2) else matchA.group(2)[1:]  # removes the .
+        dN = matchA.group(10)
+        matchC = re.match(r'^\s*tst\.([bwl])\s+(%d[0-7])', line_C)
+        if matchC and dN == matchC.group(2) and s == matchC.group(1):
+            matchD = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_D)
+            if matchD:
+                matchB = re.match(instr_set_ea_into_dN_for_ccr_pattern, line_B)
+                if matchB:
+                    dM = matchB.group(10);
+                    ea_A = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
+                    ea_B = next((matchB.group(i) for i in range(4, 10) if matchB.group(i)), None)
+                    if dN != dM and dN not in ea_B and dM not in ea_A:
+                        # Re order lines
+                        optimized_lines = [line_B, line_A, line_D]
+                        return (optimized_lines, 4)
 
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [4,8] cycles
@@ -5047,12 +5072,12 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     matchA = re.match(r'^(\s*)(cmp|cmpa)\.[wl](\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         # Considers both blt and bgt appearing in line_B
-        matchB = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+        matchB = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
         if matchB:
             matchC = re.match(r'^\s*(cmp|cmpa)\.[wl]\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_C)
             if matchC:
                 # Considers both blt and bgt appearing in line_D
-                matchD = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_D)
+                matchD = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_D)
                 if matchD:
                     aN = matchA.group(5)
                     label = matchB.group(3)
@@ -5077,12 +5102,12 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     matchA = re.match(r'^(\s*)(cmp|cmpi)\.[wl](\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
     if matchA:
         # Considers both blt and bgt appearing in line_B
-        matchB = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+        matchB = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
         if matchB:
             matchC = re.match(r'^\s*(cmp|cmpi)\.[wl]\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_C)
             if matchC:
                 # Considers both blt and bgt appearing in line_D
-                matchD = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_D)
+                matchD = re.match(r'^\s*(blt|jlt|bgt|jgt)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_D)
                 if matchD:
                     dN = matchA.group(5)
                     label = matchB.group(3)
@@ -5591,7 +5616,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     matchD = re.match(r'^\s*move\.l?\s+(%d[0-7]),(%d[0-7])', line_D)
                     if matchD and dN == matchD.group(1) and dN != matchD.group(2):
                         is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
-                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
                         if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                             dM = matchD.group(2)
                             optimized_lines = [
@@ -5622,7 +5647,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
                         if dM is not None:
                             is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
-                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
+                            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
                             if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                                 aN = matchD.group(2)
                                 optimized_lines = [
@@ -5633,7 +5658,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 4)
 
     # Tail recursion for BSR/JSR or exploiting PEA opportunities.
-    bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
     matchA = re.match(bsr_jsr_routine, line_A)
     if matchA:
 
@@ -5775,8 +5800,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     line_C = modified_lines[-1]
 
     # Redundant tst instruction.
-    # The m68k move instruction sets condition codes, but GCC often generates redundant tst instructions before branches.
-    # move/add/sub.s <ea>,dN               ->   move/add/sub.s <ea>,dN      ; Saves 4 cycles
+    # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
+    # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
     # ... instructions not modifying dN         ...
     # ... and not modifying CCR: N,Z,V,C        ...
     # ... and none of bra/jmp/bsr/jsr           ...
@@ -5940,7 +5965,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         matchB = re.match(r'^\s*(add|adda|addq)(\.[wl])?\s+#4,\s*%sp', line_B)
         if matchB:
-            matchC = re.match(r'^\s*(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_C)
+            matchC = re.match(r'^\s*(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_C)
             if matchC:
                 aN = matchA.group(4)
                 label = matchC.group(3)
@@ -5958,7 +5983,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 3)
 
     # Tail recursion for BSR/JSR or exploiting PEA opportunities.
-    bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
     matchA = re.match(bsr_jsr_routine, line_A)
     if matchA:
 
@@ -6106,7 +6131,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             aN = matchA.group(4)
             matchB = re.match(r'^\s*move\.w\s+(%a[0-7]),\s*(%d[0-7])', line_B)
             if matchB and aN == matchB.group(1) and dN == matchB.group(2):
-                matchC = re.match(r'^\s*([jb]w+)(\.[sbw])?\s+([0-9A-Za-z_\.]+);?$', line_C)
+                matchC = re.match(r'^\s*([jb]w+)(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_C)
                 if not matchC or matchC.group(1) not in bcc_or_jcc_instructions:
                     optimized_lines = [
                         f'{matchA.group(1)}move.l{matchA.group(2)}{dN},{aN}',
@@ -6119,7 +6144,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # and.w     #255,dM          and.w     #255,dN
         # instr.b   dM,dN
         # Where instr is one of next for .b accessor: or|eor|add|sub
-        # Leaves dM free. Ensure dM is not used before is cleared or overwritten.
+        # Leaves dM free. 
+        # Ensure dM is not used before is cleared or overwritten.
         matchA = re.match(r'^(\s*)move\.b(\s+)\((%a[0-7]|%sp)\),\s*(%d[0-7])', line_A)
         if matchA:
             aN = matchA.group(3)
@@ -6145,7 +6171,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # and.w     #255,dN          move.b    (aN),dN
         # instr.w   dM,dN            instr.w   dM,dN
         # Where instr is one of next for .w accessor: or|eor|add|sub|muls|mulu|divs|divu.
-        # Leaves dN different. Ensure dN is not used anymore, or is used as byte or word before being cleared or overwritten.
+        # Leaves dN different.
+        # Ensure dN is not used before is cleared or overwritten, or is used as word or byte before is cleared or overwritten.
         matchA = re.match(r'^(\s*)move\.b(\s+)\((%a[0-7]|%sp)\),\s*(%d[0-7])', line_A)
         if matchA:
             aN = matchA.group(3)
@@ -6159,7 +6186,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         instr_C = matchC.group(1)
                         dM = matchC.group(2)
                         is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3)
-                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
+                        only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
                         if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                             optimized_lines = [
                                 f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
@@ -6227,7 +6254,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # move.w      dM,dN           clr.w   dM
         # move.l      dN,dM           swap    dM
         # Leaves dN free which potentially can be removed from movem/move push/pop stack if not used anymore.
-        # Only valid if dN is used afterwards as word or byte, before it's cleared or overwritten.
+        # Only valid if dN is used afterwards as word or byte before it's cleared or overwritten.
         # NOTE: not used to avoid de-optimization of other patterns.
         #matchA = re.match(r'^(\s)*moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         #if matchA:
@@ -6239,7 +6266,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         #        if matchC and dN == matchC.group(1) and dM == matchC.group(2):
         #            # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
         #            if current_pass == 2:
-        #                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+        #                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
         #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
         #                    optimized_lines = [
         #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
@@ -6364,18 +6391,18 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Sign extension on long word unnecessary if then it's save as word.
     # This pattern is the outcome of GCC optimization for ASR.l #16,dN which adds EXT.l dN
-    # ext.l   dN       ->    move.w  d1,<ea>      ; Saves 4 cycles
+    # ext.l   dN       ->    move.w  dN,<ea>      ; Saves 4 cycles
     # move.w  dN,<ea>
-    # Ensure dN is not used at all, anymore or used as word or byte before is overwritten or cleared.
+    # Ensure dN is not used anymore before is cleared or overwritten, or used as word or byte before is overwritten or cleared.
     matchA = re.match(r'^(\s*)ext\.l(\s+)(%d[0-7])', line_A)
     if matchA:
         dN = matchA.group(3)
-        matchB = re.match(r'^\s*(move|movea)\.w\s+(%d[0-7]),\s*(.+);?$', line_B)
+        matchB = re.match(r'^\s*(move|movea)\.w\s+(%d[0-7]),\s*(.+?)\s*(?:;.*)?$', line_B)
         if matchB and dN == matchB.group(2):
             ea = matchB.group(3)
             if dN not in ea:
                 dn_used = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
+                dn_used_as_word_or_byte = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
                 if not dn_used or dn_used_as_word_or_byte:
                     optimized_lines = [
                         line_B
@@ -6392,7 +6419,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         dN = matchA.group(4)
         matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
         if matchB and dN == matchB.group(1):
-            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                 optimized_lines = [
                     line_A
                 ]
@@ -6456,7 +6483,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # <ea>: effective address valid for this tst optimization:
         #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l
         # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName or #symbolName
-        matchB = re.match(r'^\s*[jb]eq(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+        matchB = re.match(r'^\s*[jb]eq(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
         if matchB:
             s_branch = '  ' if not matchB.group(1) else matchB.group(1)
             label = matchB.group(2)
@@ -6473,7 +6500,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # <ea>: effective address valid for this tst optimization:
         #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l
         # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName or #symbolName
-        matchB = re.match(r'^\s*[jb]ne(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+        matchB = re.match(r'^\s*[jb]ne(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
         if matchB:
             s_branch = '  ' if not matchB.group(1) else matchB.group(1)
             label = matchB.group(2)
@@ -6500,7 +6527,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # btst.l  #val,dN    ->    tst.s   dN          ; Saves 4 cycles. Status flags wrong.
             # beq     label            bpl     label
             # s = b|w|l for 7|15|31
-            matchB = re.match(r'^\s*[jb]eq(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]eq(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 s_branch = '  ' if not matchB.group(1) else matchB.group(1)
                 label = matchB.group(2)
@@ -6514,7 +6541,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # btst.l  #val,dN    ->    tst.s   dN          ; Saves 4 cycles. Status flags wrong.
             # bne     label            bmi     label
             # s = b|w|l for 7|15|31
-            matchB = re.match(r'^\s*[jb]ne(\.[bsw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]ne(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 s_branch = '  ' if not matchB.group(1) else matchB.group(1)
                 label = matchB.group(2)
@@ -6542,7 +6569,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 # beq    label                   bpl  label
                 # symbol_or_mem must be address allowing read-modify-write transfer.
                 # gcc might add +N or -N. Ie: ammoInventory+2.
-                matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9A-Za-z_\.]+);?$', line_B)
+                matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
                 if matchB:
                     s_branch = '  ' if not matchB.group(1) else matchB.group(1)
                     label = matchB.group(2)
@@ -6556,7 +6583,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 # bne    label                   bmi  label
                 # symbol_or_mem must be address allowing read-modify-write transfer.
                 # gcc might add +-*N. Ie: ammoInventory+2.
-                matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9A-Za-z_\.]+);?$', line_B)
+                matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
                 if matchB:
                     s_branch = '  ' if not matchB.group(1) else matchB.group(1)
                     label = matchB.group(2)
@@ -6576,7 +6603,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # bset.l #7,dN     ->    tas   dN          ; Saves 4 cycles. Status flags wrong.
             # beq    label           bpl   label
-            matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9A-Za-z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 s_branch = '  ' if not matchB.group(1) else matchB.group(1)
                 label = matchB.group(2)
@@ -6588,7 +6615,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # bset.l #7,dN     ->    tas   dN          ; Saves 4 cycles. Status flags wrong.
             # bne    label           bmi   label
-            matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9A-Za-z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 s_branch = '  ' if not matchB.group(1) else matchB.group(1)
                 label = matchB.group(2)
@@ -6615,7 +6642,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbf    dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bne    label
-            matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6624,7 +6651,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # beq    label
-            matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6633,7 +6660,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bpl    label
-            matchB = re.match(r'^\s*[jb]pl(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]pl(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6642,7 +6669,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bmi    label
-            matchB = re.match(r'^\s*[jb]mi(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]mi(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, 2):
                     label = matchB.group(2)
@@ -6651,7 +6678,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bge    label
-            matchB = re.match(r'^\s*[jb]ge(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]ge(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6660,7 +6687,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # blt    label
-            matchB = re.match(r'^\s*[jb]lt(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]lt(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6669,7 +6696,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbeq   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bhi    label
-            matchB = re.match(r'^\s*[jb]hi(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]hi(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6678,7 +6705,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             # tst.w  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bls    label
-            matchB = re.match(r'^\s*[jb]ls(\.[sbw])?\s+([0-9a-zA-Z_\.]+);?$', line_B)
+            matchB = re.match(r'^\s*[jb]ls(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                     label = matchB.group(2)
@@ -6686,7 +6713,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return ([optimized_line], 2)
 
     # Tail recursion for JSR/BSR or exploiting PEA opportunities
-    matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?;?$', line_A)
+    matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_A)
     if matchA:
         s_branch = '  ' if not matchA.group(3) else matchA.group(3)
         subr = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
@@ -6721,7 +6748,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchA:
             subr = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
             aN = matchA.group(7)
-            matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\);?$', line_B)
+            matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\)\s*(?:;.*)?$', line_B)
             if matchB and aN == matchB.group(1):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(2)}{subr}'
@@ -6740,7 +6767,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchA:
             subr = ''.join(matchA.group(i) for i in range(4, 8) if matchA.group(i))
             aN = matchA.group(8)
-            matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\);?$', line_B)
+            matchB = re.match(r'^\s*jsr\s+\((%a[0-7])\)\s*(?:;.*)?$', line_B)
             if matchB and aN == matchB.group(1):
                 optimized_lines = [
                     f'{matchA.group(1)}jsr{matchA.group(3)}{subr}'
@@ -6759,7 +6786,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         aN_or_pc = matchA.group(4)
         aM = matchA.group(5)
-        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\);?$', line_B)
+        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line_B)
         if matchB and aM == matchB.group(1):
             val = '' if not matchA.group(3) else matchA.group(3)
             if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
@@ -6776,7 +6803,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         aN_or_pc = matchA.group(4)
         dN_s = matchA.group(5)
         aM = matchA.group(6)
-        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\);?$', line_B)
+        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line_B)
         if matchB and aM == matchB.group(1):
             val = '' if not matchA.group(3) else matchA.group(3)
             if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
@@ -6792,7 +6819,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         aN_or_pc = matchA.group(4)
         aM = matchA.group(5)
-        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\);?$', line_B)
+        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line_B)
         if matchB and aM == matchB.group(1):
             label_or_val = '' if not matchA.group(3) else matchA.group(3)
             if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
@@ -6808,7 +6835,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         aN_or_pc = matchA.group(4)
         dN_s = matchA.group(5)
         aM = matchA.group(6)
-        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\);?$', line_B)
+        matchB = re.match(r'^\s*jmp\s+\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line_B)
         if matchB and aM == matchB.group(1):
             label_or_val = '' if not matchA.group(3) else matchA.group(3)
             if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 2)
@@ -6977,7 +7004,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchA:
             symbol_or_mem_full = ''.join(matchA.group(i) for i in range(3, 7) if matchA.group(i))
             aN = matchA.group(7)
-            matchB = re.match(r'^\s*(add|adda)\.l\s+([^,]+),\s*(%a[0-7]|%sp);?$', line_B)
+            matchB = re.match(r'^\s*(add|adda)\.l\s+([^,]+),\s*(%a[0-7]|%sp)\s*(?:;.*)?$', line_B)
             if matchB and aN == matchB.group(3):
                 src_B = matchB.group(2)
                 optimized_lines = [
@@ -7437,7 +7464,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             return (optimized_lines, 2)
 
     # Move byte constants into consecutive memory.
-    move_constant_byte_to_mem_pattern = r'^(\s*)move\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?;?$'
+    move_constant_byte_to_mem_pattern = r'^(\s*)move\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
     matchA = re.match(move_constant_byte_to_mem_pattern, line_A)
     if matchA:
         matchB = re.match(move_constant_byte_to_mem_pattern, line_B)
@@ -7480,7 +7507,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Move word constants into consecutive memory.
-    move_constant_word_to_mem_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?;?$'
+    move_constant_word_to_mem_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
     matchA = re.match(move_constant_word_to_mem_pattern, line_A)
     if matchA:
         matchB = re.match(move_constant_word_to_mem_pattern, line_B)
@@ -7655,7 +7682,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = matchA.group(2)
         dN = matchA.group(8)
-        matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?;?$', line_B)
+        matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_B)
         if matchB and s == matchB.group(1) and dN == matchB.group(2):
             symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
             symbolName_2 = ''.join(matchB.group(i) for i in range(3, 5) if matchB.group(i))
@@ -7721,7 +7748,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Clearing consecutive memory from same symbolName.
-    clr_mem_from_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?;?$'
+    clr_mem_from_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
     matchA = re.match(clr_mem_from_symbol_pattern, line_A)
     if matchA:
         matchB = re.match(clr_mem_from_symbol_pattern, line_B)
@@ -7784,7 +7811,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Clearing consecutive memory.
     # Note that gcc might use negative numbers.
-    clr_mem_no_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?;?$'
+    clr_mem_no_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
     matchA = re.match(clr_mem_no_symbol_pattern, line_A)
     if matchA:
         matchB = re.match(clr_mem_no_symbol_pattern, line_B)
@@ -7967,8 +7994,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             label_or_disp_updated += "1"
                         aN_with_xN_s = ''.join(match_ea.group(i) for i in range(3, 5) if match_ea.group(i))
                         ea_adjusted = label_or_disp_updated + "(" + aN_with_xN_s + ")"
-                    # Check on adjusted <ea>
-                    if ea_adjusted and is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+
+                    # Check on final adjusted <ea>
+                    if ea_adjusted and is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                         optimized_lines = [
                             f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
                             f'{matchA.group(1)}move.b{matchA.group(3)}{ea_adjusted},{dN}'
@@ -7983,10 +8011,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     matchA = re.match(r'^(\s*)(moveq|move)(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
     if matchA:
         dN = matchA.group(5)
-        matchB = re.match(r'^\s*move\.w\s+([,^]),\s*(%d[0-7])', line_B)
-        if matchB and dN == matchB.group(3):
+        # (.+?) is non-greedy capture everything, and with the $ we force it to also match the ,\s*%dN
+        matchB = re.match(r'^\s*move\.w\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
+        if matchB and dN == matchB.group(2):
             is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW)
+            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
             if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
                 ea = matchB.group(1)
                 optimized_lines = [
@@ -9142,10 +9171,11 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             return ([optimized_line], True)
 
     # eor.s  #-1,<ea>   ->    not.s   <ea>           ; Saves 4 cycles.
-    match = re.match(r'^(\s*)(eor|eori)\.([bwl])(\s+)#-1,\s*(.+);?$', line)
+    # Consider 0xFF, 0xFFFF, and 0xFFFFFFFF as equivalences to -1.
+    match = re.match(r'^(\s*)(eor|eori)\.([bwl])(\s+)#(-1|0[xX](?:[fF]{2}|[fF]{4}|[fF]{8})),\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         s = match.group(3)
-        ea = match.group(5)
+        ea = match.group(6)
         optimized_line = f'{match.group(1)}not.{s}{match.group(4)}{ea}'
         return ([optimized_line], True)
 
@@ -9156,7 +9186,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # eor.l  #val,<ea>   ->   moveq  #val,dM         ; Saves 4 cycles.
     #                         eor.l  dM,<ea>
     # Needs a free data register dM.
-    match = re.match(r'^(\s*)(or|ori|eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    match = re.match(r'^(\s*)(or|ori|eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         instr = match.group(2)
         if instr.endswith('i'):
@@ -9234,7 +9264,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # cmp.l  #val,<ea>   ->    moveq    #val,dM    ; Saves 4 cycles.
     #                          cmp.l    dM,<ea>
     # Needs a free data register dM.
-    match = re.match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    match = re.match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         val = parseConstantSigned(match.group(4), 8)
         if -128 <= val <= 127:
@@ -9457,7 +9487,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # move.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles.
     #                           move.l   dM,<ea>
     # Needs a free data register dM.
-    match = re.match(r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    match = re.match(r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         instr = match.group(2)
         val = parseConstantSigned(match.group(4), 8)
@@ -9527,7 +9557,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # and.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles.
     #                          and.l    dM,<ea>
     # Needs a free data register dM.
-    match = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+);?$', line)
+    match = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         val = parseConstantSigned(match.group(4), 8)
         if -128 <= val <= 127:
@@ -9707,7 +9737,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -9738,7 +9768,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                         f'{match.group(1)}add.w{match.group(3)}{dM},{dN}'
@@ -9774,7 +9804,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{dN}'
                 return ([optimized_line], True)
@@ -9805,7 +9835,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if dM is None:
                 dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
+                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                         f'{match.group(1)}sub.w{match.group(3)}{dM},{dN}'
@@ -9855,29 +9885,22 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             optimized_line = f'{match.group(1)}subq.w{match.group(2)}#{match.group(3)},{match.group(4)}'
             return ([optimized_line], True)
 
-    # If -32767 <= val <= 32767.
+    # If -32768 <= val <= 32767.
     # adda.l  #val,An     ->   adda.w   #val,An    ; Saves [4,8] cycles.
+    # Take advantage of sign extension of the source. The final operation over An is always long.
     match = re.match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
-            if 1 <= val <= 8:
-                optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{aN}'
-                return ([optimized_line], True)
-            if -8 <= val <= -1:
-                optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{-val},{aN}'
-                return ([optimized_line], True)
-            if -32768 <= val <= 32767:
-                optimized_line = f'{match.group(1)}adda.w{match.group(3)}#{val},{aN}'
-                return ([optimized_line], True)
-        else:
-            if 1 <= val <= 8:
-                optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{val},{aN}'
-                return ([optimized_line], True)
-            if -8 <= val <= -1:
-                optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{-val},{aN}'
-                return ([optimized_line], True)
+        if 1 <= val <= 8:
+            optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{aN}'
+            return ([optimized_line], True)
+        if -8 <= val <= -1:
+            optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{-val},{aN}'
+            return ([optimized_line], True)
+        if -32768 <= val <= 32767:
+            optimized_line = f'{match.group(1)}adda.w{match.group(3)}#{val},{aN}'
+            return ([optimized_line], True)
 
     # If -128 <= val <= 127.
     # adda.l   #val,aN    ->   moveq     #val,dM    ; Saves 4 cycles.
@@ -9919,29 +9942,22 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             optimized_line = f'{match.group(1)}lea{match.group(3)}{val}({aN}),{aN}'
             return ([optimized_line], True)
 
-    # If -32767 <= val <= 32767.
+    # If -32768 <= val <= 32767.
     # suba.l  #val,An     ->   suba.w   #val,An    ; Saves [4,8] cycles.
+    # Take advantage of sign extension of the source. The final operation over An is always long.
     match = re.match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
-        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.AT_LEAST_ONE_PER_CONTROL_FLOW):
-            if 1 <= val <= 8:
-                optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{aN}'
-                return ([optimized_line], True)
-            if -8 <= val <= -1:
-                optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{-val},{aN}'
-                return ([optimized_line], True)
-            if -32768 <= val <= 32767:
-                optimized_line = f'{match.group(1)}suba.w{match.group(3)}#{val},{aN}'
-                return ([optimized_line], True)
-        else:
-            if 1 <= val <= 8:
-                optimized_line = f'{match.group(1)}subq.l{match.group(3)}#{val},{aN}'
-                return ([optimized_line], True)
-            if -8 <= val <= -1:
-                optimized_line = f'{match.group(1)}addq.l{match.group(3)}#{-val},{aN}'
-                return ([optimized_line], True)
+        if 1 <= val <= 8:
+            optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{aN}'
+            return ([optimized_line], True)
+        if -8 <= val <= -1:
+            optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{-val},{aN}'
+            return ([optimized_line], True)
+        if -32768 <= val <= 32767:
+            optimized_line = f'{match.group(1)}suba.w{match.group(3)}#{val},{aN}'
+            return ([optimized_line], True)
 
     # If -128 <= val <= 127.
     # suba.l   #val,aN    ->   moveq     #val,dM    ; Saves 4 cycles.
@@ -10486,7 +10502,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
     # movem.w *,dN     ->    move.w  *,dN        ; Saves 4 cycles.
     #                        ext.l   dN
     # movem does sign extension so we need to add ext.l instruction.
-    match = re.match(r'^(\s*)(movem|movm)\.w(\s+)([^,]+),\s*(%d[0-7]);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.w(\s+)([^,]+),\s*(%d[0-7])\s*(?:;.*)?$', line)
     if match:
         src = match.group(4)
         dN = match.group(5)
@@ -10498,7 +10514,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
 
     # movem.l (sp)+,<2 regs>  ->   move.l  (sp)+,<reg1>     ; Saves 4 cycles.
     #                              move.l  (sp)+,<reg2>
-    match = re.match(r'^(\s*)(movem|movm)\.l(\s+)\(%sp\)\+,\s*(%[ad][0-7])/(%[ad][0-7]);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.l(\s+)\(%sp\)\+,\s*(%[ad][0-7])/(%[ad][0-7])\s*(?:;.*)?$', line)
     if match:
         reg1 = match.group(4)
         reg2 = match.group(5)
@@ -10510,7 +10526,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
 
     # movem.s *,xN     ->    move.s  *,xN        ; Saves [4,8] cycles.
     # Where xN = a single register, but not (xN=dN & s=w) at the same time.
-    match = re.match(r'^(\s*)(movem|movm)\.([wl])(\s+)([^,]+),\s*(%[ad][0-7]|%sp);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.([wl])(\s+)([^,]+),\s*(%[ad][0-7]|%sp)\s*(?:;.*)?$', line)
     if match:
         s = match.group(3)
         src = match.group(5)
@@ -10521,7 +10537,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
 
     # movem.s xN,*     ->    move.s  xN,*        ; Saves 4 cycles. Status flags wrong.
     # Where xN = a single register.
-    match = re.match(r'^(\s*)(movem|movm)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(.+);?$', line)
+    match = re.match(r'^(\s*)(movem|movm)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         s = match.group(3)
         xN = match.group(5)
@@ -11033,7 +11049,7 @@ def applyGccConversions(lines: list[str]) -> list[str]:
 
 # move.[wl] #functionName[.wl],<any>
 move_functionName_into_any_pattern = re.compile(
-    r'^\s*move[a]?\.[wl]\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(.+);?$'
+    r'^\s*move[a]?\.[wl]\s+#([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?,\s*(.+?)\s*(?:;.*)?$'
 )
 # lea functionName[.wl],aN
 lea_functionName_into_an_pattern = re.compile(
@@ -11336,13 +11352,13 @@ move_into_disp_sp_pattern = re.compile(
     r'|'
     r'(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?'  # [#]symbol_or_mem[.bwl][+-*N][.bwl]
     r')'                                # End non-capturing group
-    r',\s*(-?\d+)?\(%sp\);?$'           # disp(sp) or (sp)
+    r',\s*(-?\d+)?\(%sp\)\s*(?:;.*)?$'  # disp(sp) or (sp)
 )
 
 move_disp_sp_into_xn_pattern = re.compile(
     r'^(\s*)(move|movea)\.([wl])(\s+)'
     r'(-?\d+)?\(%sp\)'                  # disp(sp) or (sp)
-    r',\s*(?:.+);?$'
+    r',\s*(?:.+)\s*(?:;.*)?$'           # anything else
 )
 
 @dataclass
@@ -11566,10 +11582,10 @@ move_canonical_mem_address_pattern = re.compile(
     r'^(\s*)(move|movea)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
 )
 clr_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(clr)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(clr)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 clr_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(clr)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(clr)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 lea_canonical_symbol_pattern = re.compile(
     r'^(\s*)(lea)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
@@ -11578,10 +11594,10 @@ lea_canonical_mem_address_pattern = re.compile(
     r'^(\s*)(lea)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
 )
 pea_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(pea)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(pea)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 pea_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(pea)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(pea)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 add_sub_canonical_symbol_pattern = re.compile(
     r'^(\s*)(add|adda|addq|sub|suba|subq)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
@@ -11590,28 +11606,28 @@ add_sub_canonical_mem_address_pattern = re.compile(
     r'^(\s*)(add|adda|addq|sub|suba|subq)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)'
 )
 cmp_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(.+);?$'
+    r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(.+?)\s*(?:;.*)?$'
 )
 cmp_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(.+);?$'
+    r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(.+?)\s*(?:;.*)?$'
 )
 cmpi_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 cmpi_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 andi_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(andi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(andi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 andi_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(andi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(andi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 jmp_jsr_canonical_symbol_pattern = re.compile(
-    r'^(\s*)(jmp|jsr)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(jmp|jsr)(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 jmp_jsr_canonical_mem_address_pattern = re.compile(
-    r'^(\s*)(jmp|jsr)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?;?$'
+    r'^(\s*)(jmp|jsr)(\s+)(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 
 def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_filename: str) -> tuple[int, int, list[int], dict[int, tuple[str, str]]]:

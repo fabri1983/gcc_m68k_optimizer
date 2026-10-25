@@ -63,8 +63,6 @@ Tested on Blastem nightly build
 
 TODO
 ====
-More possible optimizations: https://github.com/PeyloW/gcc-15-experimental-build/blob/main/M68K_OPTIMIZATIONS.md
-
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 Review if_reg_not_used_anymore_then_remove_from_push_pop().
 
@@ -119,18 +117,66 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+# Word packing. Setting upper word only.
+# If val = m*65536. Ie val is multiple of 65536.
+# Where -8323073 <= val <= -65537 or 65536 <= val <= 8323072.
+# andi.l  #0xFFFF,dN      ->    swap   dN                    ; Saves 16 cycles.
+# ori.l   #0xNNNN0000,dN        move.w #m,dN
+#                               swap   dN
+        val = parseConstantSigned(match.group(3), 32)
+        if (-8323073 <= val <= -65537) or (65536 <= val <= 8323072):
+            # is val multiple of 65536
+            if val % 65536 == 0:
+                m = val // 65536  # floor division
+
+# Word packing.
+swap    dN         ->    swap    dN                ; Saves [24,32] cycles.
+clr.w   dN               move.w  dM,dN
+andi.l  #0xFFFF,dM
+or.l    dM,dN
+
+# Memory to memory
+move.s  (aN)+,dN        ->    move.s  (aN)+,(aM)+          ; Saves 4 cycles. Leaves dN different.
+move.s  dN,(aM)+
+# Ensure dN is not used anymore or cleared/overwritten before use.
+
+# Read-Modify-Write and increment pointer
+move.s  (aN),dN         ->    add.w   dM,(aN)+             ; Saves [8,12] cycles. Leaves dN different.
+add.s   dM,dN
+move.s  dN,(aN)+
+# Ensure dN is not used anymore or cleared/overwritten before use. 
+
 # When poping something from SP into a data reg and consecutively modifying the data reg 
 # with consecutive elements from SP. 
 # Better use auto increment on a free address reg to compensate for the poped elements.
-move.s disp1(sp),dN     ->    lea     disp1(sp),aN           ; Saves 4 cycles
+move.s disp1(sp),dN     ->    lea     disp1(sp),aN         ; Saves 4 cycles.
 add.s  disp2(sp),dN           move.s  (aN)+,dN
 add.s  disp3(sp),dN           add.s   (aN)+,dN
                               add.s   (aN),dN
 # Where disp2 = disp1 + s, disp3 = disp2 + s.
 # Needs a free address register aN.
 
+# Gcc built-in signed multiplication with sign extension.
+# Replace by simple muls.w
+move.l dN,-(sp)         ->    muls.w  dM,dN          ; Saves [68,72,76] cycles
+move.l dM,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
+jsr    __mulsi3
+addq.l #8,sp
+ext.l  d0
+move.l d0,dN <-- this line optional if dN is d0
+
+# Gcc built-in signed multiplication without sign extension
+# Replace by simple muls.w
+move.l dN,-(sp)         ->    muls.w  dM,dN          ; Saves [68,72] cycles
+move.l dM,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
+jsr    __mulsi3
+addq.l #8,sp
+move.l d0,dN  <-- this line optional if dN is d0
+
+Other functions: __umulsi3, __divsi3, __udivsi3, __modsi3, __umodsi3
+
 # Send 32 bytes (a tile) into memory
-move.l (a2),(a6)      ->    move.l (a2)+,(a6)       ; Saves 24 cycles.
+move.l (a2),(a6)      ->    move.l (a2)+,(a6)        ; Saves 24 cycles.
 move.l 4(a2),(a6)           move.l (a2)+,(a6)
 move.l 8(a2),(a6)           move.l (a2)+,(a6)
 move.l 12(a2),(a6)          move.l (a2)+,(a6)
@@ -142,7 +188,7 @@ move.l d7,(a6)              lea    -28(a2),a2
 Ensure d7 is not used anymore or cleared/overwritten before use.
 
 # Send 32 bytes (a tile) into memory
-move.l (a2),(a6)      ->    move.l (a2)+,(a6)       ; Saves 20 cycles.
+move.l (a2),(a6)      ->    move.l (a2)+,(a6)        ; Saves 20 cycles.
 move.l 4(a2),(a6)           move.l (a2)+,(a6)
 move.l 8(a2),(a6)           move.l (a2)+,(a6)
 move.l 12(a2),(a6)          move.l (a2)+,(a6)
