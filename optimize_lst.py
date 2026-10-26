@@ -5277,6 +5277,32 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     optimized_lines = [line_B, line_A_opt, line_D]
                                     return (optimized_lines, 4)
 
+    # Word packing.
+    # swap[.w] dN           ->    swap    dN                 ; Saves [24,32] cycles. Leaves dM different.
+    # clr.w    dN                 move.w  dM,dN
+    # and.l    #0xFFFF,dM
+    # or.l     dM,dN
+    # Leaves dM with different value in upper word.
+    # Ensure dM is not used anymore before is cleared or overwritten, or is used as word or byte.
+    matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(4)
+        matchB = re.match(r'^\s*clr\.w\s+(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(1):
+            matchC = re.match(r'^\s*(and|andi)\.l\s+#(-1|0[xX][fF]{4}),\s*(%d[0-7])', line_C)
+            if matchC:
+                dM == matchC.group(3)
+                matchD = re.match(r'^\s*or\.l\s+(%d[0-7]),\s*(%d[0-7])', line_D)
+                if matchD and dM == matchD.group(1) and dN == matchD.group(2):
+                    is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 4)
+                    only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
+                    if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
+                        optimized_lines = [
+                            f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                            f'{matchA.group(1)}move.w{matchA.group(3)}{dM},{dN}'
+                        ]
+                        return (optimized_lines, 4)
+
     # Consecutive copy of memory.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [4,8] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
@@ -6000,12 +6026,12 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Clean upper word of data register to later copy it into other data register.
-        # swap    dN        ->    moveq   #0,dM            ; Saves 8 cycles. Leaves dN different.
-        # clr.w   dN              move.w  dN,dM
-        # swap    dN
-        # move.l  dN,dM
+        # swap[.w] dN        ->    moveq   #0,dM             ; Saves 8 cycles. Leaves dN different.
+        # clr.w    dN              move.w  dN,dM
+        # swap[.w] dN
+        # move.l   dN,dM
         # Leaves dN with different value in upper word. 
-        # Ensure dN is not used before is cleared or overwritten, or is used as word or byte.
+        # Ensure dN is not used anymore before is cleared or overwritten, or is used as word or byte.
         matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(4)
@@ -6026,13 +6052,13 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Clean upper word of data register to later be used as address.
-        # swap    dN        ->    moveq   #0,dM            ; Saves 4 cycles. Leaves dN different.
-        # clr.w   dN              move.w  dN,dM
-        # swap    dN              move.l  dM,aN
-        # move.l  dN,aN
+        # swap[.w] dN        ->    moveq   #0,dM             ; Saves 4 cycles. Leaves dN different.
+        # clr.w    dN              move.w  dN,dM
+        # swap[.w] dN              move.l  dM,aN
+        # move.l   dN,aN
         # Needs a free data register dM.
         # Leaves dN with different value in upper word. 
-        # Ensure dN is not used before is cleared or overwritten, or is used as word or byte.
+        # Ensure dN is not used anymore before is cleared or overwritten, or is used as word or byte.
         matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(4)
@@ -6813,19 +6839,17 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Unnecessary sign extension.
     # Particularly added by FF32_toInt() which does >> 16, but gcc also adds an extra ext.l.
-    # swap   dN     ->    swap   dN       ; Saves 4 cycles
-    # ext.l  dN
+    # swap[.w] dN     ->    swap   dN          ; Saves 4 cycles
+    # ext.l    dN
     # Ensure dN is used as word or byte afterwards before is overwritten or cleared.
-    matchA = re.match(r'^(\s*)swap(\.l)?(\s+)(%d[0-7])', line_A)
-    if matchA:
-        dN = matchA.group(4)
-        matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
-        if matchB and dN == matchB.group(1):
-            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
-                optimized_lines = [
-                    line_A
-                ]
-                return (optimized_lines, 2)
+    #matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
+    #if matchA:
+    #    dN = matchA.group(4)
+    #    matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
+    #    if matchB and dN == matchB.group(1):
+    #        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+    #            optimized_lines = [line_A]
+    #            return (optimized_lines, 2)
 
     # Fast sign-extend bytes into words, and words into longs, when the sign bit is at position N.
     # lsl.w/l  #val,dN     ->   move.w/l  #mask,dM     ; Saves ?? cycles as long as N decreases.
@@ -7472,7 +7496,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # move.[wl]  aM,dN                addq/subq.[wl]  #abs(disp),dN
         #                                 (addq if val > 0, subq if val < 0)
         # Where 1 <= abs(disp) <= 8.
-        # Leaves aM free. Ensure aM is not used anymore.
+        # Leaves aM free.
+        # Ensure aM is not used anymore or cleared/overwritten before use.
         matchA = re.match(r'^(\s*)lea(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])', line_A)
         if matchA:
             disp_str = matchA.group(3)
@@ -12726,7 +12751,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
     num_patterns_found += num_patterns_found_1st_pass
 
     # 2nd pass: catch new opportunities and optimize branches
-    print(f'[OPT_LOG {THIS_INVOKE_ID}] -- SECOND pass -- (opt line numbers will point to result from first pass and not to original lines)')
+    print(f'[OPT_LOG {THIS_INVOKE_ID}] -- SECOND pass -- (optimized line numbers will point to result from first pass and not to original lines)')
     modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 2)
     num_updated_lines_found += num_updated_lines_found_2nd_pass
     num_patterns_found += num_patterns_found_2nd_pass
@@ -12739,7 +12764,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
         # Loading a canonical address into aN register on instructions lea/movea/jmp/jsr can be reduced
         # to its lower word .w, therefor taking advantage of the sign extension the instruction does.
         # It needs the symbols file generated in a previous compilation stage.
-        print(f'[OPT_LOG {THIS_INVOKE_ID}] -- Reduce load and branch of a canonical address using sign extension --')
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] -- Reduce loading and branching of a canonical address using sign extension --')
 
         print(f'[OPT_LOG {THIS_INVOKE_ID}] Single line patterns (use .w on symbol or address when possible)')
         result_func = reduce_canonical_address_using_sign_extension(modified_lines, symbols_opt_filename)

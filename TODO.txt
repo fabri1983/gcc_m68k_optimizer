@@ -117,15 +117,10 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Word packing.
-swap    dN         ->    swap    dN                ; Saves [24,32] cycles.
-clr.w   dN               move.w  dM,dN
-and.l   #0xFFFF,dM
-or.l    dM,dN
-
-# Memory to memory
+# Memory to memory.
 move.s  (aN)+,dN        ->    move.s  (aN)+,(aM)+          ; Saves 4 cycles. Leaves dN different.
 move.s  dN,(aM)+
+# Leaves dN different.
 # Ensure dN is not used anymore or cleared/overwritten before use.
 
 # Read-Modify-Write and increment pointer
