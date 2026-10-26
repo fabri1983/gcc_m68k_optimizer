@@ -64,7 +64,7 @@ Tested on Blastem nightly build
 TODO
 ====
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
-Review if_reg_not_used_anymore_then_remove_from_push_pop().
+Review if_reg_not_used_anymore_then_remove_from_push_pop(), and use it on every pattern that leaves dN/aN free.
 
 Create Cost Based Check: count cycles of an optimized routine before and after.
 
@@ -117,13 +117,7 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Memory to memory.
-move.s  (aN)+,dN        ->    move.s  (aN)+,(aM)+          ; Saves 4 cycles. Leaves dN different.
-move.s  dN,(aM)+
-# Leaves dN different.
-# Ensure dN is not used anymore or cleared/overwritten before use.
-
-# Read-Modify-Write and increment pointer
+# Read-Modify-Write and increment pointer.
 move.s  (aN),dN         ->    add.w   dM,(aN)+             ; Saves [8,12] cycles. Leaves dN different.
 add.s   dM,dN
 move.s  dN,(aN)+

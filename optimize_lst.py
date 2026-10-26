@@ -6675,13 +6675,13 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                                 ]
                                 return (optimized_lines, 3)
 
-        # TODO: uncomment when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed.
+        # TODO: uncomment when if_reg_not_used_anymore_then_remove_from_push_pop() is fixed.
         # Case for a potentially new free register.
         # Clear higher word of data register
-        # moveq[.l]   #0,dN    ->     swap    dM           ; Saves 0 cycles. But leaves 1 potential free register.
+        # moveq[.l]   #0,dN    ->     swap    dM           ; Saves 0 cycles. leaves dN free.
         # move.w      dM,dN           clr.w   dM
         # move.l      dN,dM           swap    dM
-        # Leaves dN free which potentially can be removed from movem/move push/pop stack if not used anymore.
+        # Leaves dN free.
         # Only valid if dN is used afterwards as word or byte before it's cleared or overwritten.
         # NOTE: not used to avoid de-optimization of other patterns.
         #matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
@@ -8122,11 +8122,12 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
-    # Move value from memory to memory
-    # move.s  symbolName1+off1,dN     ->    move.s  symbolName1+off1,symbolName2+off2     ; Saves 4 cycles
+    # Move value from memory to memory.
+    # move.s  symbolName1+off1,dN     ->    move.s  symbolName1+off1,symbolName2+off2     ; Saves 4 cycles. Leaves dN free.
     # move.s  dN,symbolName2+off2
     # symbolName1 can be symbolName2.
     # off1 and off2 can be omitted or 0.
+    # Leaves dN free.
     # Ensure dN is not used afterwards before cleared or overwritten.
     matchA = re.match(r'^(\s*)move\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%d[0-7])', line_A)
     if matchA:
@@ -8141,6 +8142,44 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
                 optimized_lines = [
                     f'{matchA.group(1)}move.{s}{matchA.group(3)}{symbolName_1+op_1_str},{symbolName_2+op_2_str}'
+                ]
+                return (optimized_lines, 2)
+
+    # Memory to memory with both auto increment pointer.
+    # move.s  (aN)+,dN        ->    move.s  (aN)+,(aM)+          ; Saves 4 cycles. Leaves dN free.
+    # move.s  dN,(aM)+
+    # Leaves dN free.
+    # Ensure dN is not used anymore or cleared/overwritten before use.
+    matchA = re.match(r'^(\s*)move\.([bwl])(\s+)\((%a[0-7])\)\+,\s*(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(2)
+        aN = matchA.group(4)
+        dN = matchA.group(5)
+        matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*\((%a[0-7])\)\+', line_B)
+        if matchB and s == matchB.group(1) and dN ==  matchB.group(2):
+            if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                aM = matchB.group(3)
+                optimized_lines = [
+                    f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN})+,({aM})+'
+                ]
+                return (optimized_lines, 2)
+
+    # Memory to memory with both auto decrement pointer.
+    # move.s  -(aN),dN        ->    move.s  -(aN),-(aM)          ; Saves 4 cycles. Leaves dN free.
+    # move.s  dN,-(aM)
+    # Leaves dN free.
+    # Ensure dN is not used anymore or cleared/overwritten before use.
+    matchA = re.match(r'^(\s*)move\.([bwl])(\s+)-\((%a[0-7])\),\s*(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(2)
+        aN = matchA.group(4)
+        dN = matchA.group(5)
+        matchB = re.match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*-\((%a[0-7])\)', line_B)
+        if matchB and s == matchB.group(1) and dN ==  matchB.group(2):
+            if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                aM = matchB.group(3)
+                optimized_lines = [
+                    f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),-({aM})'
                 ]
                 return (optimized_lines, 2)
 
