@@ -5,7 +5,7 @@ Features:
 - Multiplication and Division optimization when higher word IS NOT important and where it IS important.
 - Static data flow analysis for register liveness: free-after-use and non-used registers.
 - Branch instruction size reduction when target label is inside the [-127,128] bytes window address range.
-- Remove redundant tst operation after register allocation that sets CC flags. With instrucitons re ordering when it applies.
+- Remove redundant tst operation after register allocation setting CC flags. With instructions re ordering when it applies.
 - Exploit address register sign extension.
 - Exploit address loading by a constant offset from another address register already loaded.
 - Multiple lines span optimizations: up to 8 lines for pattern matching optimizations.
@@ -14,10 +14,10 @@ Features:
 Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds a m68k elf artifact prior 
 to the final binary rom artifact.
 
-This script is intended to be executed with gcc plugin feature at `PLUGIN_FINISH` phase, which is 
+This python script is intended to be executed from gcc plugin feature at `PLUGIN_FINISH` phase, which is 
 the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
-At `PLUGIN_FINISH` phase we can access the m68k assembly code generated from all the **.c units** in our project 
+At `PLUGIN_FINISH` phase we can access the m68k assembly code (in MIT Syntax AT&T-style) generated from all the **.c units** in our project 
 and those by the **SGDK** library, including the inline asm blocks. Assembly units **.s, .S, .asm** are excluded from this phase.
 
 The optimizations depend heavily on the project you run on it. On some, it saves 1% of CPU per frame 
