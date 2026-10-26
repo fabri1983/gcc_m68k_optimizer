@@ -117,22 +117,10 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Word packing. Setting upper word only.
-# If val = m*65536. Ie val is multiple of 65536.
-# Where -8323073 <= val <= -65537 or 65536 <= val <= 8323072.
-# andi.l  #0xFFFF,dN      ->    swap   dN                    ; Saves 16 cycles.
-# ori.l   #0xNNNN0000,dN        move.w #m,dN
-#                               swap   dN
-        val = parseConstantSigned(match.group(3), 32)
-        if (-8323073 <= val <= -65537) or (65536 <= val <= 8323072):
-            # is val multiple of 65536
-            if val % 65536 == 0:
-                m = val // 65536  # floor division
-
 # Word packing.
 swap    dN         ->    swap    dN                ; Saves [24,32] cycles.
 clr.w   dN               move.w  dM,dN
-andi.l  #0xFFFF,dM
+and.l   #0xFFFF,dM
 or.l    dM,dN
 
 # Memory to memory

@@ -3489,7 +3489,7 @@ move_disp_aN_into_xN_pattern = re.compile(
     r',\s*(%[ad][0-7]|%sp)'               # destination register
 )
 
-btst_7_effective_address_pattern = re.compile(
+btst_7th_ea_pattern = re.compile(
     r'^(\s*)btst\.b(\s+)#7,\s*'
     r'(?!'                                # Negative lookahead for invalid modes
         r'%d[0-7]\b'                      # Data registers %d0-%d7
@@ -6658,7 +6658,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # Leaves dN free which potentially can be removed from movem/move push/pop stack if not used anymore.
         # Only valid if dN is used afterwards as word or byte before it's cleared or overwritten.
         # NOTE: not used to avoid de-optimization of other patterns.
-        #matchA = re.match(r'^(\s)*moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
+        #matchA = re.match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         #if matchA:
         #    dN = matchA.group(4)
         #    matchB = re.match(r'^\s*move\.w\s+(%d[0-7]),\s*(%d[0-7])', line_B)
@@ -6856,7 +6856,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
-    # Clear register except lower byte and then shifet left 1 <= val <= 8 positions.
+    # Clear register except lower byte and then shift left val positions, where 1 <= val <= 8.
     # and.l  #255,dN    ->    and.l  #255,dN           ; Saves 2 cycles
     # lsl.l  #val,dN          lsl.w  #val,dN
     matchA = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_A)
@@ -6875,7 +6875,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
             
     # Test bit #7 (8th position) on byte size.
-    matchA = btst_7_effective_address_pattern.match(line_A)
+    matchA = btst_7th_ea_pattern.match(line_A)
     if matchA:
         ea = matchA.group(3)
 
@@ -7260,7 +7260,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchB = re.match(r'^\s*(and|andi)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%d[0-7])', line_B)
         if matchB and dN == matchB.group(4):
             ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
-            # An and SP are not valid sources for 'and' instruction
+            # aN and SP are not valid sources for 'and' instruction
             if not ea.startswith(("%a","%sp")):
                 mask = parseConstantSigned(matchB.group(3), 8)
                 if -128 <= mask <= 127 and not ea.startswith(('%a','%sp')):
@@ -7270,6 +7270,29 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_lines = [
                         f'{matchA.group(1)}moveq{matchA.group(3)}#{mask},{dN}',
                         f'{matchA.group(1)}and.{s}{matchA.group(3)}{ea},{dN}'
+                    ]
+                    return (optimized_lines, 2)
+
+    # Word packing. Setting upper word only.
+    # If val = m*65536. Ie val is multiple of 65536.
+    # Where -8323073 <= val <= -65537 or 65536 <= val <= 8323072.
+    # and.l  #0xFFFF,dN       ->    swap    dN                   ; Saves 16 cycles.
+    # or.l   #0xNNNN0000,dN         move.w  #m,dN
+    #                               swap    dN
+    matchA = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-1|0[xX][fF]{4}),\s*(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(5)
+        matchB = re.match(r'^\s*(or|ori)\.l\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(3):
+            val = parseConstantSigned(matchB.group(2), 32)
+            if (-8323073 <= val <= -65537) or (65536 <= val <= 8323072):
+                # is val multiple of 65536
+                if val % 65536 == 0:
+                    m = val // 65536  # floor division
+                    optimized_lines = [
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}move.w{matchA.group(3)}#{m},{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -7625,7 +7648,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # add.s     xN,aN      ->    lea  val(aN,xN.s),aN    ; Saves 8 cycles.
     # add.[wl]  #val,aN
     # s: b,w,l.
-    matchA = re.match(r'^(\s)*(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    matchA = re.match(r'^(\s*)(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         sA, xN, aN = matchA.group(3, 5, 6)
         matchB = re.match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
@@ -7667,7 +7690,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # add.s     xN,aN      ->    lea  -val(aN,xN.s),aN   ; Saves 8 cycles.
     # sub.[wl]  #val,aN
     # s: b,w,l.
-    matchA = re.match(r'^(\s)*(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    matchA = re.match(r'^(\s*)(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         sA, xN, aN = matchA.group(3, 5, 6)
         matchB = re.match(r'^\s*(sub|suba|subq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+),\s*(%a[0-7]|%sp)', line_B)
@@ -8357,12 +8380,12 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             mask = parseConstantUnsigned(matchB.group(2))
             if mask == 0xFF:
                 ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
-                # An and SP are not valid sources for 'and' instruction
+                # aN and SP are not valid sources for 'and' instruction
                 if not ea.startswith(("%a","%sp")):
                     # NOTE: We have to adjust <ea> by +1 byte if <ea> uses a displacement, symbolName or mem address access
                     ea_adjusted = ''
                     # dN
-                    if match_ea := re.match(r'^(%d[0-7])$', ea):
+                    if match_ea := re.match(r'^%d[0-7]$', ea):
                         ea_adjusted = ea
                     # (aN)
                     # -(aN) and (aN)+ can't be handled because we'd need access the lower byte after dec/inc the pointer by 2 bytes which is not possible
@@ -9539,9 +9562,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     match = re.match(r'^(\s*)(or|ori|eor|eori)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantUnsigned(match.group(4))
-        dN = match.group(5)
         if (val & 0xFFFF0000) == 0:
             instr = match.group(2)
+            dN = match.group(5)
             optimized_line = f'{match.group(1)}{instr}.w{match.group(3)}#{val},{dN}'
             return ([optimized_line], True)
 
