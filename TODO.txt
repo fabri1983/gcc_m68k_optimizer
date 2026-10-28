@@ -65,8 +65,6 @@ TODO
 ====
 Revisit all patterns clr.s <ea>. Now they can use find_regs_holding_zero().
 
-Revisit all patterns that add a moveq #0,dN. Now they can use find_regs_holding_zero().
-
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 Review if_reg_not_used_anymore_then_remove_from_push_pop(), and use it on every pattern that leaves dN/aN free.
 
@@ -106,11 +104,6 @@ Single instruction
 Clear upper word of dN.
 We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
 and.l   #0xFFFF,dN   ->   ext.l   dN             ; Saves 12 cycles.
-
-Clearing memory using existent dN already holding 0 value.
-Must find a dN holding 0 in bits s.
-clr.s   -(aN)        ->   move.s  dN,-(aN)       ; Saves [6,10] cycles.
-Use method: find_regs_holding_zero(i_line, lines, modified_lines, <ingore_N_previous_lines>)
 
 Replace usage of immediate by register.
 Must find a dM holding val in bits s.

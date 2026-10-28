@@ -8966,7 +8966,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 2)
 
     # Clearing consecutive memory calculated from effective address.
-    clr_mem_ea_pattern = r'^(\s*)clr\.([bw])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
+    clr_mem_ea_pattern = r'^(\s*)clr\.([bw])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)\s*(?:;.*)?$'
     matchA = re.match(clr_mem_ea_pattern, line_A)
     if matchA:
         matchB = re.match(clr_mem_ea_pattern, line_B)
@@ -10625,6 +10625,59 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     ############################################################################
     # Clear regs and Clearing mask over regs or memory
     ############################################################################
+
+    # Clearing memory using existent xN already holding 0 value.
+    # clr.s   -(aN)      ->    move.s  xN,-(aN)        ; Saves [6,10] cycles.
+    match = re.match(r'^(\s*)clr\.([bwl])(\s+)-\((%a[0-7]|%sp)\)', line)
+    if match:
+        s = match.group(2)
+        aN = match.group(4)
+        zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
+        if len(zeroed_regs) > 0:
+            xN = zeroed_regs[0]
+            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},-({aN})'
+            return ([optimized_line], True)
+
+    # Clearing memory using existent xN already holding 0 value.
+    # clr.s   (aN)+      ->    move.s  xN,(aN)+        ; Saves [4,8] cycles.
+    match = re.match(r'^(\s*)clr\.([bwl])(\s+)\((%a[0-7]|%sp)\)\+', line)
+    if match:
+        s = match.group(2)
+        aN = match.group(4)
+        zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
+        if len(zeroed_regs) > 0:
+            xN = zeroed_regs[0]
+            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},({aN})+'
+            return ([optimized_line], True)
+
+    # Clearing memory using existent xN already holding 0 value.
+    # clr.s   disp(aN)   ->    move.s  xN,disp(aN)     ; Saves [4,8] cycles.
+    # disp is optional.
+    match = re.match(r'^(\s*)clr\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line)
+    if match:
+        s = match.group(2)
+        disp = '' if not match.group(4) else match.group(4)
+        aN = match.group(5)
+        zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
+        if len(zeroed_regs) > 0:
+            xN = zeroed_regs[0]
+            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{disp}({aN})'
+            return ([optimized_line], True)
+
+    # Clearing memory using existent xN already holding 0 value.
+    # clr.s   disp(aN,xM.[wl])   ->    move.s  xN,disp(aN,xM.[wl])       ; Saves [4,8] cycles.
+    # disp is optional.
+    match = re.match(r'^(\s*)clr\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]),(%[ad][0-7])(\.[bwl])?\)', line)
+    if match:
+        s = match.group(2)
+        disp = '' if not match.group(4) else match.group(4)
+        aN = match.group(5)
+        xM_indirection = ''.join(match.group(i) for i in range(6, 8) if match.group(i))
+        zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
+        if len(zeroed_regs) > 0:
+            xN = zeroed_regs[0]
+            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{disp}({aN},{xM_indirection})'
+            return ([optimized_line], True)
 
     match = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
