@@ -63,6 +63,10 @@ Tested on Blastem nightly build
 
 TODO
 ====
+Revisit all patterns clr.s <ea>. Now they can use find_regs_holding_zero().
+
+Revisit all patterns that add a moveq #0,dN. Now they can use find_regs_holding_zero().
+
 Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 Review if_reg_not_used_anymore_then_remove_from_push_pop(), and use it on every pattern that leaves dN/aN free.
 
@@ -106,6 +110,7 @@ and.l   #0xFFFF,dN   ->   ext.l   dN             ; Saves 12 cycles.
 Clearing memory using existent dN already holding 0 value.
 Must find a dN holding 0 in bits s.
 clr.s   -(aN)        ->   move.s  dN,-(aN)       ; Saves [6,10] cycles.
+Use method: find_regs_holding_zero(i_line, lines, modified_lines, <ingore_N_previous_lines>)
 
 Replace usage of immediate by register.
 Must find a dM holding val in bits s.
@@ -117,16 +122,57 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+# Re order moving a pointer into a data reg for setting CC flags. 
+# This is likely a null check optimization from other pattern. 
+# The registers can be inverted and the instruction move is moved after the beq.
+move.l  symbol_or_mem,aN    ->    move.l  symbol_or_mem,dN     ; Saves 4 cycles if beq does actually branch.
+move.w  aN,dN                     beq     label
+beq     label                     move.w  dN,aN
+# Ensure dN is not used anymore or cleared/overwritten before use.
+
+# Clear consecutive memory. All same size accesor.
+clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [24,28,32] cycles.
+clr.l  symbol_or_mem+Q          move.l   xN,xM
+clr.l  symbol_or_mem+R          move.l   xN,xP
+                                movem.l  xN/xM/xP,symbol_or_mem+offset
+# If symbol_or_mem+P = symbol_or_mem+Q +/- 4
+# If symbol_or_mem+Q = symbol_or_mem+R +/- 4
+# Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
+# xN must be a data reg in case no regs were found holding 0.
+
+# Clear consecutive memory. All same size accesor.
+clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [64,68,72,76] cycles.
+clr.l  symbol_or_mem+Q          move.l   xN,xM
+clr.l  symbol_or_mem+R          move.l   xN,xP
+clr.l  symbol_or_mem+S          move.l   xN,xQ
+                                movem.l  xN/xM/xP/xQ,symbol_or_mem+offset
+# If symbol_or_mem+P = symbol_or_mem+Q +/- 4
+# If symbol_or_mem+Q = symbol_or_mem+R +/- 4
+# If symbol_or_mem+R = symbol_or_mem+S +/- 4
+# Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
+# xN must be a data reg in case no regs were found holding 0.
+
+# Clear consecutive memory. Different size accesor.
+clr.[wl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [20,24,28] cycles.
+clr.[wl]  symbol_or_mem+Q          move.l   xN,xM
+clr.[wl]  symbol_or_mem+R          movem.l  xN/xM,symbol_or_mem+offset
+                                   move.w   xN,symbol_or_mem+R
+# Size combinations: llw, lwl, wll
+# If symbol_or_mem+P = symbol_or_mem+Q +/- 2/4
+# If symbol_or_mem+Q = symbol_or_mem+R +/- 2/4
+# If symbol_or_mem+R = symbol_or_mem+S +/- 2/4
+# Needs xN/xM free registers, or as much as possible regs already holding 0.
+# xN must be a data reg in case no regs were found holding 0.
+
 # Read-Modify-Write and increment pointer.
-move.s  (aN),dN         ->    add.w   dM,(aN)+             ; Saves [8,12] cycles. Leaves dN different.
+move.s  (aN),dN         ->    add.w   dM,(aN)+           ; Saves [8,12] cycles. Leaves dN different.
 add.s   dM,dN
 move.s  dN,(aN)+
 # Ensure dN is not used anymore or cleared/overwritten before use. 
 
-# When poping something from SP into a data reg and consecutively modifying the data reg 
-# with consecutive elements from SP. 
+# Poping from SP into a data reg and consecutively modifying the same data reg with consecutive elements from SP. 
 # Better use auto increment on a free address reg to compensate for the poped elements.
-move.s disp1(sp),dN     ->    lea     disp1(sp),aN         ; Saves 4 cycles.
+move.s disp1(sp),dN     ->    lea     disp1(sp),aN       ; Saves 4 cycles.
 add.s  disp2(sp),dN           move.s  (aN)+,dN
 add.s  disp3(sp),dN           add.s   (aN)+,dN
                               add.s   (aN),dN
@@ -134,23 +180,25 @@ add.s  disp3(sp),dN           add.s   (aN)+,dN
 # Needs a free address register aN.
 
 # Gcc built-in signed multiplication with sign extension.
-# Replace by simple muls.w
-move.l dN,-(sp)         ->    muls.w  dM,dN          ; Saves [68,72,76] cycles
-move.l dM,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
-jsr    __mulsi3
+# Replace by simple muls.w.
+move.l dN,-(sp)              ->    muls.w  dM/#imm,dN          ; Saves [68,72,76] cycles
+move.l dM/#imm,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
+jsr    __mulsi3/(aN)
 addq.l #8,sp
 ext.l  d0
-move.l d0,dN <-- this line optional if dN is d0
+move.l d0,dN  <-- this line optional if dN is d0
+# If match with jsr (aN) then search in the control flow dictionary if aN was loaded with __mulsi3.
 
-# Gcc built-in signed multiplication without sign extension
-# Replace by simple muls.w
-move.l dN,-(sp)         ->    muls.w  dM,dN          ; Saves [68,72] cycles
-move.l dM,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
-jsr    __mulsi3
+# Gcc built-in signed/unsigned multiplication without sign extension.
+# Replace by simple muls/mulu.w.
+move.l dN,-(sp)              ->    muls/mulu.w  dM/#imm,dN     ; Saves [68,72] cycles
+move.l dM/#imm,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
+jsr    __mulsi3/__umulsi3/(aN)
 addq.l #8,sp
 move.l d0,dN  <-- this line optional if dN is d0
+# If match with jsr (aN) then search in the control flow dictionary if aN was loaded with __mulsi3/__umulsi3.
 
-Other functions: __umulsi3, __divsi3, __udivsi3, __modsi3, __umodsi3
+Other functions, but better look for examples to correctly understand them: __divsi3, __udivsi3, __modsi3, __umodsi3
 
 # Send 32 bytes (a tile) into memory
 move.l (a2),(a6)      ->    move.l (a2)+,(a6)        ; Saves 24 cycles.

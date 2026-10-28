@@ -10,8 +10,8 @@
 import re
 from typing import Callable
 from optimize_lst import (
-    find_free_after_use_data_register,
-    find_unused_data_register,
+    find_free_after_use_DATA_regs,
+    find_unused_DATA_regs,
     add_regs_into_push_pop_if_not_scratch_or_in_interrupt,
     replace_xN_by_xM_in_next_lines
 )
@@ -67,9 +67,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(3|0x3|$3),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -98,9 +98,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(7|0x7|$7),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -129,9 +129,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(9|0x9|$9),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -150,9 +150,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(10|0x[aS]|$[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -173,9 +173,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(11|0x[bB]|$[bB]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -196,9 +196,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(12|0x[cC]|$[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -219,9 +219,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(13|0x[dD]|$[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -242,9 +242,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(14|0x[eE]|$[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -263,9 +263,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(15|0x[fF]|$[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -294,9 +294,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(17|0x11|$11),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -315,9 +315,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(18|0x12|$12),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -338,9 +338,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(19|0x13|$13),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -361,9 +361,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(20|0x14|$14),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -384,9 +384,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(21|0x15|$15),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -409,9 +409,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(22|0x16|$16),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -434,9 +434,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(23|0x17|$17),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -457,9 +457,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(24|0x18|$18),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -480,9 +480,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(25|0x19|$19),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -504,9 +504,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(26|0x1[aA]|$1[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -528,9 +528,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(29|0x1[dD]|$1[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -551,9 +551,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(30|0x1[eE]|$1[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -572,9 +572,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(31|0x1[fF]|$1[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -603,9 +603,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(33|0x21|$21),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -624,9 +624,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(34|0x22|$22),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -647,9 +647,9 @@ def muls_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(35|0x23|$23),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}ext.l {match.group(3)}{dN}',
@@ -712,9 +712,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(1|0x1|$1),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -730,9 +730,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(2|0x2|$2),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -751,9 +751,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(3|0x3|$3),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -772,9 +772,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(4|0x4|$4),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -793,9 +793,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(5|0x5|$5),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -817,9 +817,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(6|0x6|$6),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -841,9 +841,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(7|0x7|$7),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -862,9 +862,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(8|0x8|$8),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -883,9 +883,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(9|0x9|$9),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -907,9 +907,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(10|0x[aA]|$[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -933,9 +933,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(11|0x[bB]|$[bB]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -959,9 +959,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(14|0x[eE]|$[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -983,9 +983,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(15|0x[fF]|$[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1004,9 +1004,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(16|0x10|$10),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1025,9 +1025,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(17|0x11|$11),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1049,9 +1049,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(18|0x12|$12),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1074,9 +1074,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(20|0x14|$14),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1099,9 +1099,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(24|0x18|$18),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1124,9 +1124,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(30|0x1[eE]|$1[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1148,9 +1148,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(31|0x1[fF]|$1[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1169,9 +1169,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(32|0x20|$20),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1190,9 +1190,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(33|0x21|$21),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1211,9 +1211,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(64|0x40|$40),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1230,9 +1230,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(128|0x80|$80),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1249,9 +1249,9 @@ def mulu_high_word_important(line, i_line, lines, modified_lines) -> tuple[list[
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(256|0x100|$100),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None:
             replace_xN_by_xM_in_next_lines(dN, dM, i_line, lines, modified_lines)
             optimized_lines = [
@@ -1295,9 +1295,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(3|0x3|$3),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1325,9 +1325,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(5|0x5|$5),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1345,9 +1345,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(6|0x6|$6),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -1364,9 +1364,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(7|0x7|$7),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1389,9 +1389,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(9|0x9|$9),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1409,9 +1409,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(10|0x[aA]|$[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1432,9 +1432,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(11|0x[bB]|$[bB]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1455,9 +1455,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(12|0x[cC]|$[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1478,9 +1478,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(13|0x[dD]|$[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1500,9 +1500,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(14|0x[eE]|$[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1519,9 +1519,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(15|0x[fF]|$[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1544,9 +1544,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(17|0x11|$11),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1563,9 +1563,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(18|0x12|$12),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -1584,9 +1584,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(19|0x13|$13),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1607,9 +1607,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(20|0x14|$14),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1632,9 +1632,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(21|0x15|$15),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1658,9 +1658,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(22|0x16|$16),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -1682,9 +1682,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(23|0x17|$17),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1703,9 +1703,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(24|0x18|$18),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1724,9 +1724,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(25|0x19|$19),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1746,9 +1746,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(26|0x1[aA]|$1[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1769,9 +1769,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(27|0x1[bB]|$1[bB]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1792,9 +1792,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(28|0x1[cC]|$1[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1814,9 +1814,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(29|0x1[dD]|$1[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1835,9 +1835,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(30|0x1[eE]|$1[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1854,9 +1854,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(31|0x1[fF]|$1[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1879,9 +1879,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(33|0x21|$21),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1898,9 +1898,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(34|0x22|$22),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1919,9 +1919,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(35|0x23|$23),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1941,9 +1941,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(36|0x24|$24),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1964,9 +1964,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(37|0x25|$25),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -1988,9 +1988,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(38|0x26|$26),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -2012,9 +2012,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(39|0x27|$27),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2035,9 +2035,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(40|0x28|$28),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2058,9 +2058,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(41|0x29|$29),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2082,9 +2082,9 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(muls)(?:\.w)?(\s+)#(42|0x2[aA]|$2[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2153,9 +2153,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(3|0x3|$3),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2183,9 +2183,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(5|0x5|$5),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2203,9 +2203,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(6|0x6|$6),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -2222,9 +2222,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(7|0x7|$7),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2247,9 +2247,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(9|0x9|$9),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2267,9 +2267,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(10|0x[aA]|$[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2290,9 +2290,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(11|0x[bB]|$[bB]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2313,9 +2313,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(12|0x[cC]|$[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2336,9 +2336,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(13|0x[dD]|$[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2358,9 +2358,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(14|0x[eE]|$[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2377,9 +2377,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(15|0x[fF]|$[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2402,9 +2402,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(17|0x11|$11),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2421,9 +2421,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(18|0x12|$12),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -2442,9 +2442,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(19|0x13|$13),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2465,9 +2465,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(20|0x14|$14),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2490,9 +2490,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(21|0x15|$15),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2516,9 +2516,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(22|0x16|$16),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -2540,9 +2540,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(23|0x17|$17),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2561,9 +2561,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(24|0x18|$18),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2582,9 +2582,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(25|0x19|$19),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2604,9 +2604,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(26|0x1[aA]|$1[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2627,9 +2627,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(27|0x1[bB]|$1[bB]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2650,9 +2650,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(28|0x1[cC]|$1[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2672,9 +2672,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(29|0x1[dD]|$1[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2693,9 +2693,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(30|0x1[eE]|$1[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2712,9 +2712,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(31|0x1[fF]|$1[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2737,9 +2737,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(33|0x21|$21),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2756,9 +2756,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(34|0x22|$22),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2777,9 +2777,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(35|0x23|$23),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2799,9 +2799,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(36|0x24|$24),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2822,9 +2822,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(37|0x25|$25),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2846,9 +2846,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(38|0x26|$26),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}add.w {match.group(3)}{dN},{dN}',
@@ -2870,9 +2870,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(39|0x27|$27),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2893,9 +2893,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(40|0x28|$28),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2916,9 +2916,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(41|0x29|$29),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2940,9 +2940,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(42|0x2[aA]|$2[aA]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2959,9 +2959,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(44|0x2[cC]|$2[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2978,9 +2978,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(45|0x2[dD]|$2[dD]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -2997,9 +2997,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(46|0x2[eE]|$2[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3015,9 +3015,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(48|0x30|$30),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3032,9 +3032,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(49|0x31|$31),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3050,9 +3050,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(56|0x38|$38),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3067,9 +3067,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(60|0x3[cC]|$3[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3085,9 +3085,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(62|0x3[eE]|$3[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3102,9 +3102,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(63|0x3[fF]|$3[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3125,9 +3125,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(65|0x41|$41),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3141,9 +3141,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(66|0x42|$42),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3158,9 +3158,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(68|0x44|$44),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3176,9 +3176,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(72|0x48|$48),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3193,9 +3193,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(80|0x50|$50),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3211,9 +3211,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(84|0x54|$54),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3233,9 +3233,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(92|0x5[cC]|$5[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3253,9 +3253,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(96|0x60|$60),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3270,9 +3270,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(112|0x70|$70),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3287,9 +3287,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(120|0x78|$78),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3304,9 +3304,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(124|0x7[cC]|$7[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3322,9 +3322,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(126|0x7[eE]|$7[eE]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3339,9 +3339,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(127|0x7[fF]|$7[fF]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3362,9 +3362,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(129|0x81),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3378,9 +3378,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(130|0x82|$82),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3395,9 +3395,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(132|0x84|$84),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3413,9 +3413,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(136|0x88|$88),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3430,9 +3430,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(144|0x90|$90),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3447,9 +3447,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(156|0x9[cC]|$9[cC]),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3466,9 +3466,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(160|0xA0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3484,9 +3484,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(184|0xB8),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3503,9 +3503,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(192|0xC0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3520,9 +3520,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(196|0xC4),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3540,9 +3540,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(200|0xC8),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3559,9 +3559,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(208|0xD0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3579,9 +3579,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(224|0xE0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3596,9 +3596,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(240|0xF0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3613,9 +3613,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(248|0xF8),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3630,9 +3630,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(252|0xFC),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3648,9 +3648,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(254|0xFE),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3665,9 +3665,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(255|0xFF),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3697,9 +3697,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(257|0x101),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3716,9 +3716,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(258|0x102),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3733,9 +3733,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(260|0x104),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3751,9 +3751,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(264|0x108),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3768,9 +3768,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(272|0x110),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3785,9 +3785,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(288|0x120),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3802,9 +3802,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(304|0x130),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3821,9 +3821,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(320|0x140),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3839,9 +3839,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(384|0x180),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3856,9 +3856,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(400|0x190),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3875,9 +3875,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(416|0x1A0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3895,9 +3895,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(480|0x1E0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3925,9 +3925,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(576|0x240),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3942,9 +3942,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(608|0x260),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3961,9 +3961,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(624|0x270),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -3981,9 +3981,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(625|0x271),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4002,9 +4002,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(640|0x280),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4020,9 +4020,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(768|0x300),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4040,9 +4040,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(896|0x380),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4057,9 +4057,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(960|0x3C0),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4088,9 +4088,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(1280|0x500),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4109,9 +4109,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(1920|0x780),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4139,9 +4139,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(2560|0xA00),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
@@ -4161,9 +4161,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
     match = re.match(r'^(\s*)(mulu)(?:\.w)?(\s+)#(3072|0xC00),(\s*)(%d[0-7])', line)
     if match:
         dN = match.group(6)
-        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',

@@ -121,8 +121,8 @@ CONTROL_FLOW_ANALYSIS_BRANCH_LATER = False
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
 USE_FIND_NOT_USED_REG_FUNCTION = True
 
-# By default if a routine is NOT an interrupt routine then the scratch pad regs naturally don't need to be 
-# pushed/poped in/from stack. In any other case we must add them, and this flag enables/disables such functionality.
+# By default if a routine is NOT an interrupt routine then the scratch pad regs don't need to be pushed/poped 
+# in/from the stack. In any other case we must add them. This flag enables/disables such functionality.
 USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION = False  # TODO: Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
 # Custom optimizations found from the analyzis of gcc -S listings.
@@ -491,7 +491,7 @@ SINGLE_REG_REGEX = re.compile(r'(%[ad])([0-7])')
 PUSH_OP = 1
 POP_OP = 2
 
-def sort_regs(regs: list[str]):
+def sort_regs(regs: list[str]) -> list[str]:
     # First, separate the registers into data and address lists and sort them numerically
     data_regs = sorted([r for r in regs if r.startswith('%d')], key=lambda r: int(r[2:]))
     addr_regs = sorted([r for r in regs if r.startswith('%a')], key=lambda r: int(r[2:]))
@@ -983,11 +983,11 @@ def get_function_name(i_line: int, lines: list[str]) -> str:
     return func_name
     
 @export_func
-def find_free_after_use_data_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
+def find_free_after_use_DATA_regs(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
     return find_free_after_use_register(excludes, i_line, lines, modified_lines, "%d", ignore_N_previous_lines)
 
 @export_func
-def find_free_after_use_address_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
+def find_free_after_use_ADDRESS_regs(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
     excludes.append("%a7")
     return find_free_after_use_register(excludes, i_line, lines, modified_lines, "%a", ignore_N_previous_lines)
 
@@ -1325,11 +1325,11 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     return candidates
 
 @export_func
-def find_unused_data_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
+def find_unused_DATA_regs(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
     return find_unused_register(excludes, i_line, lines, modified_lines, "%d", ignore_N_previous_lines)
 
 @export_func
-def find_unused_address_register(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
+def find_unused_ADDRESS_regs(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
     excludes.append("%a7")
     return find_unused_register(excludes, i_line, lines, modified_lines, "%a", ignore_N_previous_lines)
 
@@ -1547,6 +1547,250 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
     uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
 
     return candidates
+
+_ZERO_IMM = r'#(?:0+|0[xX]0+|\$0+)(?:\.[bwl])?'
+
+# Only instructions that write a full 32 bits zero.
+# Groups:
+#   1 = moveq dN     2 = move.l/movea.l to dN|aN     3 = move.w/movea.w to aN
+#   4 = clr.l xN     5 = sub.l dN,dN (back-ref \5)   6 = suba.l aN,aN (\6)
+#   7 = eor.l dN,dN (\7)
+REG_ZEROING_REGEX = re.compile(
+    r'^\s*'
+    r'(?:'
+    r'moveq(?:\.l)?\s+' + _ZERO_IMM + r'\s*,\s*(%d[0-7])'
+    r'|'
+    r'movea?\.l\s+' + _ZERO_IMM + r'\s*,\s*(%[ad][0-7])'
+    r'|'
+    r'movea?\.w\s+' + _ZERO_IMM + r'\s*,\s*(%a[0-7])'
+    r'|'
+    r'clr\.l\s+(%[ad][0-7])'
+    r'|'
+    r'sub\.l\s+(%d[0-7])\s*,\s*\5'
+    r'|'
+    r'suba\.l\s+(%a[0-7])\s*,\s*\6'
+    r'|'
+    r'eor\.l\s+(%d[0-7])\s*,\s*\7'
+    r')'
+    r'\b'
+)
+
+# Every instruction that writes a register with a value that may not be zero.
+# Group 1 = destination register. The trailing \b makes it fail for
+# memory destinations like "move.l %d0,(%a0)", which is correct: writing to
+# memory does not clobber any register.
+REG_CLOBBER_REGEX = re.compile(
+    r'^\s*'
+    r'(?:'
+    # two-operand form: instr src, dst
+    r'(?:movea?|add|adda|addi|addq|sub|suba|subi|subq'
+    r'|and|andi|or|ori|eor|eori|mulu|muls|divu|divs'
+    r'|lsl|lsr|asl|asr|rol|ror|roxl|roxr'
+    r'|movep|moveq|lea)'
+    r'(?:\.[bwl])?\s+[^,]+\s*,\s*'
+    r'|'
+    # one-operand form: instr dst
+    r'(?:clr|not|neg|negx|nbcd|tas|swap|ext'
+    r'|scc|scs|seq|sf|sge|sgt|shi|sle|sls|slt|smi|sne|spl|st|svc|svs)'
+    r'(?:\.[bwl])?\s+'
+    r')'
+    r'(%[ad][0-7])\b'
+)
+
+# move.l/movea.l dN,dM|aM  and  move.w/movea.w dN,aM (the latter sign extends)
+REG_COPY_ZEROED_REGEX = re.compile(
+    r'^\s*(?:movea?\.l\s+(%[ad][0-7]),\s*(%[ad][0-7])|movea?\.w\s+(%[ad][0-7]),\s*(%a[0-7]))'
+)
+
+def find_regs_holding_zero(i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int) -> list[str]:
+    """
+    Search from the beginiing of the routine using control flow for registers holding 0 in its 32 bits 
+    and holding it across every flow until reaching i_line in lines[] and the end of modified_lines[].
+    Next instructions set 0:
+        moveq #0,dN
+        move.[wl] #0,aN  <-- sign extends to 32 bits
+        clr.l xN
+        sub*.l xN,xN
+        eor.l xN,xN
+    Param ignore_N_previous_lines only affects modified_lines.
+    Returns:
+        ["%dN", "%aM", ...] or empty []
+    """
+
+    # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
+
+    # Search for the first instruction in the routine
+    routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
+
+    regs_zeroed: set[str] = set()  # "still 0" on the current path?
+    regs_zeroed_at_end: list[set[str]] = []  # One snapshot per flow that reached the end point
+
+    # Start with modified_lines array
+    target_array = modified_lines
+    rem_start = routine_first_instruction_pos
+    rem_end = len(target_array)
+    i = rem_start
+
+    # Master control for flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
+
+        while i < rem_end:  # forwards
+            line = target_array[i]
+            i += 1
+
+            # Skip comments
+            if line[0] in COMMENT_PREFIX_CHAR:
+                continue
+
+            # Operating over lines array and reaching i_line+1?
+            if target_array is lines and i-1 == i_line+1:
+                # Save a snapshot when reaching target line
+                regs_zeroed_at_end.append(set(regs_zeroed))
+                break  # Stop the analysis at current flow
+
+            # End of this routine body?
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break  # Stop the analysis at current flow
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                break  # Stop the analysis at current flow
+
+            # Is a label?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                if label in control_visited:
+                    break  # Stop the analysis at current flow
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
+
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                # Jumping into a routine?
+                if match.group(1) in ('jsr', 'bsr'):
+                    pass
+                elif match.group(1) in ('bra', 'jra', 'jmp'):
+                    # Get the target label (might be a function name which won't be in control_flow_dict)
+                    label = match.group(2)
+                    # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
+                    # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
+                    if label not in control_flow_dict:
+                        if label in declared_functions_all_set:
+                            # Same behavior than when instruction is in ('jsr','bsr')
+                            pass
+                        else:
+                            # We actually can't calculate the destination: 
+                            # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
+                            # the target labels and visit them one by one
+                            pass
+                    # Target label is in the dictionary AND was not yet visited
+                    elif label in control_flow_dict and label not in control_visited:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                continue
+
+            # If is a conditional branch jcc/bcc or dbcc
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
+                # Get the target label
+                label = match.group(2)
+                # Target label is in the dictionary AND was not yet visited
+                if label in control_flow_dict and label not in control_visited:
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                continue
+
+            # Zeroing?
+            # This must be tested first. Zeroing instructions also match the generic clobber pattern.
+            if zeroing_match := REG_ZEROING_REGEX.match(line):
+                reg = None
+                for g in zeroing_match.groups():
+                    if g is not None:
+                        reg = g
+                        break
+                if reg:
+                    regs_zeroed.add(reg)
+                continue
+
+            # Register-to-register copy: the destination inherits the zero state of the source.
+            # Must be tested before the generic clobber pattern.
+            if copy_match := REG_COPY_ZEROED_REGEX.match(line):
+                src = copy_match.group(1) or copy_match.group(3)
+                dst = copy_match.group(2) or copy_match.group(4)
+                if src in regs_zeroed:
+                    regs_zeroed.add(dst)
+                else:
+                    regs_zeroed.discard(dst)
+                continue
+
+            # Any other write to a register -> that register is no longer 0.
+            if clobber_match := REG_CLOBBER_REGEX.match(line):
+                regs_zeroed.discard(clobber_match.group(1))
+                continue
+
+        # Flow reached the end of modified_lines[] naturally
+        if target_array is modified_lines:
+            # Save a snapshot when a flow falls off the end of modified_lines[]
+            regs_zeroed_at_end.append(set(regs_zeroed))
+
+        # If there is any return frame left, then continue from that location
+        if len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
+
+    # Restore them
+    uncomment_line_at(lines, i_line)
+    uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
+
+    if len(regs_zeroed_at_end) == 0:
+        return []
+
+    # A register must be zero in every flow that reached the end point
+    regs_zeroed = set.intersection(*regs_zeroed_at_end)
+    if len(regs_zeroed) == 0:
+        return []
+
+    return sort_regs(regs_zeroed)
 
 def in_a_SGDK_sound_related_routine(modified_lines: list[str]) -> bool:
     """
@@ -2095,6 +2339,35 @@ def is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(xN: str
         if match_instr_size:
             s = match_instr_size.group(2)
             if s and s in ('.b','.w'):
+                continue  # This line meets the condition, check next line
+
+        # This line doesn't meet either of previous conditions
+        return False
+
+    # All lines met at least one of the conditions
+    return True
+
+def is_reg_used_as_word_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> bool:
+    """
+    Param ignore_N_previous_lines only affects modified_lines.
+    lines[i_line] will be commented in the inner method.
+    """
+    matching_lines = get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN, i_line, lines, modified_lines, ignore_N_previous_lines, reg_use_occurr_mode)
+    if len(matching_lines) == 0:
+        return False
+
+    # Ensure all lines are using the reg xN as word or byte
+    for matching_line in matching_lines:
+
+        # Condition 1: Check if the register is used in any indirection: 'xN.s)'
+        if xN+".w)" in matching_line:
+             continue  # This line meets this condition, check next line
+
+        # Condition 2: Check for the instruction size
+        match_instr_size = INSTRUCTION_WITH_SIZE_REGEX.match(matching_line)
+        if match_instr_size:
+            s = match_instr_size.group(2)
+            if s and s in ('.w'):
                 continue  # This line meets the condition, check next line
 
         # This line doesn't meet either of previous conditions
@@ -5289,7 +5562,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         dN = matchA.group(4)
         matchB = re.match(r'^\s*clr\.w\s+(%d[0-7])', line_B)
         if matchB and dN == matchB.group(1):
-            matchC = re.match(r'^\s*(and|andi)\.l\s+#(-1|0[xX][fF]{4}),\s*(%d[0-7])', line_C)
+            matchC = re.match(r'^\s*(and|andi)\.l\s+#(-1|0[xX][fF]{4})(?:\.[bwl])?,\s*(%d[0-7])', line_C)
             if matchC:
                 dM == matchC.group(3)
                 matchD = re.match(r'^\s*or\.l\s+(%d[0-7]),\s*(%d[0-7])', line_D)
@@ -5541,9 +5814,9 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         s_label = '' if not matchB.group(2) else matchB.group(2)
                         val_low = parseConstantSigned(matchA.group(4), 16)
                         val_high = parseConstantSigned(matchC.group(2), 16)
-                        aN = find_free_after_use_address_register([], i_line, lines, modified_lines, 4)[0]
+                        aN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
                         if aN is None:
-                            aN = find_unused_address_register([], i_line, lines, modified_lines, 4)[0]
+                            aN = find_unused_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
                         if aN is not None:
                             if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
                                 if (val_low == -32768 and val_high == 32767) or (val_high == -32768 and val_low == 32767):
@@ -5766,15 +6039,15 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         used_addr_regs = [r for r in xregs if r.startswith('%a')]
 
                         # Get free data regs
-                        free_data_regs_1 = find_free_after_use_data_register(used_data_regs, i_line, lines, modified_lines, 4)
-                        free_data_regs_2 = find_unused_data_register(used_data_regs, i_line, lines, modified_lines, 4)
+                        free_data_regs_1 = find_free_after_use_DATA_regs(used_data_regs, i_line, lines, modified_lines, 4)
+                        free_data_regs_2 = find_unused_DATA_regs(used_data_regs, i_line, lines, modified_lines, 4)
                         free_data_regs_1 = [] if free_data_regs_1[0] == None else free_data_regs_1
                         free_data_regs_2 = [] if free_data_regs_2[0] == None else free_data_regs_2
                         free_data_regs = sorted(list(set(free_data_regs_1) | set(free_data_regs_2)), key=lambda r: int(r[2:]))
 
                         # Get free address regs
-                        free_addr_regs_1 = find_free_after_use_address_register(used_addr_regs, i_line, lines, modified_lines, 4)
-                        free_addr_regs_2 = find_unused_address_register(used_addr_regs, i_line, lines, modified_lines, 4)
+                        free_addr_regs_1 = find_free_after_use_ADDRESS_regs(used_addr_regs, i_line, lines, modified_lines, 4)
+                        free_addr_regs_2 = find_unused_ADDRESS_regs(used_addr_regs, i_line, lines, modified_lines, 4)
                         free_addr_regs_1 = [] if free_addr_regs_1[0] == None else free_addr_regs_1
                         free_addr_regs_2 = [] if free_addr_regs_2[0] == None else free_addr_regs_2
                         free_addr_regs = sorted(list(set(free_addr_regs_1) | set(free_addr_regs_2)), key=lambda r: int(r[2:]))
@@ -6068,9 +6341,9 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                 if matchC and dN == matchC.group(2):
                     matchD = re.match(r'^\s*move\.l?\s+(%d[0-7]),(%a[0-7]|%sp)', line_D)
                     if matchD and dN == matchD.group(1):
-                        dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                        dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines, 3)[0]
                         if dM is None:
-                            dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                            dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines, 3)[0]
                         if dM is not None:
                             is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4)
                             only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
@@ -6200,10 +6473,10 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     matchD_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_D)
                     matchD_pea = re.match(r'^\s*pea\s+0.w', line_D)
                     if matchD_clr or matchD_pea:
-                        free_d_regs = find_free_after_use_data_register([], i_line, lines, modified_lines, 4)
+                        free_d_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
                         if len(free_d_regs) < 4:
                             existent_candidates = [] if free_d_regs[0] == None else free_d_regs
-                            free_d_regs = find_unused_data_register(existent_candidates, i_line, lines, modified_lines, 4)
+                            free_d_regs = find_unused_DATA_regs(existent_candidates, i_line, lines, modified_lines, 4)
                             free_d_regs = existent_candidates + [r for r in free_d_regs if r]  # Discards None reg
                         if len(free_d_regs) >= 4:
                             dN, dM, dP, dQ = free_d_regs[:4]
@@ -6398,9 +6671,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 aN = matchA.group(4)
                 label = matchC.group(3)
                 s_branch = '' if not matchC.group(3) else matchC.group(3)
-                dM = find_free_after_use_data_register([], i_line, lines, modified_lines, 3)[0]
+                dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
                 if dM is None:
-                    dM = find_unused_data_register([], i_line, lines, modified_lines, 3)[0]
+                    dM = find_unused_DATA_regs([], i_line, lines, modified_lines, 3)[0]
                 if dM is not None:
                     if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                         # TODO: Check if it needs to follow the label and adjust use of SP
@@ -6661,9 +6934,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 dN = matchB.group(2)
                 matchC = re.match(r'^\s*move\.w\s+(%a[0-7]|%sp),\s*\((%a[0-7]|%sp)\)\+', line_C)
                 if matchC and aM == matchC.group(1) and aN == matchC.group(2):
-                    dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                    dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines, 3)[0]
                     if dM is None:
-                        dM = find_unused_data_register([dN], i_line, lines, modified_lines, 3)[0]
+                        dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines, 3)[0]
                     if dM is not None:
                         if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                             if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 3):
@@ -6775,10 +7048,10 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 matchC_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_C)
                 matchC_pea = re.match(r'^\s*pea\s+0.w', line_C)
                 if matchC_clr or matchC_pea:
-                    free_d_regs = find_free_after_use_data_register([], i_line, lines, modified_lines, 3)
+                    free_d_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)
                     if len(free_d_regs) < 3:
                         existent_candidates = [] if free_d_regs[0] == None else free_d_regs
-                        free_d_regs = find_unused_data_register(existent_candidates, i_line, lines, modified_lines, 3)
+                        free_d_regs = find_unused_DATA_regs(existent_candidates, i_line, lines, modified_lines, 3)
                         free_d_regs = existent_candidates + [r for r in free_d_regs if r]  # Discards None reg
                     if len(free_d_regs) >= 3:
                         dN, dM, dP = free_d_regs[:3]
@@ -6869,9 +7142,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if s == 'l':
                     n = 32-val
                 mask = -(2 ** (n - 1))
-                dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines, 2)[0]
+                dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines, 2)[0]
                 if dM is None:
-                    dM = find_unused_data_register([dN], i_line, lines, modified_lines, 2)[0]
+                    dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines, 2)[0]
                 if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}#{mask},{dM}',
@@ -6897,7 +7170,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         f'{matchA.group(1)}lsl.w{matchA.group(3)}#{val},{dN}'
                     ]
                     return (optimized_lines, 2)
-            
+
     # Test bit #7 (8th position) on byte size.
     matchA = btst_7th_ea_pattern.match(line_A)
     if matchA:
@@ -7303,7 +7576,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # and.l  #0xFFFF,dN       ->    swap    dN                   ; Saves 16 cycles.
     # or.l   #0xNNNN0000,dN         move.w  #m,dN
     #                               swap    dN
-    matchA = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-1|0[xX][fF]{4}),\s*(%d[0-7])', line_A)
+    matchA = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-1|0[xX][fF]{4})(?:\.[bwl])?,\s*(%d[0-7])', line_A)
     if matchA:
         dN = matchA.group(5)
         matchB = re.match(r'^\s*(or|ori)\.l\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_B)
@@ -7522,7 +7795,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                                 f'{matchA.group(1)}subq.{s}{matchA.group(2)}#{abs(disp)},{dN}'
                             ]
                             return (optimized_lines, 2)
-                
 
         # This pattern comes up after applying optimization for lsl.w #8,dN.
         # clr.b   dN            ->   move.b  dM,dN             ; Saves 4 cycles.
@@ -7791,9 +8063,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if dispA == dispB:
                 disp_str = '' if dispA == 0 else str(dispA)
                 dM = matchB.group(6)
-                dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                dP = find_free_after_use_DATA_regs([dN,dM], i_line, lines, modified_lines, 2)[0]
                 if dP is None:
-                    dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                    dP = find_unused_DATA_regs([dN,dM], i_line, lines, modified_lines, 2)[0]
                 if dP is not None:
                     if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
                         optimized_lines = [
@@ -7822,9 +8094,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if dispA == dispB:
                 disp_str = '' if dispA == 0 else str(dispA)
                 dM = matchB.group(6)
-                dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                dP = find_free_after_use_DATA_regs([dN,dM], i_line, lines, modified_lines, 2)[0]
                 if dP is None:
-                    dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines, 2)[0]
+                    dP = find_unused_DATA_regs([dN,dM], i_line, lines, modified_lines, 2)[0]
                 if dP is not None:
                     if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
                         optimized_lines = [
@@ -7853,9 +8125,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if dispA == dispB:
                 disp_str = '' if dispA == 0 else str(dispA)
                 aP = matchB.group(6)
-                aQ = find_free_after_use_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                aQ = find_free_after_use_ADDRESS_regs([aM,aP], i_line, lines, modified_lines, 2)[0]
                 if aQ is None:
-                    aQ = find_unused_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                    aQ = find_unused_ADDRESS_regs([aM,aP], i_line, lines, modified_lines, 2)[0]
                 if aQ is not None:
                     if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aQ], i_line, lines, modified_lines):
                         optimized_lines = [
@@ -7884,9 +8156,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if dispA == dispB:
                 disp_str = '' if dispA == 0 else str(dispA)
                 aP = matchB.group(6)
-                aQ = find_free_after_use_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                aQ = find_free_after_use_ADDRESS_regs([aM,aP], i_line, lines, modified_lines, 2)[0]
                 if aQ is None:
-                    aQ = find_unused_address_register([aM,aP], i_line, lines, modified_lines, 2)[0]
+                    aQ = find_unused_ADDRESS_regs([aM,aP], i_line, lines, modified_lines, 2)[0]
                 if aQ is not None:
                     if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aQ], i_line, lines, modified_lines):
                         optimized_lines = [
@@ -8086,9 +8358,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             alu_2, s_B, dM = matchB.group(2, 3, 9)
             symbol_or_mem_2_full = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
             if symbol_or_mem_1_full == symbol_or_mem_2_full and s_A == s_B:
-                dP = find_free_after_use_data_register([dN,dM], i_line, lines, modified_lines)[0]
+                dP = find_free_after_use_DATA_regs([dN,dM], i_line, lines, modified_lines)[0]
                 if dP is None:
-                    dP = find_unused_data_register([dN,dM], i_line, lines, modified_lines)[0]
+                    dP = find_unused_DATA_regs([dN,dM], i_line, lines, modified_lines)[0]
                 if dP is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dP], i_line, lines, modified_lines):
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(4)}{symbol_or_mem_1_full},{dP}',
@@ -8145,7 +8417,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
-    # Memory to memory with both auto increment pointer.
+    # Memory to memory with both auto increment pointers.
     # move.s  (aN)+,dN        ->    move.s  (aN)+,(aM)+          ; Saves 4 cycles. Leaves dN free.
     # move.s  dN,(aM)+
     # Leaves dN free.
@@ -8164,7 +8436,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
-    # Memory to memory with both auto decrement pointer.
+    # Memory to memory with both auto decrement pointers.
     # move.s  -(aN),dN        ->    move.s  -(aN),-(aM)          ; Saves 4 cycles. Leaves dN free.
     # move.s  dN,-(aM)
     # Leaves dN free.
@@ -8237,10 +8509,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Clearing consecutive memory from same symbolName.
-    clr_mem_from_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
-    matchA = re.match(clr_mem_from_symbol_pattern, line_A)
+    clr_from_symbol_pattern = r'^(\s*)clr\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
+    matchA = re.match(clr_from_symbol_pattern, line_A)
     if matchA:
-        matchB = re.match(clr_mem_from_symbol_pattern, line_B)
+        matchB = re.match(clr_from_symbol_pattern, line_B)
         if matchB:
 
             symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
@@ -8251,7 +8523,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             symbolName_2_op = 0 if not op_2_str else int(op_2_str)
 
             # If clearing symbolName and symbolName+1.
-            # clr.b   symbolName       ->    clr.w   symbolName    ; Saves 20 cycles.
+            # clr.b   symbolName       ->    clr.w   symbolName      ; Saves 20 cycles.
             # clr.b   symbolName+1
             # Offset (if any) from 1st instruction must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
@@ -8265,7 +8537,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 2)
 
             # If clearing symbolName and symbolName-1.
-            # clr.b   symbolName       ->    clr.w   symbolName-1  ; Saves 20 cycles.
+            # clr.b   symbolName       ->    clr.w   symbolName-1    ; Saves 20 cycles.
             # clr.b   symbolName-1
             # Offset (if any) from 2nd instruction must be even.
             if matchA.group(2) == 'b' and matchB.group(2) == 'b':
@@ -8279,7 +8551,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 2)
 
             # If clearing symbolName and symbolName+2.
-            # clr.w   symbolName       ->    clr.l   symbolName    ; Saves 12 cycles.
+            # clr.w   symbolName       ->    clr.l   symbolName      ; Saves 12 cycles.
             # clr.w   symbolName+2
             if matchA.group(2) == 'w' and matchB.group(2) == 'w':
                 if symbolName_1 == symbolName_2 and (symbolName_1_op + 2 == symbolName_2_op):
@@ -8289,21 +8561,188 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
             # If clearing symbolName and symbolName-2.
-            # clr.w   symbolName       ->    clr.l   symbolName-2  ; Saves 12 cycles.
+            # clr.w   symbolName       ->    clr.l   symbolName-2    ; Saves 12 cycles.
             # clr.w   symbolName-2
             if matchA.group(2) == 'w' and matchB.group(2) == 'w':
                 if symbolName_1 == symbolName_2 and (symbolName_1_op - 2 == symbolName_2_op):
                     optimized_lines = [
-                        f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_1}{op_2_str}'
+                        f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_2}{op_2_str}'
                     ]
                     return (optimized_lines, 2)
 
+            # If clearing symbolName and symbolName +/- 4.
+            # clr.l   symbolName       ->    moveq    #0,xN           ; Saves [16,20,24] cycles.
+            # clr.l   symbolName+/-4         move.l   xN,xM
+            #                                movem.l  xN/xM,symbolName+offset
+            # Needs xN/xM free registers, or as much as possible regs already holding 0.
+            # xN must be a data reg in case no regs were found holding 0.
+            if matchA.group(2) == 'l' and matchB.group(2) == 'l':
+                if symbolName_1 == symbolName_2:
+                    target_symbol = ''
+                    offset_str = ''
+
+                    if (symbolName_1_op + 4 == symbolName_2_op):
+                        target_symbol = symbolName_1
+                        offset_str = op_1_str
+                    elif (symbolName_1_op - 4 == symbolName_2_op):
+                        target_symbol = symbolName_2
+                        offset_str = op_2_str
+
+                    if target_symbol:
+                        # Search for regs holding 0
+                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 2)
+
+                        # Found 2 regs holding 0
+                        if len(regs_holding_zero) >= 2:
+                            xN, xM = regs_holding_zero[0:2]
+                            optimized_lines = [
+                                f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+                        # Found 1 reg holding 0
+                        elif len(regs_holding_zero) == 1:
+                            xN = regs_holding_zero[0]
+                            # Search 1 free reg: xM
+                            xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)[0]
+                            if xM is None:
+                                xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)[0]
+
+                            # Free reg found?
+                            if xM is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
+                        # No regs holding 0
+                        else:
+                            # Search 2 free regs: xN,xM
+                            # (xN must be a data reg)
+                            xN, xM = None, None
+                            free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            if len(free_data_regs) >= 2:
+                                xN, xM = free_data_regs[0:2]
+                            elif len(free_data_regs) == 1:
+                                xN = free_data_regs[0]
+                                xM = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+
+                            # Free regs found?
+                            if xN is not None and xM is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
+            # If clearing symbolName and symbolName +/- 2/4. Different size accesor.
+            # clr.[wl]   symbolName         ->    moveq    #0,xN           ; Saves [8,12,16,20] cycles.
+            # clr.[wl]   symbolName +/- 2/4       move.l   xN,xM
+            #                                     move.l   xN,xP
+            #                                     movem.w  xN/xM/xP,symbolName+offset
+            # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
+            # xN must be a data reg in case no regs were found holding 0.
+            if (matchA.group(2) == 'w' and matchB.group(2) == 'l') or matchA.group(2) == 'l' and matchB.group(2) == 'w':
+                if symbolName_1 == symbolName_2:
+                    target_symbol = ''
+                    offset_str = ''
+                    s_size = 2 if matchA.group(2) == 'w' else 4
+
+                    if (symbolName_1_op + s_size == symbolName_2_op):
+                        target_symbol = symbolName_1
+                        offset_str = op_1_str
+                    elif (symbolName_1_op - s_size == symbolName_2_op):
+                        target_symbol = symbolName_2
+                        offset_str = op_2_str
+
+                    if target_symbol:
+                        # Search for regs holding 0
+                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 2)
+
+                        # Found 3 regs holding 0
+                        if len(regs_holding_zero) >= 3:
+                            xN, xM, xP = regs_holding_zero[0:3]
+                            optimized_lines = [
+                                f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+                        # Found 2 regs holding 0
+                        elif len(regs_holding_zero) == 2:
+                            xN, xM = regs_holding_zero[0:2]
+                            # Search 1 free reg: xP
+                            xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                            if xP is None:
+                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+
+                            # Free reg found?
+                            if xP is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
+                        # Found 1 reg holding 0
+                        elif len(regs_holding_zero) == 1:
+                            xN = regs_holding_zero[0]
+                            # Search 2 free regs: xM,xP
+                            xM, xP = None, None
+                            free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
+                            if len(free_data_regs) >= 2:
+                                xM, xP = free_data_regs[0:2]
+                            elif len(free_data_regs) == 1:
+                                xM = free_data_regs[0]
+                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                            else:
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
+                                if len(free_addr_regs) >= 2:
+                                    xM, xP = free_addr_regs[0:2]
+
+                            # Free regs found?
+                            if xM is not None and xP is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
+                        # No regs holding 0
+                        else:
+                            # Search 3 free regs: xN,xM,xP
+                            # (xN must be a data reg)
+                            xN, xM, xP = None, None, None
+                            free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            if len(free_data_regs) >= 3:
+                                xN, xM, xP = free_data_regs[0:3]
+                            elif len(free_data_regs) == 2:
+                                xN, xM = free_data_regs[0:2]
+                                xP = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+                            elif len(free_data_regs) == 1:
+                                xN = free_data_regs[0]
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                                if len(free_addr_regs) >= 2:
+                                    xM, xP = free_addr_regs[0:2]
+
+                            # Free regs found?
+                            if xN is not None and xM is not None and xP is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
     # Clearing consecutive memory.
     # Note that gcc might use negative numbers.
-    clr_mem_no_symbol_pattern = r'^(\s*)clr\.([bw])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
-    matchA = re.match(clr_mem_no_symbol_pattern, line_A)
+    clr_from_memory_pattern = r'^(\s*)clr\.([bwl])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
+    matchA = re.match(clr_from_memory_pattern, line_A)
     if matchA:
-        matchB = re.match(clr_mem_no_symbol_pattern, line_B)
+        matchB = re.match(clr_from_memory_pattern, line_B)
         if matchB:
 
             mem1 = parseConstantSigned(matchA.group(4), 32)
@@ -8360,6 +8799,171 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         f'{matchA.group(1)}clr.l{matchA.group(3)}{mem2}{s_mem}'
                     ]
                     return (optimized_lines, 2)
+
+            # If clearing memory and memory +/- 4.
+            # clr.l   mem1       ->    moveq    #0,xN           ; Saves [16,20,24] cycles.
+            # clr.l   mem2             move.l   xN,xM
+            #                          movem.l  xN/xM,mem+offset
+            # Needs xN/xM free registers, or as much as possible regs already holding 0.
+            # xN must be a data reg in case no regs were found holding 0.
+            if matchA.group(2) == 'l' and matchB.group(2) == 'l':
+                target_mem = ''
+                offset_str = ''
+
+                if (mem1 + 4 == mem2):
+                    target_mem = mem1
+                    offset_str = '' if not matchA.group(5) else matchA.group(5)
+                elif (mem1 - 4 == mem2):
+                    target_mem = mem2
+                    offset_str = '' if not matchB.group(5) else matchB.group(5)
+
+                if target_mem:
+                    # Search for regs holding 0
+                    regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 2)
+
+                    # Found 2 regs holding 0
+                    if len(regs_holding_zero) >= 2:
+                        xN, xM = regs_holding_zero[0:2]
+                        optimized_lines = [
+                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_mem}{offset_str}'
+                        ]
+                        return (optimized_lines, 2)
+
+                    # Found 1 reg holding 0
+                    elif len(regs_holding_zero) == 1:
+                        xN = regs_holding_zero[0]
+                        # Search 1 free reg: xM
+                        xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)[0]
+                        if xM is None:
+                            xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)[0]
+
+                        # Free reg found?
+                        if xM is not None:
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_mem}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+                    # No regs holding 0
+                    else:
+                        # Search 2 free regs: xN,xM
+                        # (xN must be a data reg)
+                        xN, xM = None, None
+                        free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                        if len(free_data_regs) >= 2:
+                            xN, xM = free_data_regs[0:2]
+                        elif len(free_data_regs) == 1:
+                            xN = free_data_regs[0]
+                            xM = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+
+                        # Free regs found?
+                        if xN is not None and xM is not None:
+                            optimized_lines = [
+                                f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_mem}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+            # If clearing memory and memory +/- 2/4. Different size accesor.
+            # clr.[wl]   mem1    ->    moveq    #0,xN           ; Saves [8,12,16,20] cycles.
+            # clr.[wl]   mem2          move.l   xN,xM
+            #                          move.l   xN,xP
+            #                          movem.w  xN/xM/xP,mem+offset
+            # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
+            # xN must be a data reg in case no regs were found holding 0.
+            if (matchA.group(2) == 'w' and matchB.group(2) == 'l') or matchA.group(2) == 'l' and matchB.group(2) == 'w':
+                    target_mem = ''
+                    offset_str = ''
+                    s_size = 2 if matchA.group(2) == 'w' else 4
+
+                    if (mem1 + s_size == mem2):
+                        target_mem = mem1
+                        offset_str = op_1_str
+                    elif (mem1 - s_size == mem2):
+                        target_mem = mem2
+                        offset_str = op_2_str
+
+                    if target_mem:
+                        # Search for regs holding 0
+                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 2)
+
+                        # Found 3 regs holding 0
+                        if len(regs_holding_zero) >= 3:
+                            xN, xM, xP = regs_holding_zero[0:3]
+                            optimized_lines = [
+                                f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+                        # Found 2 regs holding 0
+                        elif len(regs_holding_zero) == 2:
+                            xN, xM = regs_holding_zero[0:2]
+                            # Search 1 free reg: xP
+                            xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                            if xP is None:
+                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+
+                            # Free reg found?
+                            if xP is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
+                        # Found 1 reg holding 0
+                        elif len(regs_holding_zero) == 1:
+                            xN = regs_holding_zero[0]
+                            # Search 2 free regs: xM,xP
+                            xM, xP = None, None
+                            free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
+                            if len(free_data_regs) >= 2:
+                                xM, xP = free_data_regs[0:2]
+                            elif len(free_data_regs) == 1:
+                                xM = free_data_regs[0]
+                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                            else:
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
+                                if len(free_addr_regs) >= 2:
+                                    xM, xP = free_addr_regs[0:2]
+
+                            # Free regs found?
+                            if xM is not None and xP is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
+
+                        # No regs holding 0
+                        else:
+                            # Search 3 free regs: xN,xM,xP
+                            # (xN must be a data reg)
+                            xN, xM, xP = None, None, None
+                            free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            if len(free_data_regs) >= 3:
+                                xN, xM, xP = free_data_regs[0:3]
+                            elif len(free_data_regs) == 2:
+                                xN, xM = free_data_regs[0:2]
+                                xP = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+                            elif len(free_data_regs) == 1:
+                                xN = free_data_regs[0]
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                                if len(free_addr_regs) >= 2:
+                                    xM, xP = free_addr_regs[0:2]
+
+                            # Free regs found?
+                            if xN is not None and xM is not None and xP is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                                ]
+                                return (optimized_lines, 2)
 
     # Clearing consecutive memory calculated from effective address.
     clr_mem_ea_pattern = r'^(\s*)clr\.([bw])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
@@ -8492,25 +9096,46 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+    # Redundant clear of size s when consecutively writting a value in same size s.
+    # This looks like a gcc wrong implementation from its m68k backend.
+	# clr.s   dN         ->    move.s  <ea>,dN         ; Saves 4 cycles
+	# move.s  <ea>,dN
+    matchA = re.match(r'^\s*clr\.([bwl])\s+(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(1)
+        dN = matchA.group(2)
+        # (.+?) is non-greedy capture everything, and with the $ we force it to also match the ,\s*%dN
+        matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
+        if matchB and s == matchB.group(1) and dN == matchB.group(3):
+            optimized_lines = [line_B]
+            return (optimized_lines, 2)
+
     # Clean register dN before moving a word into dN.
     # This pattern appears when dN is later used in an indirection (aN,dN.w).
     # but not when used in arithmetic or assignment for aN reg: add.l/sub.l/move.l dN,aN
-    # moveq   #0,dN        ->   move.w  <ea>,dN     ; Saves 4 cycles.
-    # move.w  <ea>,dN
-    matchA = re.match(r'^(\s*)(moveq|move)(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
+    # moveq   #0,dN      ->    move.s  <ea>,dN         ; Saves 4 cycles.
+    # move.s  <ea>,dN
+    matchA = re.match(r'^\s*(moveq|move)(\.l)?\s+#0,\s*(%d[0-7])', line_A)
     if matchA:
-        dN = matchA.group(5)
+        dN = matchA.group(3)
         # (.+?) is non-greedy capture everything, and with the $ we force it to also match the ,\s*%dN
-        matchB = re.match(r'^\s*move\.w\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
-        if matchB and dN == matchB.group(2):
-            is_reg_used_before_overwrite_or_clear = is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2)
-            only_used_as_word_or_byte_before_overwrite_or_clear = is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
-            if not is_reg_used_before_overwrite_or_clear or only_used_as_word_or_byte_before_overwrite_or_clear:
-                ea = matchB.group(1)
-                optimized_lines = [
-                    f'{matchA.group(1)}move.w{matchA.group(4)}{ea},{dN}'
-                ]
+        matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
+        if matchB and dN == matchB.group(3):
+            s_B = matchB.group(1)
+            # If target move size is .l -> nothing to check
+            if s_B == 'l':
+                optimized_lines = [line_B]
                 return (optimized_lines, 2)
+            # Target move size is either .w or .b -> ensure dN is used always as either word or byte but not both
+            else:
+                only_used_as_target_size_ok = False
+                if s_B == '.w':
+                    only_used_as_target_size_ok = is_reg_used_as_word_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
+                elif s_B == '.b':
+                    only_used_as_target_size_ok = is_reg_used_as_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES)
+                if only_used_as_target_size_ok:
+                    optimized_lines = [line_B]
+                    return (optimized_lines, 2)
 
     if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
@@ -9661,7 +10286,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
     # eor.s  #-1,<ea>   ->    not.s   <ea>           ; Saves 4 cycles.
     # Consider 0xFF, 0xFFFF, and 0xFFFFFFFF as equivalences to -1.
-    match = re.match(r'^(\s*)(eor|eori)\.([bwl])(\s+)#(-1|0[xX](?:[fF]{2}|[fF]{4}|[fF]{8})),\s*(.+?)\s*(?:;.*)?$', line)
+    match = re.match(r'^(\s*)(eor|eori)\.([bwl])(\s+)#(-1|0[xX](?:[fF]{2}|[fF]{4}|[fF]{8}))(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         s = match.group(3)
         ea = match.group(6)
@@ -9684,9 +10309,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
-            dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
@@ -9733,9 +10358,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Needs a free data register dM.
     match = re.match(r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
-        dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+        dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines)[0]
         if dM is None:
-            dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+            dM = find_unused_DATA_regs([], i_line, lines, modified_lines)[0]
         if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
             s = match.group(3)
             aN = match.group(5)
@@ -9759,9 +10384,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
-            dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
@@ -9987,9 +10612,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if len(regs_from_ea) < 0 and val == 0:
                 pass
             else:
-                dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                dM = find_free_after_use_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
                 if dM is None:
-                    dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                    dM = find_unused_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
                 if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                     optimized_lines = [
                         f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
@@ -10013,9 +10638,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         # Needs a free data register dM.
 # acá: this breaks player sprite on Metal Slug project
         if val == 255:
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq {match.group(3)}#0,{dM}',
@@ -10052,9 +10677,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
-            dM = find_free_after_use_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register(regs_from_ea, i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
@@ -10253,9 +10878,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
         if -128 <= val <= 127:
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                     optimized_lines = [
@@ -10320,9 +10945,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         dN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
         if -128 <= val <= 127:
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 0, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                     optimized_lines = [
@@ -10400,9 +11025,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
         if -128 <= val <= 127:
-            dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq {match.group(3)}#{val},{dM}',
@@ -10457,9 +11082,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         aN = match.group(5)
         val = parseConstantSigned(match.group(4), 16)
         if -128 <= val <= 127:
-            dM = find_free_after_use_data_register([], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq {match.group(3)}#{val},{dM}',
@@ -10850,9 +11475,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         match = re.match(r'^(\s*)divu(\.w)?(\s+)#12,\s*(%d[0-7])', line)
         if match:
             dN = match.group(4)
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 x = 2
                 mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
@@ -10891,9 +11516,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         match = re.match(r'^(\s*)divu(\.w)?(\s+)#512,\s*(%d[0-7])', line)
         if match:
             dN = match.group(4)
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(3)}#9,{dM}',
@@ -10908,9 +11533,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         match = re.match(r'^(\s*)divu(\.w)?(\s+)#1024,\s*(%d[0-7])', line)
         if match:
             dN = match.group(4)
-            dM = find_free_after_use_data_register([dN], i_line, lines, modified_lines)[0]
+            dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
-                dM = find_unused_data_register([dN], i_line, lines, modified_lines)[0]
+                dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(3)}#9,{dM}',
