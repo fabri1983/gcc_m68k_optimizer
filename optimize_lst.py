@@ -1120,7 +1120,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
             elif FUNCTION_EXIT_REGEX.match(line):
                 break  # Stop the analysis at current flow
 
-            # Is a label?
+            # Is a label definition?
             elif match_label := LABEL_REGEX.match(line):
                 label = match_label.group(1)
                 if label in control_visited:
@@ -1284,7 +1284,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
         if candidate_mask == 0:
             break  # Exit the master control flow loop
 
-        # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1]
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -1407,7 +1407,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
             elif FUNCTION_EXIT_REGEX.match(line):
                 break  # Stop the analysis at current flow
 
-            # Is a label?
+            # Is a label definition?
             elif match_label := LABEL_REGEX.match(line):
                 label = match_label.group(1)
                 if label in control_visited:
@@ -1514,7 +1514,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
         if candidate_mask == 0:
             break  # Stop the analysis at current flow
 
-        # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1]
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -1662,7 +1662,7 @@ def find_regs_holding_zero(i_line: int, lines: list[str], modified_lines: list[s
             elif FUNCTION_EXIT_REGEX.match(line):
                 break  # Stop the analysis at current flow
 
-            # Is a label?
+            # Is a label definition?
             elif match_label := LABEL_REGEX.match(line):
                 label = match_label.group(1)
                 if label in control_visited:
@@ -2092,6 +2092,354 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
                         newRegs_str = '/'.join(sortedRegs)
                         modified_lines[i] = line.replace(regs_str, newRegs_str)
 
+def is_reg_used_before_overwritten_cleared_after_label_definition(xN: str, i_line: int, lines: list[str], modified_lines: list[str], target_label: str, ignore_N_previous_lines: int) -> bool:
+    """
+    Search over the remaining lines using control flow starting at the location of target_label 
+    for any usage of reg xN before is overwritten or cleared.
+    Param ignore_N_previous_lines only affects modified_lines.
+    Returns True or False
+    """
+    global declared_functions_all_set
+
+    # Get this routine name
+    func_name = get_function_name(i_line, lines)
+
+    # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
+
+    label_reached = False
+    reg_xN_used = False
+
+    # Start with lines array
+    target_array = lines
+    rem_start = i_line + 1
+    rem_end = len(target_array)
+    i = rem_start
+
+    # Master control for flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
+
+        while i < rem_end:  # forwards
+            line = target_array[i]
+            i += 1
+
+            # Skip comments
+            if line[0] in COMMENT_PREFIX_CHAR:
+                continue
+
+            # Exiting the routine declaration?
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break  # Stop the analysis at current flow
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                break  # Stop the analysis at current flow
+
+            # Is a label definition?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                # We found target_label definition
+                if target_label == label:
+                    label_reached = True
+                if label in control_visited:
+                    break  # Stop the analysis at current flow
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
+
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                # Jumping into a routine?
+                if match.group(1) in ('jsr', 'bsr'):
+                    pass
+                elif match.group(1) in ('bra', 'jra', 'jmp'):
+                    # Get the target label (might be a function name which won't be in control_flow_dict)
+                    label = match.group(2)
+                    # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
+                    # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
+                    if label not in control_flow_dict:
+                        if label in declared_functions_all_set:
+                            # Same behavior than when instruction is in ('jsr','bsr')
+                            pass
+                        else:
+                            # We actually can't calculate the destination: 
+                            # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
+                            # the target labels and visit them one by one
+                            pass
+                    # Target label is in the dictionary AND was not yet visited
+                    elif label in control_flow_dict and label not in control_visited:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                continue
+
+            # If is a conditional branch jcc/bcc or dbcc
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
+                # Get the target label
+                label = match.group(2)
+                # Target label is in the dictionary AND was not yet visited
+                if label in control_flow_dict and label not in control_visited:
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                continue
+
+            # Once we've reached the target label definition we can check for any xN usage
+            if label_reached:
+
+                # xN is overwritten/cleared by a lea/move, sub/eor itself, or clr/sc
+                if match := REG_OVERWRITEN_OR_CLEARED_REGEX.match(line):
+                    instr_overwritten = match.group(1)  # move/lea/sub/eor, or empty if matching with clr/sc
+                    src_complex = match.group(3)  # source operand for move/lea/sub/eor
+                    instr_clr_or_sc = match.group(4)
+                    dest = match.group(6)  # reg being overwritten or cleared
+                    # if matching sub or eor
+                    if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
+                        # sub or eor it self?
+                        if xN in src_complex and xN == dest:
+                            break  # Stop the analysis at current flow
+                    # if matching move
+                    elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
+                        if xN not in src_complex and xN == dest:
+                            break  # Stop the analysis at current flow
+                    # matching the clr or sc instructions
+                    elif instr_clr_or_sc:
+                        if xN == dest:
+                            break  # Stop the analysis at current flow
+                    else:
+                        # Instruction not considered?
+                        print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (3) At {func_name}: instruction not considered as clear or overwrite: {line}")
+
+                # xN is used as source operand or in any indirection (in both source and target) operand
+                if REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.search(line):
+                    regs_list = [r for match in REG_AS_SOURCE_OR_INDIRECT_USE_REGEX.findall(line) for r in match if r]
+                    if xN in regs_list:
+                        reg_xN_used = True
+                        break  # Stop the analysis at current flow
+
+                # If pushing into stack then consider the reg as used
+                elif push_match := PUSH_REGS_INTO_STACK_REGEX.match(line):
+                    regs_list = extract_registers(push_match.group(3), PUSH_OP)
+                    if xN in regs_list:
+                        reg_xN_used = True
+                        break  # Stop the analysis at current flow
+
+                # If poping from stack then consider the reg as overwritten
+                elif pop_match := POP_REGS_FROM_STACK_REGEX.match(line):
+                    regs_list = extract_registers(pop_match.group(3), POP_OP)
+                    if xN in regs_list:
+                        break  # Stop the analysis at current flow
+
+                # xN it's a target operand? Consider the reg as used
+                if match := (REG_AS_TARGET_REGEX.match(line) or REG_AS_TARGET_ALONE_REGEX.match(line)):
+                    if xN == match.group(1):
+                        reg_xN_used = True
+                        break  # Stop the analysis at current flow
+
+        # At the first detected usage we can stop the search
+        if reg_xN_used:
+            break  # Exit the master control flow loop
+
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        if target_array is modified_lines and i == rem_end:
+            i = i_line+1
+            target_array = lines
+            rem_end = len(target_array)
+        # If there is any return frame left, then continue from that location
+        elif len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
+
+    # Restore them
+    uncomment_line_at(lines, i_line)
+    uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
+
+    return reg_xN_used
+
+def can_code_reach_label_definition_location(i_line: int, lines: list[str], modified_lines: list[str], target_label: str, ignore_N_previous_lines: int) -> bool:
+    """
+    Search over the remaining lines using control flow starting at i_line + 1 for target_label definition.
+    Param ignore_N_previous_lines only affects modified_lines.
+    Returns True or False
+    """
+    global declared_functions_all_set
+
+    # Get this routine name
+    func_name = get_function_name(i_line, lines)
+
+    # Make them not to interfere with the analysis
+    comment_line_at(lines, i_line)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+
+    control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
+    control_visited: set[str] = set()  # Helps to avoid looping infinitely 
+    flow_return_frames: list[ControlFlowReturnFrame] = []
+
+    label_reached = False
+
+    # Start with lines array
+    target_array = lines
+    rem_start = i_line + 1
+    rem_end = len(target_array)
+    i = rem_start
+
+    # Master control for flow loop: iterates over lines[] and modified_lines[] as long as any return frame left to be visited
+    while True:
+
+        while i < rem_end:  # forwards
+            line = target_array[i]
+            i += 1
+
+            # Skip comments
+            if line[0] in COMMENT_PREFIX_CHAR:
+                continue
+
+            # Exiting the routine declaration?
+            if FUNCTION_SIZE_CALCULATION_REGEX.match(line):
+                break  # Stop the analysis at current flow
+
+            # Reaching rts/rte?
+            elif FUNCTION_EXIT_REGEX.match(line):
+                break  # Stop the analysis at current flow
+
+            # Is a label definition?
+            elif match_label := LABEL_REGEX.match(line):
+                label = match_label.group(1)
+                # We found target_label definition
+                if target_label == label:
+                    label_reached = True
+                    break # Stop the analysis and exit the master loop
+                if label in control_visited:
+                    break  # Stop the analysis at current flow
+                else:
+                    # Mark this label as visited
+                    control_visited.add(label)
+                    continue
+
+            elif match := UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line):
+                # Jumping into a routine?
+                if match.group(1) in ('jsr', 'bsr'):
+                    pass
+                elif match.group(1) in ('bra', 'jra', 'jmp'):
+                    # Get the target label (might be a function name which won't be in control_flow_dict)
+                    label = match.group(2)
+                    # Sometimes the label is a function name and the instruction is jmp/bra (due to optimizations).
+                    # Also might be a (aN) or label_or_disp(pc,xN.s) which are not considered a label.
+                    if label not in control_flow_dict:
+                        if label in declared_functions_all_set:
+                            # Same behavior than when instruction is in ('jsr','bsr')
+                            pass
+                        else:
+                            # We actually can't calculate the destination: 
+                            # whether involves registers like (aN) or (pc,xN), or is a function declared outside this assembly unit.
+                            # TODO: if destination is of the form label(pc,xN.s) then go to the table and collect all 
+                            # the target labels and visit them one by one
+                            pass
+                    # Target label is in the dictionary AND was not yet visited
+                    elif label in control_flow_dict and label not in control_visited:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                continue
+
+            # If is a conditional branch jcc/bcc or dbcc
+            elif match := (CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or CONDITIONAL_DBCC_FLOW_REGEX.match(line)):
+                # Get the target label
+                label = match.group(2)
+                # Target label is in the dictionary AND was not yet visited
+                if label in control_flow_dict and label not in control_visited:
+                    if CONTROL_FLOW_ANALYSIS_BRANCH_LATER:
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_lines, continuation_list=lines)
+                            flow_return_frames.append(frame)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            # Add a return frame so we can backtrack and continue from this point
+                            frame = ControlFlowReturnFrame(pos=control_obj.label_pos_in_modified_lines, continuation_list=modified_lines)
+                            flow_return_frames.append(frame)
+                    else:
+                        # Add a return frame so we can backtrack and continue from this point
+                        frame = ControlFlowReturnFrame(pos=i, continuation_list=target_array)
+                        flow_return_frames.append(frame)
+                        # Which array the destination line points to?
+                        control_obj = control_flow_dict[label]
+                        if control_obj.label_pos_in_lines != -1:
+                            i = control_obj.label_pos_in_lines
+                            target_array = lines
+                            rem_end = len(target_array)
+                        elif control_obj.label_pos_in_modified_lines != -1:
+                            i = control_obj.label_pos_in_modified_lines
+                            target_array = modified_lines
+                            rem_end = len(target_array)
+                continue
+
+        if label_reached:
+            break  # Exit the master control flow loop
+
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        if target_array is modified_lines and i == rem_end:
+            i = i_line+1
+            target_array = lines
+            rem_end = len(target_array)
+        # If there is any return frame left, then continue from that location
+        elif len(flow_return_frames) > 0:
+            i, target_array, rem_end = pop_flow_return_frame_data(flow_return_frames)
+            continue
+        else:
+            break  # Exit the master control flow loop
+
+    # Restore them
+    uncomment_line_at(lines, i_line)
+    uncomment_last_N_lines(modified_lines, ignore_N_previous_lines)
+
+    return label_reached
+
 class RegisterUsageOccurrenceMode(Enum):
     FIRST_OCCURRENCE_PER_CONTROL_FLOW = "first_in_flow"  # Use it as an existence check
     ALL_OCCURRENCES = "all"  # Use it when you need to ensure every usage of the satisfies the requirement
@@ -2151,7 +2499,7 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
             elif FUNCTION_EXIT_REGEX.match(line):
                 break  # Stop the analysis at current flow
 
-            # Is a label?
+            # Is a label definition?
             elif match_label := LABEL_REGEX.match(line):
                 label = match_label.group(1)
                 if label in control_visited:
@@ -2960,7 +3308,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
             elif FUNCTION_EXIT_REGEX.match(line):
                 break  # Stop the analysis at current flow
 
-            # Is a label?
+            # Is a label definition?
             elif match_label := LABEL_REGEX.match(line):
                 label = match_label.group(1)
                 if label in control_visited:
@@ -3061,7 +3409,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                         # Instruction not considered?
                         print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (4) At {func_name}: instruction not considered as clear or overwrite: {line}")
 
-        # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1]
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -6562,6 +6910,32 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
 
                             optimized_lines = [line_A_opt, line_C]
                             return (optimized_lines, 3)
+
+    # Memory dereference test. 
+    # By moving the dereference memory value into a data reg intead of an address reg, we can set CC flags.
+    # The registers can be inverted and the move instruction is moved after the bCC.
+    # move.l     symbol_or_mem,aN    ->    move.l  symbol_or_mem,dN     ; Saves 4 cycles if bCC does actually branch.
+    # move.[wl]  aN,dN                     bCC     label
+    # bCC        label                     move.l  dN,aN
+    # Ensure aN is not used after the label definition, or overwritten/cleared after the label definition.
+    matchA = re.match(r'^(\s*)(move|movea)\.l(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+\*]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
+    if matchA:
+        aN = matchA.group(8)
+        matchB = re.match(r'^\s*move\.[wl]\s+(%a[0-7]),\s*(%d[0-7])', line_B)
+        if matchB and aN == matchB.group(1):
+            dN = matchB.group(2)
+            matchC = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_C)
+            if matchC:
+                label = matchC.group(2)
+                reg_aN_used_after_lbl_def = is_reg_used_before_overwritten_cleared_after_label_definition(aN, i_line, lines, modified_lines, label, 3)                    
+                if not reg_aN_used_after_lbl_def:
+                    symbol_or_mem_full = ''.join(matchA.group(i) for i in range(4, 8) if matchA.group(i))
+                    optimized_lines = [
+                        f'{matchA.group(1)}move.l{matchA.group(3)}{symbol_or_mem_full},{dN}',
+                        line_C,
+                        f'{matchA.group(1)}move.l{matchA.group(3)}{dN},{aN}'
+                    ]
+                    return (optimized_lines, 3)
 
     # Calculation of addressing offset.
     # neg.s      dN                    ->    suba.s     dN,aN               ; Saves [2,12] cycles

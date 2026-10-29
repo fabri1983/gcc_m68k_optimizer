@@ -90,7 +90,7 @@ When generating an int with int(string) or parseConstantSigned(string) or evalua
 and then comparing against an hex value 0xAACCEE00:
     Use & 0xFFFFFFFF over the int value to remove the sign that python sets at 64th bit
 
-Tener en cuenta siempre que si se deja de usar un registro hay q usar:
+Tener siempre en cuenta que si se deja de usar un registro hay q usar:
 	if_reg_not_used_anymore_then_remove_from_push_pop(<reg>, i_line, lines, modified_lines, <ingore_N_previous_lines>)
 
 Ver los TODO en el optimizer script.
@@ -115,13 +115,13 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Re order moving a pointer into a data reg for setting CC flags. 
-# This is likely a null check optimization from other pattern. 
-# The registers can be inverted and the instruction move is moved after the beq.
-move.l  symbol_or_mem,aN    ->    move.l  symbol_or_mem,dN     ; Saves 4 cycles if beq does actually branch.
-move.w  aN,dN                     beq     label
-beq     label                     move.w  dN,aN
-# Ensure dN is not used anymore or cleared/overwritten before use.
+# Storing multiple values from random memory to sequential memory.
+move.[bw]  <ea_1>,symbolName       ->    lea symbolName,aN             ; Saves 4 cycles.
+move.[bw]  <ea_2>,symbolName+2           move.[bw] <ea_1>,(aN)+
+                                         move.[bw] <ea_2>,(aN)
+# Needs a free aN address register.
+# Ensure aN is not used in the <ea>.
+Do the same for 3, 4, and 5 lines. Saves 12,20,28 cycles respectively.
 
 # Clear consecutive memory. All same size accesor.
 clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [24,28,32] cycles.
