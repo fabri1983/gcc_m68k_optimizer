@@ -5,6 +5,7 @@ Features:
 - Multiplication and Division optimization when higher word IS NOT important and where it IS important.
 - Static data flow analysis for register liveness: free-after-use and non-used registers.
 - Branch instruction size reduction when target label is inside the [-127,128] bytes window address range.
+- Optimize null check on dereferenced memory.
 - Remove redundant tst operation after register allocation setting CC flags.
 - Instructions re ordering when possible to match a given pattern.
 - Exploit address register sign extension.

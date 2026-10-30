@@ -4172,6 +4172,24 @@ move_ea_into_dN_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
+move_ea_into_symbol_pattern = re.compile(
+    r'^(\s*)move\.([bwl])(\s+)'
+    r'(?:'
+    r'(%d[0-7]|%a[0-7]|%sp|-?\(%a[0-7]\)\+?|-?\(%sp\)\+?)'  # dN/aN or (aN) or -(aN) or (aN)+
+    r'|'
+    r'(#?[a-zA-Z_\.][0-9a-zA-Z_\.]+(?:\.[bwl])?)'  # label[.s] or symbol[.s] or #symbol[.s].
+    r'|'
+    r'(#?(?:-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?)'  # ABS[.s] or #value[.s]
+    r'|'
+    r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/PC,xN.s)
+    r'|'
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/PC)
+    r'|'
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+\*]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/PC,xN.s)
+    r')'
+    r',\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
+)
+
 # Every instruction that modifies dN and sets CCR flags N,Z,V,C for later BCC usage
 instr_set_ea_into_dN_for_ccr_pattern = re.compile(
     r'^(\s*)(?:move|add|sub|and|or|eor|clr|neg|not|ext|swap|mul|div|asl|asr|lsl|lsr|rol|ror|rox|tas)[^\s\.]*(\.[bwl])?(\s+)'
@@ -7484,19 +7502,19 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
-    # Unnecessary sign extension.
+    # Unnecessary sign extension if dN is then used as word or byte.
     # Particularly added by FF32_toInt() which does >> 16, but gcc also adds an extra ext.l.
     # swap[.w] dN     ->    swap   dN          ; Saves 4 cycles
     # ext.l    dN
     # Ensure dN is used as word or byte afterwards before is overwritten or cleared.
-    #matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
-    #if matchA:
-    #    dN = matchA.group(4)
-    #    matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
-    #    if matchB and dN == matchB.group(1):
-    #        if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
-    #            optimized_lines = [line_A]
-    #            return (optimized_lines, 2)
+    matchA = re.match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(4)
+        matchB = re.match(r'^\s*ext\.l\s+(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(1):
+            if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                optimized_lines = [line_A]
+                return (optimized_lines, 2)
 
     # Fast sign-extend bytes into words, and words into longs, when the sign bit is at position N.
     # lsl.w/l  #val,dN     ->   move.w/l  #mask,dM     ; Saves ?? cycles as long as N decreases.
@@ -8681,7 +8699,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
-    # Move byte constants into consecutive memory calculated from effective address.
+    # Move word constants into consecutive memory calculated from effective address.
     move_constant_word_to_mem_ea_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
     matchA = re.match(move_constant_word_to_mem_ea_pattern, line_A)
     if matchA:
@@ -8888,7 +8906,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         matchB = re.match(clr_from_symbol_pattern, line_B)
         if matchB:
-
+            sA = matchA.group(2)
+            sB = matchB.group(2)
             symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
             symbolName_2 = ''.join(matchB.group(i) for i in range(4, 6) if matchB.group(i))
             op_1_str = '' if not matchA.group(6) else matchA.group(6)
@@ -8900,7 +8919,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.b   symbolName       ->    clr.w   symbolName      ; Saves 20 cycles.
             # clr.b   symbolName+1
             # Offset (if any) from 1st instruction must be even.
-            if matchA.group(2) == 'b' and matchB.group(2) == 'b':
+            if sA == 'b' and sB == 'b':
                 if symbolName_1 == symbolName_2 and (symbolName_1_op + 1 == symbolName_2_op) and (symbolName_1_op % 2 == 0):
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
@@ -8914,7 +8933,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.b   symbolName       ->    clr.w   symbolName-1    ; Saves 20 cycles.
             # clr.b   symbolName-1
             # Offset (if any) from 2nd instruction must be even.
-            if matchA.group(2) == 'b' and matchB.group(2) == 'b':
+            if sA == 'b' and sB == 'b':
                 if symbolName_1 == symbolName_2 and (symbolName_1_op - 1 == symbolName_2_op) and (symbolName_2_op % 2 == 0):
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
@@ -8927,7 +8946,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If clearing symbolName and symbolName+2.
             # clr.w   symbolName       ->    clr.l   symbolName      ; Saves 12 cycles.
             # clr.w   symbolName+2
-            if matchA.group(2) == 'w' and matchB.group(2) == 'w':
+            if sA == 'w' and sB == 'w':
                 if symbolName_1 == symbolName_2 and (symbolName_1_op + 2 == symbolName_2_op):
                     optimized_lines = [
                         f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_1}{op_1_str}'
@@ -8937,7 +8956,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If clearing symbolName and symbolName-2.
             # clr.w   symbolName       ->    clr.l   symbolName-2    ; Saves 12 cycles.
             # clr.w   symbolName-2
-            if matchA.group(2) == 'w' and matchB.group(2) == 'w':
+            if sA == 'w' and sB == 'w':
                 if symbolName_1 == symbolName_2 and (symbolName_1_op - 2 == symbolName_2_op):
                     optimized_lines = [
                         f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_2}{op_2_str}'
@@ -8950,7 +8969,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                                movem.l  xN/xM,symbolName+offset
             # Needs xN/xM free registers, or as much as possible regs already holding 0.
             # xN must be a data reg in case no regs were found holding 0.
-            if matchA.group(2) == 'l' and matchB.group(2) == 'l':
+            if sA == 'l' and sB == 'l':
                 if symbolName_1 == symbolName_2:
                     target_symbol = ''
                     offset_str = ''
@@ -8996,6 +9015,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             # (xN must be a data reg)
                             xN, xM = None, None
                             free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
                             if len(free_data_regs) >= 2:
                                 xN, xM = free_data_regs[0:2]
                             elif len(free_data_regs) == 1:
@@ -9018,11 +9039,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                                     movem.w  xN/xM/xP,symbolName+offset
             # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
             # xN must be a data reg in case no regs were found holding 0.
-            if (matchA.group(2) == 'w' and matchB.group(2) == 'l') or matchA.group(2) == 'l' and matchB.group(2) == 'w':
+            if (sA == 'w' and sB == 'l') or (sA == 'l' and sB == 'w'):
                 if symbolName_1 == symbolName_2:
                     target_symbol = ''
                     offset_str = ''
-                    s_size = 2 if matchA.group(2) == 'w' else 4
+                    s_size = 2 if sA == 'w' else 4
 
                     if (symbolName_1_op + s_size == symbolName_2_op):
                         target_symbol = symbolName_1
@@ -9065,6 +9086,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             # Search 2 free regs: xM,xP
                             xM, xP = None, None
                             free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
                             if len(free_data_regs) >= 2:
                                 xM, xP = free_data_regs[0:2]
                             elif len(free_data_regs) == 1:
@@ -9072,6 +9095,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                                 xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
                             else:
                                 free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
                                 if len(free_addr_regs) >= 2:
                                     xM, xP = free_addr_regs[0:2]
 
@@ -9090,6 +9115,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             # (xN must be a data reg)
                             xN, xM, xP = None, None, None
                             free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
                             if len(free_data_regs) >= 3:
                                 xN, xM, xP = free_data_regs[0:3]
                             elif len(free_data_regs) == 2:
@@ -9098,6 +9125,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             elif len(free_data_regs) == 1:
                                 xN = free_data_regs[0]
                                 free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
                                 if len(free_addr_regs) >= 2:
                                     xM, xP = free_addr_regs[0:2]
 
@@ -9118,7 +9147,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         matchB = re.match(clr_from_memory_pattern, line_B)
         if matchB:
-
+            sA = matchA.group(2)
+            sB = matchB.group(2)
             mem1 = parseConstantSigned(matchA.group(4), 32)
             mem2 = parseConstantSigned(matchB.group(4), 32)
 
@@ -9126,7 +9156,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.b   mem1       ->    clr.w   mem1        ; Saves 20 cycles.
             # clr.b   mem2
             # mem1 address must be even.
-            if matchA.group(2) == 'b' and matchB.group(2) == 'b':
+            if sA == 'b' and sB == 'b':
                 if mem1+1 == mem2 and mem1 % 2 == 0:
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
@@ -9141,7 +9171,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.b   mem1       ->    clr.w   mem2        ; Saves 20 cycles.
             # clr.b   mem2
             # mem2 address must be even.
-            if matchA.group(2) == 'b' and matchB.group(2) == 'b':
+            if sA == 'b' and sB == 'b':
                 if mem1-1 == mem2 and mem2 % 2 == 0:
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
@@ -9155,7 +9185,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If mem1+2 == mem2
             # clr.w   mem1       ->    clr.l   mem1        ; Saves 12 cycles.
             # clr.w   mem2
-            if matchA.group(2) == 'w' and matchB.group(2) == 'w':
+            if sA == 'w' and sB == 'w':
                 if mem1+2 == mem2:
                     s_mem = '' if not matchA.group(5) else matchA.group(5)
                     optimized_lines = [
@@ -9166,7 +9196,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # If mem1-2 == mem2
             # clr.w   mem1       ->    clr.l   mem2        ; Saves 12 cycles.
             # clr.w   mem2
-            if matchA.group(2) == 'w' and matchB.group(2) == 'w':
+            if sA == 'w' and sB == 'w':
                 if mem1-2 == mem2:
                     s_mem = '' if not matchB.group(5) else matchB.group(5)
                     optimized_lines = [
@@ -9180,7 +9210,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                          movem.l  xN/xM,mem+offset
             # Needs xN/xM free registers, or as much as possible regs already holding 0.
             # xN must be a data reg in case no regs were found holding 0.
-            if matchA.group(2) == 'l' and matchB.group(2) == 'l':
+            if sA == 'l' and sB == 'l':
                 target_mem = ''
                 offset_str = ''
 
@@ -9225,6 +9255,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         # (xN must be a data reg)
                         xN, xM = None, None
                         free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                        if free_data_regs[0] is None:
+                            free_data_regs = []
                         if len(free_data_regs) >= 2:
                             xN, xM = free_data_regs[0:2]
                         elif len(free_data_regs) == 1:
@@ -9247,10 +9279,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                          movem.w  xN/xM/xP,mem+offset
             # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
             # xN must be a data reg in case no regs were found holding 0.
-            if (matchA.group(2) == 'w' and matchB.group(2) == 'l') or matchA.group(2) == 'l' and matchB.group(2) == 'w':
+            if (sA == 'w' and sB == 'l') or (sA == 'l' and sB == 'w'):
                     target_mem = ''
                     offset_str = ''
-                    s_size = 2 if matchA.group(2) == 'w' else 4
+                    s_size = 2 if sA == 'w' else 4
 
                     if (mem1 + s_size == mem2):
                         target_mem = mem1
@@ -9293,6 +9325,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             # Search 2 free regs: xM,xP
                             xM, xP = None, None
                             free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
                             if len(free_data_regs) >= 2:
                                 xM, xP = free_data_regs[0:2]
                             elif len(free_data_regs) == 1:
@@ -9300,6 +9334,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                                 xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
                             else:
                                 free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
                                 if len(free_addr_regs) >= 2:
                                     xM, xP = free_addr_regs[0:2]
 
@@ -9318,6 +9354,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             # (xN must be a data reg)
                             xN, xM, xP = None, None, None
                             free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
                             if len(free_data_regs) >= 3:
                                 xN, xM, xP = free_data_regs[0:3]
                             elif len(free_data_regs) == 2:
@@ -9326,6 +9364,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             elif len(free_data_regs) == 1:
                                 xN = free_data_regs[0]
                                 free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
                                 if len(free_addr_regs) >= 2:
                                     xM, xP = free_addr_regs[0:2]
 
