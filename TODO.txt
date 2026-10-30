@@ -115,16 +115,22 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Storing multiple values from random memory to sequential memory.
-# Where symbol_or_mem+P = symbol_or_mem+Q +/- 1/2/4
-move.s  <ea_1>,symbol_or_mem+P     ->    lea symbol_or_mem+offset,aN          ; Saves 4 cycles.
-move.s  <ea_2>,symbol_or_mem+Q           move.s  <ea_1>,(aN)[+]
-                                         move.s  <ea_2>,[-](aN)
+Redundant load of immediate value into an address register that is not used anymore.
+move.w     #imm,aN        ->    add/sub.l    #imm,dN        ; Saves [4,8] cycles. Leaves aN different.
+add/sub.l  aN,dN
+Leaves aN different.
+Ensure aN is not used anymore or cleared/overwritten before use.
+
+See implementation for 2 and 3 lines. Do the same for 4 and 5 lines. Saves 20,28 cycles respectively.
+# Writing multiple values from random memory or regs to sequential memory.
+# Where symbolName+P = symbolName+Q +/- 1/2/4
+move.s  <ea_1>,symbolName+P     ->    lea symbolName+offset,aN          ; Saves 4 cycles.
+move.s  <ea_2>,symbolName+Q           move.s  <ea_1>,(aN)[+]
+                                      move.s  <ea_2>,[-](aN)
 # Needs a free aN address register.
 # Ensure aN is not used in the <ea>.
-Do the same for 3, 4, and 5 lines. Saves 12,20,28 cycles respectively.
 
-See the implementation for 2 lines.
+See the implementation for 2 lines for next patterns:
 # Clear consecutive memory. All same size accesor.
 clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [24,28,32] cycles.
 clr.l  symbol_or_mem+Q          move.l   xN,xM
@@ -163,7 +169,7 @@ clr.[wl]  symbol_or_mem+R          movem.l  xN/xM,symbol_or_mem+offset
 move.s  (aN),dN         ->    add.w   dM,(aN)+           ; Saves [8,12] cycles. Leaves dN different.
 add.s   dM,dN
 move.s  dN,(aN)+
-# Ensure dN is not used anymore or cleared/overwritten before use. 
+# Ensure dN is not used anymore or cleared/overwritten before use.
 
 # Poping from SP into a data reg and consecutively modifying the same data reg with consecutive elements from SP. 
 # Better use auto increment on a free address reg to compensate for the poped elements.

@@ -38,6 +38,7 @@
 # ------------------
 # gcc -S   |   M68k
 # ------------------
+# movm     |   movem
 # dbra     |   dbf
 # jeq      |   beq
 # jne      |   bne
@@ -86,7 +87,7 @@ SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
 # then it means I didn't consider a gcc directive or alike which conflicts with the calculation of instruction size.
 # Try to reduce the limits by 2 or 4 bytes and see if that helps.
-MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 127-2  # Subtract 2 to account for the branch instruction short size.
+MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 127
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128
 
 # NOT_WORKING
@@ -3536,8 +3537,8 @@ def are_regs_sorted(regs: list[str]) -> bool:
 
 # Table for opcode base sizes in words
 INSTR_BASE_SIZES_IN_WORDS = {
-    'abcd': 1, 'adda': 1, 'add': 1, 'addi': 1, 'addq': 1, 'addx': 1, 'and': 1, 'andi': 1, 'asl': 1, 'asr': 1, 'bcc': 1, 'bcs': 1, 
-    'beq': 1, 'bge': 1, 'bgt': 1, 'bhi': 1, 'bhs': 1, 'ble': 1, 'blo': 1, 'bls': 1, 'blt': 1, 'bmi': 1, 'bne': 1, 'bpl': 1, 
+    'abcd': 1, 'adda': 1, 'add': 1, 'addi': 1, 'addq': 1, 'addx': 1, 'and': 1, 'andi': 1, 'asl': 1, 'asr': 1, 'bcc': 1, 'bchg': 1, 'bclr': 1, 
+    'bcs': 1, 'beq': 1, 'bge': 1, 'bgt': 1, 'bhi': 1, 'bhs': 1, 'ble': 1, 'blo': 1, 'bls': 1, 'blt': 1, 'bmi': 1, 'bne': 1, 'bpl': 1, 
     'bra': 1, 'bset': 1, 'bsr': 1, 'btst': 1, 'bvc': 1, 'bvs': 1, 'chk': 1, 'clr': 1, 'cmpa': 1, 'cmp': 1, 'cmpi': 1, 'cmpm': 1, 
     'dbcc': 1, 'dbcs': 1, 'dbeq': 1, 'dbf': 1, 'dbra': 1, 'dbge': 1, 'dbgt': 1, 'dbhi': 1, 'dbhs': 1, 'dble': 1, 'dblo': 1, 
     'dbls': 1, 'dblt': 1, 'dbmi': 1, 'dbne': 1, 'dbpl': 1, 'dbt': 1, 'dbvc': 1, 'dbvs': 1, 
@@ -3548,8 +3549,8 @@ INSTR_BASE_SIZES_IN_WORDS = {
     'jne': 1, 'jpl': 1, 'jra': 1, 'jsr': 1, 'jvc': 1, 'jvs': 1, 
     'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 'movm': 2, 'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 
     'nbcd': 1, 'neg': 1, 'negx': 1, 'not': 1, 'or': 1, 'ori': 1, 'pea': 1, 'rol': 1, 'ror': 1, 'roxl': 1, 'roxr': 1, 
-    'sbcd': 1, 'scc': 1, 'scs': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'sle': 1, 'sls': 1, 'slt': 1, 'smi': 1, 'sne': 1, 'spl': 1, 
-    'st': 1, 'suba': 1, 'sub': 1, 'subi': 1, 'subq': 1, 'subx': 1, 'svc': 1, 'swap': 1, 
+    'sbcd': 1, 'scc': 1, 'scs': 1, 'seq': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'sle': 1, 'sls': 1, 'slt': 1, 'smi': 1, 'sne': 1, 'spl': 1, 
+    'st': 1, 'suba': 1, 'sub': 1, 'subi': 1, 'subq': 1, 'subx': 1, 'svc': 1, 'svs': 1, 'swap': 1, 
     'tas': 1, 'tst': 1, 'unlk': 1, 'nop': 1, 'rte': 1, 'rts': 1
 }
     
@@ -3576,9 +3577,9 @@ RE_An_minus_paren = re.compile(r'^-\((%a[0-7]|%sp)\)$')
 # (a[0-7]|pc,[ad][0-7][.s]), and all combinations
 RE_An_Xn = re.compile(r'^\((%a[0-7]|%sp|%pc),(%[ad][0-7]|%sp)(\.[bwl])?\)$')
 # d16[+-*N](a[0-7]|pc), and all combinations. ie: 20+2(a0)
-RE_d16_An = re.compile(r'^([0-9a-zA-Z_\.]+|-?\d+([\-\+\*]\d+)?)\((%a[0-7]|%sp|%pc)\)$')
+RE_d16_An = re.compile(r'^(-?\d+(?:[\-\+\*]\d+)?|[0-9a-zA-Z_\.]+)\((%a[0-7]|%sp|%pc)\)$')
 # d8[+-*N](a[0-7]|pc,[ad][0-7][.s]), and all combinations
-RE_d8_An_Xn = re.compile(r'^([0-9a-zA-Z_\.]+|-?\d+([\-\+\*]\d+)?)\((%a[0-7]|%sp|%pc),(%[ad][0-7]|%sp)(\.[bwl])?\)$')
+RE_d8_An_Xn = re.compile(r'^(-?\d+(?:[\-\+\*]\d+)?|[0-9a-zA-Z_\.]+)\((%a[0-7]|%sp|%pc),(%[ad][0-7]|%sp)(\.[bwl])?\)$')
 # Any label, function, or symbolName. ie: 1b, .L37, _loc1, memsetU16, xlt_all.0, context3D+12.l
 RE_label_function_symbol = re.compile(r'^[0-9a-zA-Z_\.]+(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?$')
 # #symbolName[.s] ie: #xlt_all.0, #context3D+12.l
@@ -3701,7 +3702,7 @@ def instruction_size(line_stripped: str) -> int:
     instr_op_base = opcode_components[0]
     op_size = '' if len(opcode_components) == 1 else opcode_components[1]
     if instr_op_base not in INSTR_BASE_SIZES_IN_WORDS:
-        #print(f'0\t{line_stripped}   op_code={opcode}  operands={operands}  instr_op_base={instr_op_base}  op_size={op_size}')
+        #print(f'Unknown opcode:\t{line_stripped}   op_code={opcode}  operands={operands}  instr_op_base={instr_op_base}  op_size={op_size}')
         return 0  # Unknown opcode
 
     # Instruction op base size
@@ -3728,7 +3729,7 @@ def is_size_directive_nearby_backwards(lines: list[str], i: int) -> bool:
         .set	_int_callback.lto_priv.0,STACK_releaseAll
     """
     # Scan backwards up to N lines
-    N_lines = 10
+    N_lines = 20
     for k in range(i, i-N_lines - 1, -1):
         if FUNCTION_SIZE_CALCULATION_REGEX.match(lines[k]):
             return True
@@ -7049,7 +7050,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 3)
 
-    # Testing for null (or 0)
+    # Testing for null (or 0).
     # move.l  aN,-(sp)   ->    move.l  aN,dM           ; Saves 16 cycles
     # addq    #4,sp            beq     label
     # beq     label
@@ -7074,6 +7075,90 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             f'{matchA.group(1)}beq{s_branch}{matchA.group(3)}{label}'
                         ]
                         return (optimized_lines, 3)
+
+    # Writing multiple values from random memory or regs to sequential memory.
+    # Where symbolName+P = symbolName+Q +/- 1/2/4
+    # Where symbolName+Q = symbolName+R +/- 1/2/4
+    # move.s  <ea_1>,symbolName+P     ->    lea symbolName+offset,aN          ; Saves 12 cycles.
+    # move.s  <ea_2>,symbolName+Q           move.s  <ea_1>,(aN)+
+    # move.s  <ea_3>,symbolName+R           move.s  <ea_2>,(aN)+
+    #                                       move.s  <ea_3>,(aN)
+    # Needs a free aN address register.
+    # Ensure aN is not used in the <ea>.
+    matchA = move_ea_into_symbol_pattern.match(line_A)
+    if matchA:
+        s_A = matchA.group(2)
+        matchB = move_ea_into_symbol_pattern.match(line_B)
+        if matchB:
+            s_B = matchB.group(2)
+            matchC = move_ea_into_symbol_pattern.match(line_C)
+            if matchC:
+                s_C = matchC.group(2)
+                symbolName_1 = ''.join(matchA.group(i) for i in range(10, 12) if matchA.group(i))
+                symbolName_2 = ''.join(matchB.group(i) for i in range(10, 12) if matchB.group(i))
+                symbolName_3 = ''.join(matchC.group(i) for i in range(10, 12) if matchC.group(i))
+                op_1_str = '' if not matchA.group(12) else matchA.group(12)
+                op_2_str = '' if not matchB.group(12) else matchB.group(12)
+                op_3_str = '' if not matchC.group(12) else matchC.group(12)
+                symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+                symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+                symbolName_3_op = 0 if not op_3_str else int(op_3_str)
+
+                if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3:
+                    use_post_inc = False
+                    use_pre_inc = False
+                    s_A_size = 1
+                    if s_A == 'w':
+                        s_A_size = 2
+                    elif s_A == 'l':
+                        s_A_size = 4
+                    s_B_size = 1
+                    if s_B == 'w':
+                        s_B_size = 2
+                    elif s_B == 'l':
+                        s_B_size = 4
+                    
+                    if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op):
+                        use_post_inc = True
+                    elif (symbolName_1_op - s_A_size == symbolName_2_op) and (symbolName_2_op - s_B_size == symbolName_3_op):
+                        use_pre_inc = True
+
+                    if use_post_inc or use_pre_inc:
+                        free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)
+                        if free_addr_regs[0] is None:
+                            # TODO: when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed
+                            # remove the next line and uncomment the rest
+                            free_addr_regs = []
+                            #free_addr_regs = find_unused_ADDRESS_regs([], i_line, lines, modified_lines, 3)
+                            #if free_addr_regs[0] is None:
+                            #    free_addr_regs = []
+                        if len(free_addr_regs) > 0:
+                            ea_A = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
+                            ea_B = next((matchB.group(i) for i in range(4, 10) if matchB.group(i)), None)
+                            ea_C = next((matchC.group(i) for i in range(4, 10) if matchC.group(i)), None)
+                            # Pick an address register not present in either ea
+                            eas = (ea_A, ea_B, ea_C)
+                            aN = next((r for r in free_addr_regs if all(r not in s for s in eas)), None)
+                            if aN is not None:
+                                # TODO: when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed
+                                # uncomment and ident code correctly
+                                #if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
+                                if use_post_inc:
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
+                                        f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})+',
+                                        f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},({aN})+',
+                                        f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{ea_C},({aN})'
+                                    ]
+                                    return (optimized_lines, 3)
+                                elif use_pre_inc:
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
+                                        f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
+                                        f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},-({aN})',
+                                        f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{ea_C},-({aN})'
+                                    ]
+                                    return (optimized_lines, 3)
 
     # Tail recursion for BSR/JSR or exploiting PEA opportunities.
     bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
@@ -7457,8 +7542,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 3)
 
     # Clear mask: using dN as a clearing mask over dM
-    # not.s  dN       ->   or.s   dN,dM            ; Saves 4 cycles.
-    # and.s  dN,dM         eor.s  dN,dM
+    # not.s  dN       ->    or.s   dN,dM           ; Saves 4 cycles.
+    # and.s  dN,dM          eor.s  dN,dM
     # not.s  dN
     matchA = re.match(r'^(\s*)not\.([bwl])(\s+)(%d[0-7])', line_A)
     if matchA:
@@ -8846,6 +8931,74 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),-({aM})'
                 ]
                 return (optimized_lines, 2)
+
+    # Writing multiple values from random memory or regs to sequential memory.
+    # Where symbolName+P = symbolName+Q +/- 1/2/4
+    # move.s  <ea_1>,symbolName+P     ->    lea symbolName+offset,aN          ; Saves 4 cycles.
+    # move.s  <ea_2>,symbolName+Q           move.s  <ea_1>,(aN)[+]
+    #                                       move.s  <ea_2>,[-](aN)
+    # Needs a free aN address register.
+    # Ensure aN is not used in the <ea>.
+    matchA = move_ea_into_symbol_pattern.match(line_A)
+    if matchA:
+        s_A = matchA.group(2)
+        matchB = move_ea_into_symbol_pattern.match(line_B)
+        if matchB:
+            s_B = matchB.group(2)
+            symbolName_1 = ''.join(matchA.group(i) for i in range(10, 12) if matchA.group(i))
+            symbolName_2 = ''.join(matchB.group(i) for i in range(10, 12) if matchB.group(i))
+            op_1_str = '' if not matchA.group(12) else matchA.group(12)
+            op_2_str = '' if not matchB.group(12) else matchB.group(12)
+            symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+            symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+
+            if symbolName_1 == symbolName_2:
+                use_post_inc = False
+                use_pre_inc = False
+                s_A_size = 1
+                if s_A == 'w':
+                    s_A_size = 2
+                elif s_A == 'l':
+                    s_A_size = 4
+
+                if (symbolName_1_op + s_A_size == symbolName_2_op):
+                    use_post_inc = True
+                elif (symbolName_1_op - s_A_size == symbolName_2_op):
+                    use_pre_inc = True
+
+                if use_post_inc or use_pre_inc:
+                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                    if free_addr_regs[0] is None:
+                        # TODO: when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed
+                        # remove the next line and uncomment the rest
+                        free_addr_regs = []
+                        #free_addr_regs = find_unused_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                        #if free_addr_regs[0] is None:
+                        #    free_addr_regs = []
+                    if len(free_addr_regs) > 0:
+                        ea_A = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
+                        ea_B = next((matchB.group(i) for i in range(4, 10) if matchB.group(i)), None)
+                        # Pick an address register not present in either ea
+                        eas = (ea_A, ea_B)
+                        aN = next((r for r in free_addr_regs if all(r not in s for s in eas)), None)
+                        if aN is not None:
+                            # TODO: when add_regs_into_push_pop_if_not_scratch_or_in_interrupt() is fixed
+                            # uncomment and ident code correctly
+                            #if add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
+                            if use_post_inc:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
+                                    f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})+',
+                                    f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},({aN})'
+                                ]
+                                return (optimized_lines, 2)
+                            elif use_pre_inc:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
+                                    f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
+                                    f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},-({aN})'
+                                ]
+                                return (optimized_lines, 2)
 
     # Negate a dN and then add/sub into dM or same dN.
     matchA = re.match(r'^(\s*)neg\.([bwl])(\s+)(%d[0-7])', line_A)
