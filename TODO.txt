@@ -115,13 +115,7 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-Redundant load of immediate value into an address register that is not used anymore.
-move.w     #imm,aN        ->    add/sub.l    #imm,dN        ; Saves [4,8] cycles. Leaves aN different.
-add/sub.l  aN,dN
-Leaves aN different.
-Ensure aN is not used anymore or cleared/overwritten before use.
-
-See implementation for 2 and 3 lines. Do the same for 4 and 5 lines. Saves 20,28 cycles respectively.
+See implementation for 2 and more lines.
 # Writing multiple values from random memory or regs to sequential memory.
 # Where symbolName+P = symbolName+Q +/- 1/2/4
 move.s  <ea_1>,symbolName+P     ->    lea symbolName+offset,aN          ; Saves 4 cycles.
