@@ -130,6 +130,12 @@ move.s  <ea_2>,symbolName+Q           move.s  <ea_1>,(aN)[+]
 # Needs a free aN address register.
 # Ensure aN is not used in the <ea>.
 
+Continuation of previous pattern when the last consecutive memory is not included in the pattern
+lea fg_colorsRotation,%a0
+move.w -2(%a1,%d0.l),(%a0)+
+move.w -2(%a1,%d3.l),(%a0)
+move.w -2(%a1,%d2.l),fg_colorsRotation+4
+
 See the implementation for 2 lines for next patterns:
 # Clear consecutive memory. All same size accesor.
 clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [24,28,32] cycles.

@@ -211,11 +211,11 @@ def print_diff(original_lines: list[str], i_line: int, optimized_lines: list[str
     # Logging line info
     log = ''
     if not SAVE_OPTIMIZATIONS:
-        log = f'{Fore.GREEN}[CANDIDATE {THIS_INVOKE_ID}][{(i_line+1):5d}]{Style.RESET_ALL}'
-        left_padding_from_log = " " * (20 + 2)
+        log = f'{Fore.GREEN}[CANDIDATE {THIS_INVOKE_ID}][{(i_line+1):6d}]{Style.RESET_ALL}'
+        left_padding_from_log = " " * (21 + 2)
     else:
-        log = f'{Style.BRIGHT}{Fore.GREEN}[OPTIMIZED {THIS_INVOKE_ID}][{(i_line+1):5d}]{Style.RESET_ALL}'
-        left_padding_from_log = " " * (20 + 2)
+        log = f'{Style.BRIGHT}{Fore.GREEN}[OPTIMIZED {THIS_INVOKE_ID}][{(i_line+1):6d}]{Style.RESET_ALL}'
+        left_padding_from_log = " " * (21 + 2)
 
     if not PRINT_LOG_IN_TWO_COLUMNS_FASHION:
         original_joined = " / ".join(lineOrig.lstrip() for lineOrig in original_lines)
@@ -2801,7 +2801,7 @@ def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
         anything2 = anything2 if anything2 else ''
         # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a subtraction
         new_disp_val = (int(disp) if disp else 0) + offset
-        new_disp = str(disp_val) if disp_val != 0 else ''
+        new_disp = str(new_disp_val) if new_disp_val != 0 else ''
         # Create the new line
         new_line = blank1 + instr + s + blank2 + anything1 + new_disp + '(%sp' + xN_with_comma + ')' + anything2
         target_lines[i] = new_line
@@ -2815,7 +2815,7 @@ def adjust_sp_indexing(i: int, target_lines: list[str], line: str, offset: int):
         anything2 = anything2 if anything2 else ''
         # Adjust sp indexing by adding the offset. If offset is negative then it ends doing a subtraction
         new_disp_val = offset
-        new_disp = str(disp_val)
+        new_disp = str(new_disp_val)
         # Create the new line
         new_line = blank1 + instr + s + blank2 + anything1 + new_disp + '(%sp)' + anything2
         target_lines[i] = new_line
@@ -7174,7 +7174,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re.match(bsr_jsr_routine, line_B)
             if matchB:
                 subr1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
-                subr1 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
+                subr2 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
                 last_instr = "jmp  "
                 if not matchA.group(2) == "jsr":
                     last_instr = "bra  "
@@ -10909,7 +10909,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # cmp.s  #val,dN   ->    subq/addq.s   #abs(val),dN      ; Saves [4,6] cycles. Leaves dN different.
     #                        (subq if val > 0, addq if val < 0)
     # Ensure dN is not used anymore or cleared/overwritten before use.
-# acá: this breaks sprites on Metal Slug project
+# acá: this breaks sprites on Metal Slug project. Likely there is a multiline pattern that is buggy.
     match = re.match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         val = parseConstantSigned(match.group(5), 8)
@@ -11256,7 +11256,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         #                             move.b  dN,dM
         #                             move.l  dM,dN
         # Needs a free data register dM.
-# acá: this breaks player sprite on Metal Slug project
+# acá: this breaks player sprite on Metal Slug project. Likely there is a multiline pattern that is buggy.
         if val == 255:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
