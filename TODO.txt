@@ -115,10 +115,12 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-	sgt %d1
-	ext.w %d1
-	ext.l %d1
-	neg.l %d1
+# Boolean set 0 or 1 in long word.
+<any_instr_set_ccr>    ->    moveq    #0,dN                 ; Saves 6 cycles.
+sCC[.b]  dN                  sCC[.b]  dN
+ext.w    dN                  neg.b    dN  <-- 0 or 1. Remaining bits are already 0.
+ext.l    dN
+neg.l    dN
 
 Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 (prepareMapDataRow_MTI16_BI16).
 # Move from consecutive memory indirection to random memory indirection.
@@ -239,21 +241,6 @@ move.l 20(a2),(a6)          move.l (a2)+,(a6)
 move.l 24(a2),(a6)          move.l (a2)+,(a6)
 move.l 28(a2),(a6)          move.l (a2),(a6)
                             lea    -28(a2),a2
-
-# Unordered target registers when pop from stack.
-# At least one register must be in the correct order.
-	move.l  68(sp),a2
-	move.l  72(sp),d0
-	move.l  76(sp),d1
-	move.l  80(sp),d4
-	move.l  88(sp),a4
-    move.l  92(sp),a5
-; Saves [8,14,20,28] cycles.
-	movem.l  68(sp),d0/d1/d4/a2/a4/a5
-	exg.l    N,M
-    exg.l    N,M  <-- optional, depending on regs list
-    exg.l    N,M  <-- optional, depending on regs list
-    exg.l    N,M  <-- optional, depending on regs list
 
 Next optimization only valid for 3 or more disp(sp).
 Adding same immediate value into subsequent memory by indirect addressing.
