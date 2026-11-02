@@ -73,6 +73,9 @@ except ImportError:
     exit(1)
 
 
+# This controls how many optimization passes to execute in this script instance.
+NUM_PASSES = 2  # Up to 3
+
 # These filenames must coincide with the those defined in makefile.gen
 SYMBOLS_OPT_FILENAME = "symbol_opt.txt"
 SYMBOLS_CANONICAL_FILENAME = "symbol_canonical.txt"
@@ -87,7 +90,7 @@ SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 #   /tmp/cccA4k6v.s:10923: Error: value of ffffff7c too large for field of 1 byte at 0000742d
 # then it means I didn't consider a gcc directive or alike which conflicts with the calculation of instruction size.
 # Try to reduce the limits by 2 or 4 bytes and see if that helps.
-MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 127
+MAX_BYTES_IN_8_BYTES_RANGE_BACKWARDS = 127-2  # subtract 2 for the short branch instruction size
 MAX_BYTES_IN_8_BYTES_RANGE_FORWARDS = 128
 
 # NOT_WORKING
@@ -589,7 +592,7 @@ REG_AS_TARGET_REGEX = re.compile(
 REG_AS_TARGET_ALONE_REGEX = re.compile(
     r'^\s*'                          # Optional leading whitespace
     r'(?:'                           # Non-capturing group for target-writing instructions
-    r'(?:clr|ext|neg|negx|not|scc|scs|seq|sf|sge|sgt|shi|sle|sls|slt|smi|sne|spl|st|svc|svs|swap|tas|tst|unlk)\S*'
+    r'(?:clr|ext|neg|negx|not|scc|scs|seq|sf|sge|sgt|shi|shs|sle|slo|sls|slt|smi|sne|spl|st|svc|svs|swap|tas|tst|unlk)\S*'
     r')'                             # End of non-capturing group
     r'\s+'                           # Whitespace before destination
     r'(%[ad][0-7])\b'                # Target register
@@ -655,7 +658,7 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
     r')'                             # End capturing group of alternatives
     r',\s*'                          # Comma and optional whitespace
     r'|'                             # OR
-    r'(clr|scc|scs|seq|sf|sge|sgt|shi|sle|sls|slt|smi|sne|spl|st|svc|svs)(\.[bwl])?\s+'  # Clear or Set Conditionally instructions
+    r'(clr|scc|scs|seq|sf|sge|sgt|shi|shs|sle|slo|sls|slt|smi|sne|spl|st|svc|svs)(\.[bwl])?\s+'  # Clear or Set Conditionally instructions
     r')'                             # End alternatives
     r'(%[ad][0-7])\b'                # Register being overwritten
 )
@@ -1592,7 +1595,7 @@ REG_CLOBBER_REGEX = re.compile(
     r'|'
     # one-operand form: instr dst
     r'(?:clr|not|neg|negx|nbcd|tas|swap|ext'
-    r'|scc|scs|seq|sf|sge|sgt|shi|sle|sls|slt|smi|sne|spl|st|svc|svs)'
+    r'|scc|scs|seq|sf|sge|sgt|shi|shs|sle|slo|sls|slt|smi|sne|spl|st|svc|svs)'
     r'(?:\.[bwl])?\s+'
     r')'
     r'(%[ad][0-7])\b'
@@ -3549,9 +3552,11 @@ INSTR_BASE_SIZES_IN_WORDS = {
     'jne': 1, 'jpl': 1, 'jra': 1, 'jsr': 1, 'jvc': 1, 'jvs': 1, 
     'lea': 1, 'link': 1, 'lsl': 1, 'lsr': 1, 'movea': 1, 'move': 1, 'movem': 2, 'movm': 2, 'movep': 2, 'moveq': 1, 'muls': 1, 'mulu': 1, 
     'nbcd': 1, 'neg': 1, 'negx': 1, 'not': 1, 'or': 1, 'ori': 1, 'pea': 1, 'rol': 1, 'ror': 1, 'roxl': 1, 'roxr': 1, 
-    'sbcd': 1, 'scc': 1, 'scs': 1, 'seq': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'sle': 1, 'sls': 1, 'slt': 1, 'smi': 1, 'sne': 1, 'spl': 1, 
+    'sbcd': 1, 'scc': 1, 'scs': 1, 'seq': 1, 'sf': 1, 'sge': 1, 'sgt': 1, 'shi': 1, 'shs': 1, 'sle': 1, 'slo': 1, 'sls': 1, 'slt': 1, 'smi': 1, 'sne': 1, 'spl': 1, 
     'st': 1, 'suba': 1, 'sub': 1, 'subi': 1, 'subq': 1, 'subx': 1, 'svc': 1, 'svs': 1, 'swap': 1, 
-    'tas': 1, 'tst': 1, 'unlk': 1, 'nop': 1, 'rte': 1, 'rts': 1
+    'tas': 1, 'tst': 1, 'unlk': 1, 'nop': 1, 'rte': 1, 'rts': 1, 
+    # special ones:
+    'illegal': 1, 'reset': 1, 'rtr': 1, 'stop': 2, 'trap': 1, 'trapv': 1
 }
     
 # Addressing mode extra words (per operand)
@@ -4077,6 +4082,42 @@ def is_valid_for_redundant_tst_optimization(i_line: int, lines: list[str], modif
 
     return True
 
+def get_best_exg_sequence(unsorted_regs: list[str], sorted_regs: list[str]) -> list[tuple[str, str]]:
+    """
+    Creates a sequence of pair (N,M) of registers to be used by exg instruction, with length <= len(unsorted_regs)-2,
+    such that if applying the exg instruction over the generated pairs of regs we end up with the expected values
+    as if they were in unsorted_regs.
+    Returns [('%xN', '%xM'), ...] or empty [].
+    """
+    # Different length?
+    if len(unsorted_regs) != len(sorted_regs):
+        return []
+
+    # cur[reg] = index of the value currently held by reg (after movem)
+    # tgt[reg] = index of the value that reg must hold at the end
+    cur = {reg: i for i, reg in enumerate(sorted_regs)}
+    tgt = {reg: i for i, reg in enumerate(unsorted_regs)}
+
+    # Reverse lookup: which register currently holds value index i
+    holder = {i: reg for reg, i in cur.items()}
+
+    seq: list[tuple[str, str]] = []
+    for r in sorted_regs:
+        if cur[r] == tgt[r]:
+            continue
+        # Register that currently holds the value r needs
+        q = holder[tgt[r]]
+        seq.append((r, q))
+        # Perform the exchange in our model
+        cur[r], cur[q] = cur[q], cur[r]
+        holder[cur[r]] = r
+        holder[cur[q]] = q
+
+    # Each exg fixes at least one register; n - (number of cycles) swaps is the minimum.
+    if len(seq) > len(unsorted_regs) - 2:
+        return []
+    return seq
+
 IS_ASL_INSTRUCTION_REGEX = re.compile(r'^\s*asl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
 IS_ASR_INSTRUCTION_REGEX = re.compile(r'^\s*asr\.[bwl]\s+[^,]+,\s*%d[0-7]')
@@ -4210,7 +4251,7 @@ instr_set_ea_into_dN_for_ccr_pattern = re.compile(
     r',\s*(%d[0-7])\b'
 )
 
-copy_memory_by_indirection_pattern = re.compile(
+copy_memory_by_consecutive_indirection_into_memory_aN_pattern = re.compile(
     r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\)\s*(?:;.*)?$'
 )
 
@@ -4225,7 +4266,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     line_G = modified_lines[-2]
     line_H = modified_lines[-1]
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -4295,7 +4336,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                 optimized_lines = [line_A_opt, line_B, line_C, line_D, line_E, line_F, line_H]
                                                 return (optimized_lines, 8)
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -4388,7 +4429,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                     optimized_lines = [line_B, line_C, line_D, line_E, line_F, line_A_opt, line_H]
                                                     return (optimized_lines, 8)
 
-    # Consecutive copy of memory.
+    # Consecutive copy of memory into a single invariant memeory target.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [20,24] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
@@ -4397,7 +4438,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     # move.s [-]disp5(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp6(aN),(aM)           move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
-    matchA = copy_memory_by_indirection_pattern.match(line_A)
+    matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
         stride = 2
@@ -4408,7 +4449,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
         dispA = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
         # The first instruction must come without any displacement
         if dispA == 0:
-            matchB = copy_memory_by_indirection_pattern.match(line_B)
+            matchB = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(5) and aM == matchB.group(6):
                 dispB = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 # Here we decide the direction of consecutive copy
@@ -4416,23 +4457,23 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                     stride *= -1
                 # Ensure the displacement is at the correct stride
                 if dispB == dispA+stride:
-                    matchC = copy_memory_by_indirection_pattern.match(line_C)
+                    matchC = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_C)
                     if matchC and s == matchC.group(2) and aN == matchC.group(5) and aM == matchC.group(6):
                         dispC = 0 if not matchC.group(4) else parseConstantSigned(matchC.group(4), 16)
                         if dispC == dispB+stride:
-                            matchD = copy_memory_by_indirection_pattern.match(line_D)
+                            matchD = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_D)
                             if matchD and s == matchD.group(2) and aN == matchD.group(5) and aM == matchD.group(6):
                                 dispD = 0 if not matchD.group(4) else parseConstantSigned(matchD.group(4), 16)
                                 if dispD == dispC+stride:
-                                    matchE = copy_memory_by_indirection_pattern.match(line_E)
+                                    matchE = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_E)
                                     if matchE and s == matchE.group(2) and aN == matchE.group(5)and aM == matchE.group(6):
                                         dispE = 0 if not matchE.group(4) else parseConstantSigned(matchE.group(4), 16)
                                         if dispE == dispD+stride:
-                                            matchF = copy_memory_by_indirection_pattern.match(line_F)
+                                            matchF = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_F)
                                             if matchF and s == matchF.group(2) and aN == matchF.group(5) and aM == matchF.group(6):
                                                 dispF = 0 if not matchF.group(4) else parseConstantSigned(matchF.group(4), 16)
                                                 if dispF == dispE+stride:
-                                                    matchG = copy_memory_by_indirection_pattern.match(line_G)
+                                                    matchG = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_G)
                                                     if matchG and s == matchG.group(2) and aN == matchG.group(5) and aM == matchG.group(6):
                                                         dispG = 0 if not matchG.group(4) else parseConstantSigned(matchG.group(4), 16)
                                                         if dispG == dispF+stride:
@@ -4444,6 +4485,11 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                                 if stride > 0:
                                                                     # Accomodate final displacement
                                                                     dispLea -= 7*stride
+                                                                    line_accomodate_aN = ''
+                                                                    if abs(dispLea) <= 8:
+                                                                        line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                                                    else:
+                                                                        line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                                                     line_copy_inc = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN})+,({aM})'
                                                                     optimized_lines = [
                                                                         line_copy_inc,
@@ -4453,11 +4499,16 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                                         line_copy_inc,
                                                                         line_copy_inc,
                                                                         line_copy_inc,
-                                                                        f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                                        line_accomodate_aN
                                                                     ]
                                                                 else:
                                                                     # Accomodate final displacement
                                                                     dispLea -= 6*stride
+                                                                    line_accomodate_aN = ''
+                                                                    if abs(dispLea) <= 8:
+                                                                        line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                                                    else:
+                                                                        line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                                                     first_line_copy = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN}),({aM})'
                                                                     line_copy_dec = f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),({aM})'
                                                                     optimized_lines = [
@@ -4468,7 +4519,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                                         line_copy_dec,
                                                                         line_copy_dec,
                                                                         line_copy_dec,
-                                                                        f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                                        line_accomodate_aN
                                                                     ]
                                                                 return (optimized_lines, 8)
 
@@ -4484,7 +4535,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     line_F = modified_lines[-2]
     line_G = modified_lines[-1]
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -4553,7 +4604,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                             optimized_lines = [line_A_opt, line_B, line_C, line_D, line_E, line_G]
                                             return (optimized_lines, 7)
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -4641,7 +4692,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                 optimized_lines = [line_B, line_C, line_D, line_E, line_A_opt, line_G]
                                                 return (optimized_lines, 7)
 
-    # Consecutive copy of memory.
+    # Consecutive copy of memory into a single invariant memeory target.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [16,20] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
@@ -4649,7 +4700,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     # move.s [-]disp4(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp5(aN),(aM)           move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
-    matchA = copy_memory_by_indirection_pattern.match(line_A)
+    matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
         stride = 2
@@ -4660,7 +4711,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
         dispA = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
         # The first instruction must come without any displacement
         if dispA == 0:
-            matchB = copy_memory_by_indirection_pattern.match(line_B)
+            matchB = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(5) and aM == matchB.group(6):
                 dispB = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 # Here we decide the direction of consecutive copy
@@ -4668,19 +4719,19 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                     stride *= -1
                 # Ensure the displacement is at the correct stride
                 if dispB == dispA+stride:
-                    matchC = copy_memory_by_indirection_pattern.match(line_C)
+                    matchC = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_C)
                     if matchC and s == matchC.group(2) and aN == matchC.group(5) and aM == matchC.group(6):
                         dispC = 0 if not matchC.group(4) else parseConstantSigned(matchC.group(4), 16)
                         if dispC == dispB+stride:
-                            matchD = copy_memory_by_indirection_pattern.match(line_D)
+                            matchD = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_D)
                             if matchD and s == matchD.group(2) and aN == matchD.group(5) and aM == matchD.group(6):
                                 dispD = 0 if not matchD.group(4) else parseConstantSigned(matchD.group(4), 16)
                                 if dispD == dispC+stride:
-                                    matchE = copy_memory_by_indirection_pattern.match(line_E)
+                                    matchE = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_E)
                                     if matchE and s == matchE.group(2) and aN == matchE.group(5) and aM == matchE.group(6):
                                         dispE = 0 if not matchE.group(4) else parseConstantSigned(matchE.group(4), 16)
                                         if dispE == dispD+stride:
-                                            matchF = copy_memory_by_indirection_pattern.match(line_F)
+                                            matchF = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_F)
                                             if matchF and s == matchF.group(2) and aN == matchF.group(5) and aM == matchF.group(6):
                                                 dispF = 0 if not matchF.group(4) else parseConstantSigned(matchF.group(4), 16)
                                                 if dispF == dispE+stride:
@@ -4692,6 +4743,11 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                         if stride > 0:
                                                             # Accomodate final displacement
                                                             dispLea -= 6*stride
+                                                            line_accomodate_aN = ''
+                                                            if abs(dispLea) <= 8:
+                                                                line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                                            else:
+                                                                line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                                             line_copy_inc = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN})+,({aM})'
                                                             optimized_lines = [
                                                                 line_copy_inc,
@@ -4700,11 +4756,16 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                                 line_copy_inc,
                                                                 line_copy_inc,
                                                                 line_copy_inc,
-                                                                f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                                line_accomodate_aN
                                                             ]
                                                         else:
                                                             # Accomodate final displacement
                                                             dispLea -= 5*stride
+                                                            line_accomodate_aN = ''
+                                                            if abs(dispLea) <= 8:
+                                                                line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                                            else:
+                                                                line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                                             first_line_copy = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN}),({aM})'
                                                             line_copy_dec = f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),({aM})'
                                                             optimized_lines = [
@@ -4714,7 +4775,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                                 line_copy_dec,
                                                                 line_copy_dec,
                                                                 line_copy_dec,
-                                                                f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                                line_accomodate_aN
                                                             ]
                                                         return (optimized_lines, 7)
 
@@ -4729,7 +4790,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     line_E = modified_lines[-2]
     line_F = modified_lines[-1]
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -4797,7 +4858,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                         optimized_lines = [line_A_opt, line_B, line_C, line_D, line_F]
                                         return (optimized_lines, 6)
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -4880,14 +4941,14 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                             optimized_lines = [line_B, line_C, line_D, line_A_opt, line_F]
                                             return (optimized_lines, 6)
 
-    # Consecutive copy of memory.
+    # Consecutive copy of memory into a single invariant memeory target.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [12,16] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp3(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp4(aN),(aM)           move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
-    matchA = copy_memory_by_indirection_pattern.match(line_A)
+    matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
         stride = 2
@@ -4898,7 +4959,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
         dispA = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
         # The first instruction must come without any displacement
         if dispA == 0:
-            matchB = copy_memory_by_indirection_pattern.match(line_B)
+            matchB = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(5) and aM == matchB.group(6):
                 dispB = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 # Here we decide the direction of consecutive copy
@@ -4906,15 +4967,15 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                     stride *= -1
                 # Ensure the displacement is at the correct stride
                 if dispB == dispA+stride:
-                    matchC = copy_memory_by_indirection_pattern.match(line_C)
+                    matchC = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_C)
                     if matchC and s == matchC.group(2) and aN == matchC.group(5) and aM == matchC.group(6):
                         dispC = 0 if not matchC.group(4) else parseConstantSigned(matchC.group(4), 16)
                         if dispC == dispB+stride:
-                            matchD = copy_memory_by_indirection_pattern.match(line_D)
+                            matchD = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_D)
                             if matchD and s == matchD.group(2) and aN == matchD.group(5) and aM == matchD.group(6):
                                 dispD = 0 if not matchD.group(4) else parseConstantSigned(matchD.group(4), 16)
                                 if dispD == dispC+stride:
-                                    matchE = copy_memory_by_indirection_pattern.match(line_E)
+                                    matchE = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_E)
                                     if matchE and s == matchE.group(2) and aN == matchE.group(5) and aM == matchE.group(6):
                                         dispE = 0 if not matchE.group(4) else parseConstantSigned(matchE.group(4), 16)
                                         if dispE == dispD+stride:
@@ -4926,6 +4987,10 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                 if stride > 0:
                                                     # Accomodate final displacement
                                                     dispLea -= 5*stride
+                                                    if abs(dispLea) <= 8:
+                                                        line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                                    else:
+                                                        line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                                     line_copy_inc = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN})+,({aM})'
                                                     optimized_lines = [
                                                         line_copy_inc,
@@ -4933,11 +4998,15 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                         line_copy_inc,
                                                         line_copy_inc,
                                                         line_copy_inc,
-                                                        f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                        line_accomodate_aN
                                                     ]
                                                 else:
                                                     # Accomodate final displacement
                                                     dispLea -= 4*stride
+                                                    if abs(dispLea) <= 8:
+                                                        line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                                    else:
+                                                        line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                                     first_line_copy = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN}),({aM})'
                                                     line_copy_dec = f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),({aM})'
                                                     optimized_lines = [
@@ -4946,9 +5015,162 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                         line_copy_dec,
                                                         line_copy_dec,
                                                         line_copy_dec,
-                                                        f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                        line_accomodate_aN
                                                     ]
                                                 return (optimized_lines, 6)
+
+    if USE_MOVEM_OPTIMIZATIONS:
+
+        # Consecutively push into stack a sequence of registers.
+        # move.[wl]  xN6,-(aN)   ->   movem.[wl]  xN6/xN5/xN4/xN3/xN2/xN1,-(aN)    ; Saves 16 cycles
+        # move.[wl]  xN5,-(aN)
+        # move.[wl]  xN4,-(aN)
+        # move.[wl]  xN3,-(aN)
+        # move.[wl]  xN2,-(aN)
+        # move.[wl]  xN1,-(aN)
+        # IMPORTANT: movem.l regs,-(An) starts reading reg x7 and goes down to x0
+        push_xn_into_stack_pattern = r'^(\s*)move\.([wl])(\s+)(%[ad][0-7]),\s*-\((%a[0-7]|%sp)\)'
+        matchA = re.match(push_xn_into_stack_pattern, line_A)
+        if matchA:
+            s = matchA.group(2)
+            aN = matchA.group(5)
+            matchB = re.match(push_xn_into_stack_pattern, line_B)
+            if matchB and s == matchB.group(2) and aN == matchB.group(5):
+                matchC = re.match(push_xn_into_stack_pattern, line_C)
+                if matchC and s == matchC.group(2) and aN == matchC.group(5):
+                    matchD = re.match(push_xn_into_stack_pattern, line_D)
+                    if matchD and s == matchD.group(2) and aN == matchD.group(5):
+                        matchE = re.match(push_xn_into_stack_pattern, line_E)
+                        if matchE and s == matchE.group(2) and aN == matchE.group(5):
+                            matchF = re.match(push_xn_into_stack_pattern, line_F)
+                            if matchF and s == matchF.group(2) and aN == matchF.group(5):
+                                xN6 = matchA.group(4)
+                                xN5 = matchB.group(4)
+                                xN4 = matchC.group(4)
+                                xN3 = matchD.group(4)
+                                xN2 = matchE.group(4)
+                                xN1 = matchF.group(4)
+                                xregs = [xN6, xN5, xN4, xN3, xN2, xN1]
+                                # Check if registers are sorted in their categories
+                                reversed_xregs = xregs[::-1]
+                                if are_regs_sorted(reversed_xregs):
+                                    # Format register list for movem
+                                    xreg_list = '/'.join(f'{r}' for r in xregs)
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}movem.{s}{matchA.group(3)}{xreg_list},-({aN})'
+                                    ]
+                                    return (optimized_lines, 6)
+
+        # Consecutively pop from stack into a sequence of registers.
+        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4/xN5/xN6    ; Saves 4 cycles
+        # move.[wl]  (aN)+,xN2
+        # move.[wl]  (aN)+,xN3
+        # move.[wl]  (aN)+,xN4
+        # move.[wl]  (aN)+,xN5
+        # move.[wl]  (aN)+,xN6
+        pop_xn_from_stack_pattern = r'^(\s*)move\.([wl])(\s+)\((%a[0-7]|%sp)\)\+,\s*(%[ad][0-7])'
+        matchA = re.match(pop_xn_from_stack_pattern, line_A)
+        if matchA:
+            s = matchA.group(2)
+            aN = matchA.group(4)
+            matchB = re.match(pop_xn_from_stack_pattern, line_B)
+            if matchB and s == matchB.group(2) and aN == matchB.group(4):
+                matchC = re.match(pop_xn_from_stack_pattern, line_C)
+                if matchC and s == matchC.group(2) and aN == matchC.group(4):
+                    matchD = re.match(pop_xn_from_stack_pattern, line_D)
+                    if matchD and s == matchD.group(2) and aN == matchD.group(4):
+                        matchE = re.match(pop_xn_from_stack_pattern, line_E)
+                        if matchE and s == matchE.group(2) and aN == matchE.group(4):
+                            matchF = re.match(pop_xn_from_stack_pattern, line_F)
+                            if matchF and s == matchF.group(2) and aN == matchF.group(4):
+                                xN1 = matchA.group(5)
+                                xN2 = matchB.group(5)
+                                xN3 = matchC.group(5)
+                                xN4 = matchD.group(5)
+                                xN5 = matchE.group(5)
+                                xN6 = matchF.group(5)
+                                xregs = [xN1, xN2, xN3, xN4, xN5, xN6]
+                                # Check if registers are sorted in their categories
+                                if are_regs_sorted(xregs):
+                                    # Format register list for movem
+                                    xreg_list = '/'.join(f'{r}' for r in xregs)
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}movem.{s}{matchA.group(3)}({aN})+,{xreg_list}'
+                                    ]
+                                    return (optimized_lines, 6)
+
+        # Move consecutive words or longs with fixed stride.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ/xR/xS      ; Saves 16 cycles
+        # move.[wl]  disp2(aN),xM         (6th line here if it didn't satisfy the criteria)
+        # move.[wl]  disp3(aN),xP
+        # move.[wl]  disp4(aN),xQ
+        # move.[wl]  disp5(aN),xR
+        # move.[wl]  disp6(aN),xS    <- this could be whatever line
+        # aN is address register or sp.
+        # Where disp1 to disp6 are consecutive displacements with the correct stride: +2 for word, +4 for long.
+        # Where xN,xM,xP,xQ,xR,xS are already sorted by data reg type and then address reg type, with consecutive reg index per type.
+        matchA = move_disp_aN_into_xN_pattern.match(line_A)
+        if matchA:
+            matchB = move_disp_aN_into_xN_pattern.match(line_B)
+            matchC = move_disp_aN_into_xN_pattern.match(line_C)
+            matchD = move_disp_aN_into_xN_pattern.match(line_D)
+            matchE = move_disp_aN_into_xN_pattern.match(line_E)
+            if matchB and matchC and matchD and matchE:
+                sA = matchA.group(2)
+                sB = matchB.group(2)
+                sC = matchC.group(2)
+                sD = matchD.group(2)
+                sE = matchD.group(2)
+
+                # All same size?
+                if sA == sB == sC == sD == sE:
+                    # stride 2 for words, stride 4 for longs
+                    stride = 2 if sA == 'w' else 4
+
+                    # Extract displacements and address registers (they can be None)
+                    dispA, aregA = get_displacement_and_addr_reg(matchA)
+                    dispB, aregB = get_displacement_and_addr_reg(matchB)
+                    dispC, aregC = get_displacement_and_addr_reg(matchC)
+                    dispD, aregD = get_displacement_and_addr_reg(matchD)
+                    dispE, aregE = get_displacement_and_addr_reg(matchE)
+
+                    # Same address registers and consecutive displacements?
+                    are_same_aregs = aregA and aregA == aregB and aregC and aregC == aregB and aregD == aregC and aregE == aregD
+                    # As any disp can be 0 then use "is not None"
+                    are_consecutive_disps = dispA is not None and dispB is not None and dispC is not None and dispD is not None and dispE is not None and dispB == dispA + stride and dispC == dispB + stride and dispD == dispC + stride and dispE == dispD + stride
+                    if are_same_aregs and are_consecutive_disps:
+
+                        # At this point we have at least three consecutive moves
+
+                        disps = [dispA, dispB, dispC, dispD, dispE]
+                        xregs = [matchA.group(7), matchB.group(7), matchC.group(7), matchD.group(7), matchE.group(7)]
+
+                        # Double check just in case
+                        if aregA not in xregs:
+
+                            # Check for a fifth consecutive move
+                            matchF = move_disp_aN_into_xN_pattern.match(line_F)
+                            matchF_ok = False
+                            if matchF and matchF.group(2) == sA:
+                                dispF, aregF = get_displacement_and_addr_reg(matchE)
+                                if aregF == aregA and dispF is not None and dispF == dispE + stride:
+                                    xregs.append(matchF.group(7))
+                                    disps.append(dispF)
+                                    matchF_ok = True
+
+                            # Check if registers are sorted in their categories
+                            if are_regs_sorted(xregs):
+                                # Format the register list for movem
+                                xreg_list = '/'.join(f'{r}' for r in xregs)
+                                first_disp = '' if dispA == 0 else dispA
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.{sA}{matchA.group(3)}{first_disp}({aregA}),{xreg_list}'
+                                ]
+                                if not matchE_ok:
+                                    optimized_lines.append(line_E)
+                                return (optimized_lines, 6)
+
+#acá
 
     if USE_COOL_OPTIMIZATIONS:
 
@@ -5134,7 +5356,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     line_D = modified_lines[-2]
     line_E = modified_lines[-1]
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -5201,7 +5423,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     optimized_lines = [line_A_opt, line_B, line_C, line_E]
                                     return (optimized_lines, 5)
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -5279,13 +5501,13 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         optimized_lines = [line_B, line_C, line_A_opt, line_E]
                                         return (optimized_lines, 5)
 
-    # Consecutive copy of memory.
+    # Consecutive copy of memory into a single invariant memeory target.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [8,12] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp3(aN),(aM)           move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
-    matchA = copy_memory_by_indirection_pattern.match(line_A)
+    matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
         stride = 2
@@ -5296,7 +5518,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
         dispA = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
         # The first instruction must come without any displacement
         if dispA == 0:
-            matchB = copy_memory_by_indirection_pattern.match(line_B)
+            matchB = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(5) and aM == matchB.group(6):
                 dispB = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 # Here we decide the direction of consecutive copy
@@ -5304,11 +5526,11 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                     stride *= -1
                 # Ensure the displacement is at the correct stride
                 if dispB == dispA+stride:
-                    matchC = copy_memory_by_indirection_pattern.match(line_C)
+                    matchC = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_C)
                     if matchC and s == matchC.group(2) and aN == matchC.group(5) and aM == matchC.group(6):
                         dispC = 0 if not matchC.group(4) else parseConstantSigned(matchC.group(4), 16)
                         if dispC == dispB+stride:
-                            matchD = copy_memory_by_indirection_pattern.match(line_D)
+                            matchD = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_D)
                             if matchD and s == matchD.group(2) and aN == matchD.group(5) and aM == matchD.group(6):
                                 dispD = 0 if not matchD.group(4) else parseConstantSigned(matchD.group(4), 16)
                                 if dispD == dispC+stride:
@@ -5320,17 +5542,25 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         if stride > 0:
                                             # Accomodate final displacement
                                             dispLea -= 4*stride
+                                            if abs(dispLea) <= 8:
+                                                line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                            else:
+                                                line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                             line_copy_inc = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN})+,({aM})'
                                             optimized_lines = [
                                                 line_copy_inc,
                                                 line_copy_inc,
                                                 line_copy_inc,
                                                 line_copy_inc,
-                                                f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                line_accomodate_aN
                                             ]
                                         else:
                                             # Accomodate final displacement
                                             dispLea -= 5*stride
+                                            if abs(dispLea) <= 8:
+                                                line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                            else:
+                                                line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                             first_line_copy = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN}),({aM})'
                                             line_copy_dec = f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),({aM})'
                                             optimized_lines = [
@@ -5338,7 +5568,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                                 line_copy_dec,
                                                 line_copy_dec,
                                                 line_copy_dec,
-                                                f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                                line_accomodate_aN
                                             ]
                                         return (optimized_lines, 5)
 
@@ -5673,6 +5903,75 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                 ]
                                 return (optimized_lines, 5)
 
+        # Move consecutive words or longs with fixed stride.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ/xR      ; Saves 12 cycles
+        # move.[wl]  disp2(aN),xM         (5th line here if it didn't satisfy the criteria)
+        # move.[wl]  disp3(aN),xP
+        # move.[wl]  disp4(aN),xQ
+        # move.[wl]  disp5(aN),xR    <- this could be whatever line
+        # aN is address register or sp.
+        # Where disp1 to disp5 are consecutive displacements with the correct stride: +2 for word, +4 for long.
+        # Where xN,xM,xP,xQ,xR are already sorted by data reg type and then address reg type, with consecutive reg index per type.
+        matchA = move_disp_aN_into_xN_pattern.match(line_A)
+        if matchA:
+            matchB = move_disp_aN_into_xN_pattern.match(line_B)
+            matchC = move_disp_aN_into_xN_pattern.match(line_C)
+            matchD = move_disp_aN_into_xN_pattern.match(line_D)
+            if matchB and matchC and matchD:
+                sA = matchA.group(2)
+                sB = matchB.group(2)
+                sC = matchC.group(2)
+                sD = matchD.group(2)
+
+                # All same size?
+                if sA == sB == sC == sD:
+                    # stride 2 for words, stride 4 for longs
+                    stride = 2 if sA == 'w' else 4
+
+                    # Extract displacements and address registers (they can be None)
+                    dispA, aregA = get_displacement_and_addr_reg(matchA)
+                    dispB, aregB = get_displacement_and_addr_reg(matchB)
+                    dispC, aregC = get_displacement_and_addr_reg(matchC)
+                    dispD, aregD = get_displacement_and_addr_reg(matchD)
+
+                    # Same address registers and consecutive displacements?
+                    are_same_aregs = aregA and aregA == aregB and aregC and aregC == aregB and aregD == aregC
+                    # As any disp can be 0 then use "is not None"
+                    are_consecutive_disps = dispA is not None and dispB is not None and dispC is not None and dispD is not None and dispB == dispA + stride and dispC == dispB + stride and dispD == dispC + stride
+                    if are_same_aregs and are_consecutive_disps:
+
+                        # At this point we have at least three consecutive moves
+
+                        disps = [dispA, dispB, dispC, dispD]
+                        xregs = [matchA.group(7), matchB.group(7), matchC.group(7), matchD.group(7)]
+
+                        # Double check just in case
+                        if aregA not in xregs:
+
+                            # Check for a fifth consecutive move
+                            matchE = move_disp_aN_into_xN_pattern.match(line_E)
+                            matchE_ok = False
+                            if matchE and matchE.group(2) == sA:
+                                dispE, aregE = get_displacement_and_addr_reg(matchE)
+                                if aregE == aregA and dispE is not None and dispE == dispD + stride:
+                                    xregs.append(matchE.group(7))
+                                    disps.append(dispE)
+                                    matchE_ok = True
+
+                            # Check if registers are sorted in their categories
+                            if are_regs_sorted(xregs):
+                                # Format the register list for movem
+                                xreg_list = '/'.join(f'{r}' for r in xregs)
+                                first_disp = '' if dispA == 0 else dispA
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.{sA}{matchA.group(3)}{first_disp}({aregA}),{xreg_list}'
+                                ]
+                                if not matchE_ok:
+                                    optimized_lines.append(line_E)
+                                return (optimized_lines, 5)
+
+#acá
+
     if USE_COOL_OPTIMIZATIONS:
 
         # Unnecessary clear of data register to load 2 word values.
@@ -5894,7 +6193,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     line_C = modified_lines[-2]
     line_D = modified_lines[-1]
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -5960,7 +6259,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 optimized_lines = [line_A_opt, line_B, line_D]
                                 return (optimized_lines, 4)
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -6059,12 +6358,12 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 4)
 
-    # Consecutive copy of memory.
+    # Consecutive copy of memory into a single invariant memeory target.
     # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [4,8] cycles
     # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
     # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
-    matchA = copy_memory_by_indirection_pattern.match(line_A)
+    matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
         stride = 2
@@ -6075,7 +6374,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         dispA = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
         # The first instruction must come without any displacement
         if dispA == 0:
-            matchB = copy_memory_by_indirection_pattern.match(line_B)
+            matchB = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(5) and aM == matchB.group(6):
                 dispB = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 # Here we decide the direction of consecutive copy
@@ -6083,7 +6382,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     stride *= -1
                 # Ensure the displacement is at the correct stride
                 if dispB == dispA+stride:
-                    matchC = copy_memory_by_indirection_pattern.match(line_C)
+                    matchC = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_C)
                     if matchC and s == matchC.group(2) and aN == matchC.group(5) and aM == matchC.group(6):
                         dispC = 0 if not matchC.group(4) else parseConstantSigned(matchC.group(4), 16)
                         if dispC == dispB+stride:
@@ -6095,23 +6394,31 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 if stride > 0:
                                     # Accomodate final displacement
                                     dispLea -= 3*stride
+                                    if abs(dispLea) <= 8:
+                                        line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                    else:
+                                        line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                     line_copy_inc = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN})+,({aM})'
                                     optimized_lines = [
                                         line_copy_inc,
                                         line_copy_inc,
                                         line_copy_inc,
-                                        f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                        line_accomodate_aN
                                     ]
                                 else:
                                     # Accomodate final displacement
                                     dispLea -= 4*stride
+                                    if abs(dispLea) <= 8:
+                                        line_accomodate_aN = f'{matchA.group(1)}addq.w{matchA.group(3)}#{dispLea},{aN}'
+                                    else:
+                                        line_accomodate_aN = f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
                                     first_line_copy = f'{matchA.group(1)}move.{s}{matchA.group(3)}({aN}),({aM})'
                                     line_copy_dec = f'{matchA.group(1)}move.{s}{matchA.group(3)}-({aN}),({aM})'
                                     optimized_lines = [
                                         first_line_copy,
                                         line_copy_dec,
                                         line_copy_dec,
-                                        f'{matchA.group(1)}lea{matchA.group(3)}{dispLea}({aN}),{aN}'
+                                        line_accomodate_aN
                                     ]
                                 return (optimized_lines, 4)
 
@@ -6366,7 +6673,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         xN4 = matchD.group(5)
                         xregs = [xN1, xN2, xN3, xN4]
                         # Check if registers are sorted in their categories
-                        if are_regs_sorted(xregs):
+                        if aregA not in xregs and are_regs_sorted(xregs):
                             # Format register list for movem
                             xreg_list = '/'.join(f'{r}' for r in xregs)
                             optimized_lines = [
@@ -6412,27 +6719,91 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         disps = [dispA, dispB, dispC]
                         xregs = [matchA.group(7), matchB.group(7), matchC.group(7)]
 
-                        # Check for fourth consecutive move
-                        matchD = move_disp_aN_into_xN_pattern.match(line_D)
-                        matchD_ok = False
-                        if matchD and matchD.group(2) == sA:
-                            dispD, aregD = get_displacement_and_addr_reg(matchD)
-                            if aregD == aregA and dispD is not None and dispD == dispC + stride:
-                                xregs.append(matchD.group(7))
-                                disps.append(dispD)
-                                matchD_ok = True
+                        # Double check just in case
+                        if aregA not in xregs:
 
-                        # Check if registers are sorted in their categories
-                        if are_regs_sorted(xregs):
-                            # Format the register list for movem
-                            xreg_list = '/'.join(f'{r}' for r in xregs)
-                            first_disp = '' if dispA == 0 else dispA
-                            optimized_lines = [
-                                f'{matchA.group(1)}movem.{sA}{matchA.group(3)}{first_disp}({aregA}),{xreg_list}'
-                            ]
-                            if not matchD_ok:
-                                optimized_lines.append(line_D)
-                            return (optimized_lines, 4)
+                            # Check for a fourth consecutive move
+                            matchD = move_disp_aN_into_xN_pattern.match(line_D)
+                            matchD_ok = False
+                            if matchD and matchD.group(2) == sA:
+                                dispD, aregD = get_displacement_and_addr_reg(matchD)
+                                if aregD == aregA and dispD is not None and dispD == dispC + stride:
+                                    xregs.append(matchD.group(7))
+                                    disps.append(dispD)
+                                    matchD_ok = True
+
+                            # Check if registers are sorted in their categories
+                            if are_regs_sorted(xregs):
+                                # Format the register list for movem
+                                xreg_list = '/'.join(f'{r}' for r in xregs)
+                                first_disp = '' if dispA == 0 else dispA
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.{sA}{matchA.group(3)}{first_disp}({aregA}),{xreg_list}'
+                                ]
+                                if not matchD_ok:
+                                    optimized_lines.append(line_D)
+                                return (optimized_lines, 4)
+
+        # Move consecutive words or longs with fixed stride but unordered target regs.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>      ; Saves [4,10] cycles.
+        # move.[wl]  disp2(aN),xM         exg         xA,xB
+        # move.[wl]  disp3(aN),xP         exg         xC,xD  <-- optional, depending on regs list
+        # move.[wl]  disp4(aN),xQ
+        # aN is address register or sp.
+        # Where disp1 to disp4 are increasing displacements.
+        # Where xN,xM,xP,xQ are unsorted data/address regs.
+        matchA = move_disp_aN_into_xN_pattern.match(line_A)
+        if matchA:
+            matchB = move_disp_aN_into_xN_pattern.match(line_B)
+            matchC = move_disp_aN_into_xN_pattern.match(line_C)
+            matchD = move_disp_aN_into_xN_pattern.match(line_D)
+            if matchB and matchC and matchD:
+                sA = matchA.group(2)
+                sB = matchB.group(2)
+                sC = matchC.group(2)
+                sD = matchD.group(2)
+                if sA == sB == sC == sD:
+                    # stride 2 for words, stride 4 for longs
+                    stride = 2 if sA == 'w' else 4
+                    
+                    # Extract displacements and address registers (they can be None)
+                    dispA, aregA = get_displacement_and_addr_reg(matchA)
+                    dispB, aregB = get_displacement_and_addr_reg(matchB)
+                    dispC, aregC = get_displacement_and_addr_reg(matchC)
+                    dispD, aregD = get_displacement_and_addr_reg(matchD)
+
+                    # Same address registers and consecutive displacements?
+                    are_same_aregs = aregA and aregA == aregB and aregC and aregC == aregB and aregD and aregC == aregD
+                    # As any disp can be 0 then use "is not None"
+                    are_consecutive_incr_disps = dispA is not None and dispB is not None and dispC is not None and dispD is not None and dispB == dispA + stride and dispC == dispB + stride and dispD == dispC + stride
+                    are_consecutive_decr_disps = dispA is not None and dispB is not None and dispC is not None and dispD is not None and dispB == dispA - stride and dispC == dispB - stride and dispD == dispC - stride
+                    if are_same_aregs and (are_consecutive_incr_disps or are_consecutive_decr_disps):
+
+                        # At this point we have at all consecutive displacements
+
+                        unsorted_regs = [matchA.group(7), matchB.group(7), matchC.group(7), matchD.group(7)]
+                        if are_consecutive_decr_disps:
+                            unsorted_regs.reverse()  # reverse the list in place
+
+                        if aregA not in unsorted_regs and not are_regs_sorted(unsorted_regs):
+                            # Sort regs in their categories
+                            sorted_regs = sort_regs(unsorted_regs)
+                            exg_seq = get_best_exg_sequence(unsorted_regs, sorted_regs)
+                            if len(exg_seq) > 0:
+                                # Format the register list for movem
+                                xreg_list = '/'.join(f'{r}' for r in sorted_regs)
+
+                                first_disp = '' if dispA == 0 else dispA
+                                if (are_consecutive_decr_disps):
+                                    first_disp = '' if dispD == 0 else dispD
+
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.{sA}{matchA.group(3)}{first_disp}({aregA}),{xreg_list}'
+                                ]
+                                # Append the exg instructions
+                                for a, b in exg_seq:
+                                    optimized_lines.append(f'{matchA.group(1)}exg{matchA.group(3)}{a},{b}')
+                                return (optimized_lines, 4)
 
         # Move pseudo-consecutive words or longs with fixed stride but 1, 2, or 3 wrong strides.
         # The gap left by the wrong stride will be filled by a free register.
@@ -7081,7 +7452,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     line_B = modified_lines[-2]
     line_C = modified_lines[-1]
 
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
@@ -7432,6 +7803,63 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 3)
 
+        # Move consecutive words or longs with fixed stride but unordered target regs.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>      ; Saves 2 cycles.
+        # move.[wl]  disp2(aN),xM         exg         xA,xB
+        # move.[wl]  disp3(aN),xP
+        # aN is address register or sp.
+        # Where disp1 to disp3 are increasing displacements.
+        # Where xN,xM,xP are unsorted data/address regs.
+        matchA = move_disp_aN_into_xN_pattern.match(line_A)
+        if matchA:
+            matchB = move_disp_aN_into_xN_pattern.match(line_B)
+            matchC = move_disp_aN_into_xN_pattern.match(line_C)
+            if matchB and matchC:
+                sA = matchA.group(2)
+                sB = matchB.group(2)
+                sC = matchC.group(2)
+                if sA == sB == sC:
+                    # stride 2 for words, stride 4 for longs
+                    stride = 2 if sA == 'w' else 4
+                    
+                    # Extract displacements and address registers (they can be None)
+                    dispA, aregA = get_displacement_and_addr_reg(matchA)
+                    dispB, aregB = get_displacement_and_addr_reg(matchB)
+                    dispC, aregC = get_displacement_and_addr_reg(matchC)
+
+                    # Same address registers and consecutive displacements?
+                    are_same_aregs = aregA and aregA == aregB and aregC and aregC == aregB
+                    # As any disp can be 0 then use "is not None"
+                    are_consecutive_incr_disps = dispA is not None and dispB is not None and dispC is not None and dispB == dispA + stride and dispC == dispB + stride
+                    are_consecutive_decr_disps = dispA is not None and dispB is not None and dispC is not None and dispB == dispA - stride and dispC == dispB - stride
+                    if are_same_aregs and (are_consecutive_incr_disps or are_consecutive_decr_disps):
+
+                        # At this point we have at all consecutive displacements
+
+                        unsorted_regs = [matchA.group(7), matchB.group(7), matchC.group(7)]
+                        if are_consecutive_decr_disps:
+                            unsorted_regs.reverse()  # reverse the list in place
+
+                        if aregA not in unsorted_regs and not are_regs_sorted(unsorted_regs):
+                            # Sort regs in their categories
+                            sorted_regs = sort_regs(unsorted_regs)
+                            exg_seq = get_best_exg_sequence(unsorted_regs, sorted_regs)
+                            if len(exg_seq) > 0:
+                                # Format the register list for movem
+                                xreg_list = '/'.join(f'{r}' for r in sorted_regs)
+
+                                first_disp = '' if dispA == 0 else dispA
+                                if (are_consecutive_decr_disps):
+                                    first_disp = '' if dispC == 0 else dispC
+
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.{sA}{matchA.group(3)}{first_disp}({aregA}),{xreg_list}'
+                                ]
+                                # Append the exg instructions
+                                for a, b in exg_seq:
+                                    optimized_lines.append(f'{matchA.group(1)}exg{matchA.group(3)}{a},{b}')
+                                return (optimized_lines, 3)
+
     if USE_COOL_OPTIMIZATIONS:
 
         # Calculates offset indexes for accessing arrays.
@@ -7658,8 +8086,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         #        dM = matchB.group(1)
         #        matchC = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
         #        if matchC and dN == matchC.group(1) and dM == matchC.group(2):
-        #            # Only if at 2nd pass, so we avoid miss optimization opportunities that uses original pattern
-        #            if current_pass == 2:
+        #            # Only if at pass > 1, so we avoid miss optimization opportunities that uses original pattern
+        #            if current_pass > 1:
         #                if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
         #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
         #                    optimized_lines = [
@@ -12740,7 +13168,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
             continue
 
         # Check for multi-line optimizations over the recently added lines.
-        # Min lenght required to start analyzing multiple lines. 
+        # Min length required to start analyzing multiple lines. 
         # Otherwise minor optimizations might be applied first causing a miss of opportunities for broader optimizations.
         if len(modified_multi_lines) >= MULTIPLE_LINES_OPTIMIZATION_LIMIT:
 
@@ -12843,7 +13271,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
 
     # Step 4: Shorten branch instructions
     # Only if at 2nd pass
-    if current_pass == 2:
+    if current_pass == NUM_PASSES:
         modified_multi_lines, num_updates_4 = process_single_lines_helper(
             modified_multi_lines, 
             optimizeSingleLine_ShortenBranches, 
@@ -13707,7 +14135,9 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                     aN = '' if instr == 'clr' else match.group(9)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
+                    if mem_addr.startswith(('0x','0X','$')):
+                        mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
                     if symbol_ops:
                         symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
 
@@ -13719,15 +14149,15 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                             if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                                 optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w'
                             else:
-                                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w'
+                                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w'
                     else:  # move
-                        # NOT_WORKING: when on higher RAM
+                        # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                         if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             continue
                         if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w,{aN}'
                         else:
-                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w,{aN}'
 
         # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN       ; Saves 4 cycles
         # clr.s   mem_address   ->   clr.s   mem_address.w        ; Saves 4 cycles
@@ -13747,18 +14177,21 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                     aN = '' if instr == 'clr' else match.group(9)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
+                    if mem_addr.startswith(('0x','0X','$')):
+                        mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
 
                     # NOTE: gcc doesn't allow movea.s/clr.s mem_address.w +/-/* N
                     if instr == 'clr':
                         # clr instruction operates on writable RAM
                         if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w'
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w'
                     else:  # move
-                        # NOT_WORKING: when on higher RAM
+                        # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                         if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             continue
-                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_hex_str}.w,{aN}'
+                        if s == 'l':
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w,{aN}'
 
         # lea     symbolName,aN     ->   lea     symbol_or_mem.w,aN        ; Saves 4 cycles
         # pea     symbolName        ->   pea     symbol_or_mem.w           ; Saves 4 cycles
@@ -13781,7 +14214,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                     aN = '' if instr == 'pea' else match.group(8)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if symbol_ops:
                         symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
 
@@ -13794,9 +14227,9 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{symbolName}.w,{aN}'
                     else:
                         if instr == 'pea':
-                            optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w'
+                            optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w'
                         else:  # lea
-                            optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w,{aN}'
+                            optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w,{aN}'
 
         # lea     mem_address,aN    ->   lea     mem_address.w,aN        ; Saves 4 cycles
         # pea     mem_address       ->   pea     mem_address.w           ; Saves 4 cycles
@@ -13813,17 +14246,19 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM
+                    # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
                     aN = '' if instr == 'pea' else match.group(8)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
+                    if mem_addr.startswith(('0x','0X','$')):
+                        mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
 
                     # NOTE: gcc doesn't allow lea/pea mem_address.w +/-/* N
                     if instr == 'pea':
-                        optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w'
+                        optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w'
                     else:  # lea
-                        optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_hex_str}.w,{aN}'
+                        optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w,{aN}'
 
         # add*/sub*.s   symbolName,aN   ->   add*/sub*.s   symbol_or_mem.w,aN      ; Saves 4 cycles
         # Only for add/adda/addq and sub/suba/subq
@@ -13849,7 +14284,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                     aN_or_ea = match.group(9)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if symbol_ops:
                         symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
 
@@ -13858,7 +14293,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w,{aN_or_ea}'
                     else:
-                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w,{aN_or_ea}'
 
         # add*/sub*.s   mem_address,aN   ->   add*/sub*.s   mem_address.w,aN      ; Saves 4 cycles
         # Only for add/adda/addq and sub/suba/subq
@@ -13878,14 +14313,16 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM
+                    # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
                     aN_or_ea = match.group(9)
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
+                    if mem_addr.startswith(('0x','0X','$')):
+                        mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
 
                     # NOTE: gcc doesn't allow add*/sub*/cmp*.s mem_address.w +/-/* N
-                    optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_hex_str}.w,{aN_or_ea}'
+                    optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w,{aN_or_ea}'
 
         # cmpi.s   #value,symbolName   ->   cmpi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
         # andi.s   #value,symbolName   ->   andi.s   symbol_or_mem.w,aN      ; Saves 4 cycles
@@ -13909,7 +14346,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if symbol_ops:
                         symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
 
@@ -13918,7 +14355,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{symbolName}.w'
                     else:
-                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_hex_str}.w'
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_str}.w'
 
         # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN      ; Saves 4 cycles
         # andi.s   #value,mem_address   ->   andi.s   mem_address.w,aN      ; Saves 4 cycles
@@ -13937,13 +14374,15 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM
+                    # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
-                    mem_value_eval_ops_hex_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
+                    mem_value_eval_ops_str = str(mem_value_eval_ops)
+                    if mem_addr.startswith(('0x','0X','$')):
+                        mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
 
                     # NOTE: gcc doesn't allow cmpi/andi.s mem_address.w +/-/* N
-                    optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_hex_str}.w'
+                    optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_str}.w'
 
         # jmp     symbolName     ->   jmp     symbolName.w               ; Saves 2 cycles
         # jsr     symbolName     ->   jsr     symbolName.w               ; Saves 2 cycles
@@ -14267,16 +14706,25 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
         symbols_for_optimize_asm = symbols_opt_filename
 
     # 1st pass
-    print(f'[OPT_LOG {THIS_INVOKE_ID}] -- FIRST pass --')
-    modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 1)
-    num_updated_lines_found += num_updated_lines_found_1st_pass
-    num_patterns_found += num_patterns_found_1st_pass
+    if NUM_PASSES > 0:
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] -- FIRST pass --')
+        modified_lines, num_updated_lines_found_1st_pass, num_patterns_found_1st_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 1)
+        num_updated_lines_found += num_updated_lines_found_1st_pass
+        num_patterns_found += num_patterns_found_1st_pass
 
-    # 2nd pass: catch new opportunities and optimize branches
-    print(f'[OPT_LOG {THIS_INVOKE_ID}] -- SECOND pass -- (optimized line numbers will point to result from first pass and not to original lines)')
-    modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 2)
-    num_updated_lines_found += num_updated_lines_found_2nd_pass
-    num_patterns_found += num_patterns_found_2nd_pass
+    if NUM_PASSES > 1:
+        # 2nd pass: catch new opportunities
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] -- SECOND pass -- (optimized line numbers will point to result from first pass and not to original lines)')
+        modified_lines, num_updated_lines_found_2nd_pass, num_patterns_found_2nd_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 2)
+        num_updated_lines_found += num_updated_lines_found_2nd_pass
+        num_patterns_found += num_patterns_found_2nd_pass
+
+    if NUM_PASSES > 2:
+        # 3rd pass: catch new opportunities
+        print(f'[OPT_LOG {THIS_INVOKE_ID}] -- THIRD pass -- (optimized line numbers will point to result from first pass and not to original lines)')
+        modified_lines, num_updated_lines_found_3rd_pass, num_patterns_found_3rd_pass = optimize_asm(modified_lines, symbols_for_optimize_asm, 3)
+        num_updated_lines_found += num_updated_lines_found_3rd_pass
+        num_patterns_found += num_patterns_found_3rd_pass
 
     if symbols_opt_filename:
         # Rollback to its original value only if symbols_canonical_filename is not set
