@@ -103,11 +103,17 @@ Single instruction
 ==================
 Clear upper word of dN.
 We must know for sure dN holds val such that: (val & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (val & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START
-and.l   #0xFFFF,dN   ->   ext.l   dN             ; Saves 12 cycles.
+and.l  #0xFFFF,dN   ->   ext.l   dN          ; Saves 12 cycles.
 
 Replace usage of immediate by register.
-Must find a dM holding val in bits s.
-btst.s  #val,dN      ->   btst.s  dM,dN          ; Saves 4 cycles.
+Must find a dM holding val.
+btst.[bl]  #val,<ea>    ->   btst.[bl]  dM,<ea>        ; Saves 4 cycles.
+dM not in <ea>
+if val == 0:
+    regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 0)
+    if len(regs_holding_zero) > 0:
+        pick any data reg dM starting with '%d' from regs_holding_zero such that is not in <ea>
+Extend for other values.
 
 Multiplication by a negative constant: see the comments in the optimizer script and implement accordingly.
 
@@ -115,22 +121,15 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
-# Boolean set 0 or 1 in long word.
-<any_instr_set_ccr>    ->    moveq    #0,dN                 ; Saves 6 cycles.
-sCC[.b]  dN                  sCC[.b]  dN
-ext.w    dN                  neg.b    dN  <-- 0 or 1. Remaining bits are already 0.
-ext.l    dN
-neg.l    dN
-
 Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 (prepareMapDataRow_MTI16_BI16).
 # Move from consecutive memory indirection to random memory indirection.
-# Re order instructions to tak advantage of auto increment.
-move.w  (%a0),(%a2)        ->    move.w (a0)+,(a2)+    ; Saves 36 cycles
-addq.w  #4,%a2                   move.w (a0)+,(a2)+
-move.w  2(%a0),-2(%a2)           move.w (a0)+,(a3)+
-move.w  4(%a0),(%a3)             move.w (a0)+,(a3)+
+# Re order instructions to take advantage of auto increment.
+move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+    ; Saves 36 cycles
+addq.w  #4,%a2                   move.w (aN)+,(aM)+
+move.w  2(%aN),-2(%aM)           move.w (aN)+,(aP)+
+move.w  4(%aN),(%aP)             move.w (aN)+,(aP)+
 addq.w  #4,%a3
-move.w  6(%a0),-2(%a3)
+move.w  6(%aN),-2(%aP)
 # Ensure aN is not used anymore or cleared/overwritten before use.
 
 See implementation for 2 and more lines.
@@ -243,6 +242,7 @@ move.l 28(a2),(a6)          move.l (a2),(a6)
                             lea    -28(a2),a2
 
 Next optimization only valid for 3 or more disp(sp).
+(see: Pushing word memory values into stack with word adjustments for ABI long args compliance)
 Adding same immediate value into subsequent memory by indirect addressing.
     addq.w #1,44(sp)
     0, 1, or 2 instructions here. Where sp pointer is not modified. Grab all used address regs.
