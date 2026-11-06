@@ -165,7 +165,7 @@ USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY = False
 
 # This optimization modifies the way gcc pushes word registers into stack.
 # WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
-USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK = True
+USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK = False
 
 # This optimization modifies the way gcc clears the stack.
 # WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
@@ -6233,8 +6233,8 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 optimized_lines = [
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{disp}(%sp),{dN}',
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{dN},{dM}',
-                                    f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dN},{dM}',
-                                    f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
+                                    f'{matchA.group(1)}{alu}.w{matchA.group(3)}{dN},{dM}',
+                                    f'{matchA.group(1)}lea{matchA.group(3)}{symbol_or_mem_full},{aN}',
                                     f'{matchA.group(1)}move.{sF}{matchA.group(3)}({aN},{dM}.w),{dP}'
                                 ]
                                 return (optimized_lines, 6)
@@ -6266,7 +6266,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                         if matchE and aN == matchE.group(2):
                             alu_2 = matchE.group(1)
                             dM = matchE.group(3)
-                            matchF = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)', line_F)
+                            matchF = re.match(r'^\s*move\.l\s+(%d[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line_F)
                             if matchF and dM == matchF.group(1):
                                 aM = matchF.group(3)
                                 dispF = 0 if not matchF.group(2) else parseConstantSigned(matchF.group(2), 16)
@@ -6274,11 +6274,11 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6):
                                     if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 6):
                                         optimized_lines = [
-                                            f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                                            f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dN}',
                                             f'{matchA.group(1)}move.w{matchA.group(3)}{aN},{dN}',
-                                            f'{matchA.group(1)}{alu_1}.l  {matchA.group(3)}#{val},{dN}',
-                                            f'{matchA.group(1)}{alu_2}.l  {matchA.group(3)}{dN},{dM}',
-                                            f'{matchA.group(1)}move.l {matchA.group(3)}{dM},{disp_str}({aM})'
+                                            f'{matchA.group(1)}{alu_1}.l{matchA.group(3)}#{val},{dN}',
+                                            f'{matchA.group(1)}{alu_2}.l{matchA.group(3)}{dN},{dM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{dM},{disp_str}({aM})'
                                         ]
                                         return (optimized_lines, 6)
 
@@ -7303,8 +7303,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             dP = matchE.group(5)
                             optimized_lines = [
                                 f'{matchA.group(1)}move.w{matchA.group(3)}{symbol_or_mem_1_full},{dN}',
-                                f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dN},{dN}',
-                                f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_2_full},{aN}',
+                                f'{matchA.group(1)}{alu}.w{matchA.group(3)}{dN},{dN}',
+                                f'{matchA.group(1)}lea{matchA.group(3)}{symbol_or_mem_2_full},{aN}',
                                 f'{matchA.group(1)}move.{sE}{matchA.group(3)}({aN},{dN}.w),{dP}'
                             ]
                             return (optimized_lines, 5)
@@ -7339,7 +7339,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             optimized_lines = [
                                 f'{matchA.group(1)}move.w{matchA.group(3)}{disp1}(sp),{dN}',
                                 f'{matchA.group(1)}move.l{matchA.group(3)}{disp2}(sp),{aN}',
-                                f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full}({aN},{dN}.w),{aN}',
+                                f'{matchA.group(1)}lea{matchA.group(3)}{symbol_or_mem_full}({aN},{dN}.w),{aN}',
                                 f'{matchA.group(1)}move.{sE}{matchA.group(3)}({aN}),{dP}'
                             ]
                             return (optimized_lines, 5)
@@ -7370,9 +7370,9 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             disp = matchE.group(1)
                             optimized_lines = [
                                 f'{matchA.group(1)}move.w{matchA.group(3)}{symbol_or_mem_full},{dN}',
-                                f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
+                                f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                                 f'{matchA.group(1)}move.w{matchA.group(3)}{label}(%pc,{dN}.w),{dP}',
-                                f'{matchA.group(1)}jmp   {matchA.group(3)}{disp}(%pc,{dP}.w)'
+                                f'{matchA.group(1)}jmp{matchA.group(3)}{disp}(%pc,{dP}.w)'
                             ]
                             return (optimized_lines, 5)
 
@@ -7396,7 +7396,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                         if matchE and dN == matchE.group(1):
                             optimized_lines = [
                                 f'{matchA.group(1)}move.w{matchA.group(2)}{dM},-(%sp)',
-                                f'{matchA.group(1)}clr.w {matchA.group(2)}{dN}',
+                                f'{matchA.group(1)}clr.w{matchA.group(2)}{dN}',
                                 f'{matchA.group(1)}move.b{matchA.group(2)}(%sp)+,{dN}'
                             ]
                             return (optimized_lines, 5)
@@ -8419,8 +8419,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             sD = matchD.group(1)
                             disp = matchD.group(2) if matchD.group(2) else ''
                             optimized_lines = [
-                                f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
-                                f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
+                                f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
+                                f'{matchA.group(1)}lea{matchA.group(3)}{symbol_or_mem_full},{aN}',
                                 f'{matchA.group(1)}move.{sD}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
                             ]
                             return (optimized_lines, 4)
@@ -8442,7 +8442,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     if matchD and dN == matchD.group(1):
                         optimized_lines = [
                             f'{matchA.group(1)}move.w{matchA.group(2)}{dM},-(%sp)',
-                            f'{matchA.group(1)}clr.w {matchA.group(2)}{dN}',
+                            f'{matchA.group(1)}clr.w{matchA.group(2)}{dN}',
                             f'{matchA.group(1)}move.b{matchA.group(2)}(%sp)+,{dN}'
                         ]
                         return (optimized_lines, 4)
@@ -8461,7 +8461,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
             if matchB and s == matchB.group(2) and aN == matchB.group(4):
                 alu = matchB.group(1)
                 val = matchB.group(3)
-                matchC = re.match(r'^\s*move\.([wl])\s+(%a[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)', line_C)
+                matchC = re.match(r'^\s*move\.([wl])\s+(%a[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)\s*(?:;.*)?$', line_C)
                 if matchC and s == matchC.group(1) and aN == matchC.group(2):
                     matchD = re.match(r'^\s*move\.([wl])\s+(%a[0-7]),\s*(%d[0-7])', line_D)
                     if matchD and s == matchD.group(1) and aN == matchD.group(2) and dN == matchD.group(3):
@@ -8469,7 +8469,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         dispC = 0 if not matchC.group(3) else parseConstantSigned(matchC.group(3), 16)
                         disp_str = '' if dispC == 0 else str(dispC)
                         optimized_lines = [
-                            f'{matchA.group(1)}{alu}.{s} {matchA.group(4)}#{val},{dN}',
+                            f'{matchA.group(1)}{alu}.{s}{matchA.group(4)}#{val},{dN}',
                             f'{matchA.group(1)}move.{s}{matchA.group(4)}{dN},{disp_str}({aM})',
                             f'{matchA.group(1)}move.{s}{matchA.group(4)}{dN},{aN}'
                         ]
@@ -8550,7 +8550,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         if can_continue:
                             dM = matchD.group(2)
                             optimized_lines = [
-                                f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dM}',
+                                f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dM}',
                                 f'{matchA.group(1)}move.l{matchA.group(3)}{dN},{dM}'
                             ]
                             return (optimized_lines, 4)
@@ -8584,7 +8584,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             if can_continue:
                                 aN = matchD.group(2)
                                 optimized_lines = [
-                                    f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dM}',
+                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dM}',
                                     f'{matchA.group(1)}move.w{matchA.group(3)}{dN},{dM}',
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{dM},{aN}'
                                 ]
@@ -8709,14 +8709,14 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                 subr1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
                 subr2 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
                 subr3 = ''.join(matchC.group(i) for i in range(5, 9) if matchC.group(i))
-                last_instr = "jmp  "
+                last_instr = "jmp"
                 if not matchA.group(2) == "jsr":
-                    last_instr = "bra  "
+                    last_instr = "bra"
                     if matchA.group(3):
                         last_instr = f'bra{matchA.group(3)}'
                 optimized_lines = [
-                    f'{matchA.group(1)}pea  {matchA.group(4)}{subr3}',
-                    f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
+                    f'{matchA.group(1)}pea{matchA.group(4)}{subr3}',
+                    f'{matchA.group(1)}pea{matchA.group(4)}{subr2}',
                     f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
                 ]
                 return (optimized_lines, 4)
@@ -8817,10 +8817,10 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         if len(free_d_regs) >= 4:
                             dN, dM, dP, dQ = free_d_regs[:4]
                             optimized_lines = [
-                                f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dN}',
-                                f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dM}',
-                                f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dP}',
-                                f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dQ}',
+                                f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
+                                f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dM}',
+                                f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dP}',
+                                f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dQ}',
                                 f'{matchA.group(1)}movem.l{matchA.group(2)}{dN}/{dM}/{dP}/{dQ},-(%sp)'
                             ]
                             if is_any_dN_free_after_use:
@@ -9017,7 +9017,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     aN = matchC.group(4)
                     optimized_lines = [
                         f'{matchA.group(1)}suba.{sB}{matchA.group(3)}{dN},{aN}',
-                        f'{matchA.group(1)}lea   {matchA.group(3)}{val+disp}({aN}),{aN}',
+                        f'{matchA.group(1)}lea{matchA.group(3)}{val+disp}({aN}),{aN}',
                         f'{matchA.group(1)}move.{sC}{matchA.group(3)}{dM},({aN})'
                     ]
                     return (optimized_lines, 3)
@@ -9218,13 +9218,13 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             if matchB:
                 subr1 = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
                 subr2 = ''.join(matchB.group(i) for i in range(5, 9) if matchB.group(i))
-                last_instr = "jmp  "
+                last_instr = "jmp"
                 if not matchA.group(2) == "jsr":
-                    last_instr = "bra  "
+                    last_instr = "bra"
                     if matchA.group(3):
                         last_instr = f'bra{matchA.group(3)}'
                 optimized_lines = [
-                    f'{matchA.group(1)}pea  {matchA.group(4)}{subr2}',
+                    f'{matchA.group(1)}pea{matchA.group(4)}{subr2}',
                     f'{matchA.group(1)}{last_instr}{matchA.group(4)}{subr1}'
                 ]
                 return (optimized_lines, 3)
@@ -9339,8 +9339,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     sC = matchC.group(1)
                     dP = matchC.group(2)
                     optimized_lines = [
-                        f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dM},{dN}',
-                        f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
+                        f'{matchA.group(1)}{alu}.w{matchA.group(3)}{dM},{dN}',
+                        f'{matchA.group(1)}lea{matchA.group(3)}{symbol_or_mem_full},{aN}',
                         f'{matchA.group(1)}move.{sC}{matchA.group(3)}{dP},({aN},{dN}.w)'
                     ]
                     return (optimized_lines, 3)
@@ -9367,8 +9367,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     sC = matchC.group(1)
                     disp = '' if not matchC.group(2) else matchC.group(2)
                     optimized_lines = [
-                        f'{matchA.group(1)}{alu}.w {matchA.group(3)}{dM},{dN}',
-                        f'{matchA.group(1)}lea   {matchA.group(3)}{symbol_or_mem_full},{aN}',
+                        f'{matchA.group(1)}{alu}.w{matchA.group(3)}{dM},{dN}',
+                        f'{matchA.group(1)}lea{matchA.group(3)}{symbol_or_mem_full},{aN}',
                         f'{matchA.group(1)}move.{sC}{matchA.group(3)}{disp}(%sp),({aN},{dN}.w)'
                     ]
                     return (optimized_lines, 3)
@@ -9393,7 +9393,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 if matchC and s == matchC.group(1) and dN == matchC.group(2):
                     if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
                         optimized_lines = [
-                            f'{matchA.group(1)}{alu}.{s} {matchA.group(4)}{dM},{dN}',
+                            f'{matchA.group(1)}{alu}.{s}{matchA.group(4)}{dM},{dN}',
                             f'{matchA.group(1)}move.{s}{matchA.group(4)}{dN},-(%sp)'
                             
                         ]
@@ -9553,9 +9553,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         #                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
         #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
         #                    optimized_lines = [
-        #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}',
+        #                        f'{matchA.group(1)}swap{matchA.group(3)}{dM}',
         #                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dM}',
-        #                        f'{matchA.group(1)}swap {matchA.group(3)}{dM}'
+        #                        f'{matchA.group(1)}swap{matchA.group(3)}{dM}'
         #                    ]
         #                    return (optimized_lines, 3)
 
@@ -9609,7 +9609,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 matchC = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_C)
                 if matchC:
                     optimized_lines = [
-                        f'{matchA.group(1)}pea   {matchA.group(2)}0.w,{dN}',
+                        f'{matchA.group(1)}pea{matchA.group(2)}0.w,{dN}',
                         f'{matchA.group(1)}move.w{matchA.group(2)}#0,-(%sp)'
                     ]
                     return (optimized_lines, 3)
@@ -9641,9 +9641,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     if len(free_d_regs) >= 3:
                         dN, dM, dP = free_d_regs[:3]
                         optimized_lines = [
-                            f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dN}',
-                            f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dM}',
-                            f'{matchA.group(1)}moveq  {matchA.group(2)}#0,{dP}',
+                            f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
+                            f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dM}',
+                            f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dP}',
                             f'{matchA.group(1)}movem.l{matchA.group(2)}{dN}/{dM}/{dP},-(%sp)'
                         ]
                         if is_any_dN_free_after_use:
@@ -9665,7 +9665,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             matchC = re.match(r'^\s*not\.([bwl])\s+(%d[0-7])', line_C)
             if matchC and dM != dN and s == matchC.group(1) and dN == matchC.group(2):
                 optimized_lines = [
-                    f'{matchA.group(1)}or.{s} {matchA.group(3)}{dN},{dM}',
+                    f'{matchA.group(1)}or.{s}{matchA.group(3)}{dN},{dM}',
                     f'{matchA.group(1)}eor.{s}{matchA.group(3)}{dN},{dM}'
                 ]
                 return (optimized_lines, 3)
@@ -9738,8 +9738,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if dM is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}#{mask},{dM}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(3)}{dM},{dN}',
-                        f'{matchA.group(1)}eor.{s} {matchA.group(3)}{dM},{dN}'
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{dM},{dN}',
+                        f'{matchA.group(1)}eor.{s}{matchA.group(3)}{dM},{dN}'
                     ]
                     if is_dM_free_after_use:
                         return (optimized_lines, 2)
@@ -9777,7 +9777,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName or #symbolName
         matchB = re.match(r'^\s*[jb]eq(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
         if matchB:
-            s_branch = '  ' if not matchB.group(1) else matchB.group(1)
+            s_branch = '' if not matchB.group(1) else matchB.group(1)
             label = matchB.group(2)
             print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization won't compile for PC indirection")
             optimized_lines = [
@@ -9794,7 +9794,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # Note that gcc might put a symbol name instead of ABS.w or ABS.l: symbolName or #symbolName
         matchB = re.match(r'^\s*[jb]ne(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
         if matchB:
-            s_branch = '  ' if not matchB.group(1) else matchB.group(1)
+            s_branch = '' if not matchB.group(1) else matchB.group(1)
             label = matchB.group(2)
             print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization won't compile for PC indirection")
             optimized_lines = [
@@ -9821,7 +9821,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # s = b|w|l for 7|15|31
             matchB = re.match(r'^\s*[jb]eq(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
-                s_branch = '  ' if not matchB.group(1) else matchB.group(1)
+                s_branch = '' if not matchB.group(1) else matchB.group(1)
                 label = matchB.group(2)
                 optimized_lines = [
                     f'{matchA.group(1)}tst.{s_for_tst}{matchA.group(3)}{dN}',
@@ -10007,7 +10007,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # Tail recursion for JSR/BSR or exploiting PEA opportunities
     matchA = re.match(r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_A)
     if matchA:
-        s_branch = '  ' if not matchA.group(3) else matchA.group(3)
+        s_branch = '' if not matchA.group(3) else matchA.group(3)
         subr = ''.join(matchA.group(i) for i in range(5, 9) if matchA.group(i))
 
         matchB = re.match(r'^\s*rts\b', line_B)
@@ -10324,7 +10324,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 src_B = matchB.group(2)
                 optimized_lines = [
                     f'{matchA.group(1)}move.l{matchA.group(2)}{src_B},{aN}',
-                    f'{matchA.group(1)}lea   {matchA.group(2)}{symbol_or_mem_full}({aN}),{aN}'
+                    f'{matchA.group(1)}lea{matchA.group(2)}{symbol_or_mem_full}({aN}),{aN}'
                 ]
                 return (optimized_lines, 2)
 
@@ -10352,7 +10352,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         op_N = op_N[1:]
                     dN = matchB.group(6)
                     optimized_lines = [
-                        f'{matchA.group(1)}lea   {matchA.group(2)}{symbol_or_mem_A_full},{aN}',
+                        f'{matchA.group(1)}lea{matchA.group(2)}{symbol_or_mem_A_full},{aN}',
                         f'{matchA.group(1)}move.{s}{matchA.group(2)}{op_N}({aN}),{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -10515,7 +10515,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 xN = matchB.group(3)
                 optimized_lines = [
                     f'{matchA.group(1)}move.{sB}{matchA.group(4)}{xN},{aN}',
-                    f'{matchA.group(1)}lea   {matchA.group(4)}{val}({aN}),{aN}'
+                    f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN}),{aN}'
                 ]
                 return (optimized_lines, 2)
 
@@ -10632,8 +10632,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     xM = matchB.group(6)
                     optimized_lines = [
                         f'{matchA.group(1)}adda.{z}{matchA.group(4)}{dP},{aN}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(4)}({aN}),{xN}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(4)}({aN}),{xM}'
+                        f'{matchA.group(1)}add.{s}{matchA.group(4)}({aN}),{xN}',
+                        f'{matchA.group(1)}add.{s}{matchA.group(4)}({aN}),{xM}'
                     ]
                     return (optimized_lines, 2)
 
@@ -10653,8 +10653,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     xM = matchB.group(6)
                     optimized_lines = [
                         f'{matchA.group(1)}suba.{z}{matchA.group(4)}{dP},{aN}',
-                        f'{matchA.group(1)}sub.{s} {matchA.group(4)}({aN}),{xN}',
-                        f'{matchA.group(1)}sub.{s} {matchA.group(4)}({aN}),{xM}'
+                        f'{matchA.group(1)}sub.{s}{matchA.group(4)}({aN}),{xN}',
+                        f'{matchA.group(1)}sub.{s}{matchA.group(4)}({aN}),{xM}'
                     ]
                     return (optimized_lines, 2)
 
@@ -10685,8 +10685,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if dP is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{dP}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(3)}({dP}),{dN}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(3)}({dP}),{dM}'
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({dP}),{dN}',
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({dP}),{dM}'
                     ]
                     if is_dP_free_after_use:
                         return (optimized_lines, 2)
@@ -10720,8 +10720,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if dP is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{dP}',
-                        f'{matchA.group(1)}sub.{s} {matchA.group(3)}({dP}),{dN}',
-                        f'{matchA.group(1)}sub.{s} {matchA.group(3)}({dP}),{dM}'
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({dP}),{dN}',
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({dP}),{dM}'
                     ]
                     if is_dP_free_after_use:
                         return (optimized_lines, 2)
@@ -10755,8 +10755,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if aQ is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{aQ}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(3)}({aQ}),{aM}',
-                        f'{matchA.group(1)}add.{s} {matchA.group(3)}({aQ}),{aP}'
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({aQ}),{aM}',
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({aQ}),{aP}'
                     ]
                     if is_aQ_free_after_use:
                         return (optimized_lines, 2)
@@ -10790,8 +10790,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if aQ is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{aQ}',
-                        f'{matchA.group(1)}sub.{s} {matchA.group(3)}({aQ}),{aM}',
-                        f'{matchA.group(1)}sub.{s} {matchA.group(3)}({aQ}),{aP}'
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({aQ}),{aM}',
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({aQ}),{aP}'
                     ]
                     if is_aQ_free_after_use:
                         return (optimized_lines, 2)
@@ -10894,7 +10894,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
     # Move byte constants into consecutive memory calculated from effective address.
-    move_constant_byte_to_mem_ea_pattern = r'^(\s*)move\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
+    move_constant_byte_to_mem_ea_pattern = r'^(\s*)move\.b(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)\s*(?:;.*)?$'
     matchA = re.match(move_constant_byte_to_mem_ea_pattern, line_A)
     if matchA:
         matchB = re.match(move_constant_byte_to_mem_ea_pattern, line_B)
@@ -10938,7 +10938,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Move word constants into consecutive memory calculated from effective address.
-    move_constant_word_to_mem_ea_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)'
+    move_constant_word_to_mem_ea_pattern = r'^(\s*)move\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\)\s*(?:;.*)?$'
     matchA = re.match(move_constant_word_to_mem_ea_pattern, line_A)
     if matchA:
         matchB = re.match(move_constant_word_to_mem_ea_pattern, line_B)
@@ -10996,8 +10996,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if dP is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(4)}{symbol_or_mem_1_full},{dP}',
-                        f'{matchA.group(1)}{alu_1}.{s} {matchA.group(4)}{dP},{dN}',
-                        f'{matchA.group(1)}{alu_2}.{s} {matchA.group(4)}{dP},{dM}'
+                        f'{matchA.group(1)}{alu_1}.{s}{matchA.group(4)}{dP},{dN}',
+                        f'{matchA.group(1)}{alu_2}.{s}{matchA.group(4)}{dP},{dM}'
                     ]
                     if is_dP_free_after_use:
                         return (optimized_lines, 2)
@@ -11010,7 +11010,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # Displacements can be optional.
     # disp1+2 = disp2
     # disp3+2 = disp4
-    indirect_to_indirect_pattern = r'^(\s*)move\.w(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)'
+    indirect_to_indirect_pattern = r'^(\s*)move\.w(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)\s*(?:;.*)?$'
     matchA = re.match(indirect_to_indirect_pattern, line_A)
     if matchA:
         aN = matchA.group(4)
@@ -11817,7 +11817,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     # Check on final adjusted <ea>
                     if ea_adjusted and is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                         optimized_lines = [
-                            f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                            f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dN}',
                             f'{matchA.group(1)}move.b{matchA.group(3)}{ea_adjusted},{dN}'
                         ]
                         return (optimized_lines, 2)
@@ -11867,9 +11867,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
 
-        # Push 2 words consecutively into the stack where last word is 0.
-        # move.w  xN,-(sp)     ->    move.l  xN,sp     ; Saves 8 cycles.
+        # Push 2 words consecutively into the stack where second word is 0.
+        # Here we make a leap of faith expecting high word of xN is already 0.
+        # move.w  xN,-(sp)     ->    move.l  xN,-(sp)     ; Saves 8 cycles.
         # move.w  #0,-(sp)
+        # TODO: ensure xN is already 0 in the higher word.
         matchA = re.match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
         if matchA:
             xN = matchA.group(3)
@@ -11879,6 +11881,26 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)'
                 ]
                 return (optimized_lines, 2)
+
+    else:
+
+        # Push 2 words consecutively into the stack where second word is 0.
+        # NOTE: In this case we search for a reg that is already 0.
+        # move.w  xN,-(sp)     ->    move.w  xN,-(sp)     ; Saves 4 cycles.
+        # move.w  #0,-(sp)           move.w  xM,-(sp)
+        matchA = re.match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
+        if matchA:
+            xN = matchA.group(3)
+            matchB = re.match(r'^\s*move\.w\s+#0,\s*-\(%sp\)', line_B)
+            if matchB:
+                zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
+                if len(zeroed_regs) > 0:
+                    xM = zeroed_regs[0]
+                    optimized_lines = [
+                        f'{matchA.group(1)}move.w{matchA.group(2)}{xN},-(%sp)',
+                        f'{matchA.group(1)}move.w{matchA.group(2)}{xM},-(%sp)'
+                    ]
+                    return (optimized_lines, 2)
 
     if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
@@ -11959,7 +11981,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ror.l{matchA.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -11986,7 +12008,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}rol.l{matchA.group(3)}#{x},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12040,7 +12062,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}rol.l{matchA.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12067,7 +12089,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ror.l{matchA.group(3)}#{x},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12124,8 +12146,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.w{matchA.group(3)}(%sp)+,{dN}',
-                        f'{matchA.group(1)}clr.b {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}'
+                        f'{matchA.group(1)}clr.b{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12140,7 +12162,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}ror.w {matchA.group(3)}#{8-x},{dN}',
+                        f'{matchA.group(1)}ror.w{matchA.group(3)}#{8-x},{dN}',
                         f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12171,8 +12193,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}ror.l {matchA.group(3)}#{8-x},{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}ror.l{matchA.group(3)}#{8-x},{dN}',
                         f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12185,7 +12207,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12200,7 +12222,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12217,7 +12239,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_lines = [
                         f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12234,7 +12256,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}lsl.w{matchA.group(3)}#{x},{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12252,9 +12274,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.w{matchA.group(3)}(%sp)+,{dN}',
-                        f'{matchA.group(1)}clr.b {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}'
+                        f'{matchA.group(1)}clr.b{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12272,10 +12294,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_lines = [
                         f'{matchA.group(1)}move.b{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.w{matchA.group(3)}(%sp)+,{dN}',
-                        f'{matchA.group(1)}clr.b {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}'
+                        f'{matchA.group(1)}clr.b{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12292,10 +12314,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}ror.w {matchA.group(3)}#{8-x},{dN}',
+                        f'{matchA.group(1)}ror.w{matchA.group(3)}#{8-x},{dN}',
                         f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}'
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12350,7 +12372,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
-                        f'{matchA.group(1)}rol.w {matchA.group(3)}#{8-x},{dN}'
+                        f'{matchA.group(1)}rol.w{matchA.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12363,9 +12385,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
+                        f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}subx.w{matchA.group(3)}{dN},{dN}',
-                        f'{matchA.group(1)}neg.w {matchA.group(3)}{dN}'
+                        f'{matchA.group(1)}neg.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12396,8 +12418,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}rol.l {matchA.group(3)}#{8-x},{dN}'
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}rol.l{matchA.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12410,7 +12432,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}'
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12426,7 +12448,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}lsr.w{matchA.group(3)}#{x},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12441,9 +12463,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}move.w{matchA.group(3)}{dN},-(%sp)',
-                        f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                        f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dN}',
                         f'{matchA.group(1)}move.b{matchA.group(3)}(%sp)+,{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12461,10 +12483,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     optimized_lines = [
-                        f'{matchA.group(1)}clr.w {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}andi.w{matchA.group(3)}#{mask},{dN}',
-                        f'{matchA.group(1)}rol.w {matchA.group(3)}#{8-x},{dN}'
+                        f'{matchA.group(1)}rol.w{matchA.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12477,8 +12499,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}add.l {matchA.group(3)}{dN},{dN}',
-                        f'{matchA.group(1)}moveq {matchA.group(3)}#0,{dN}',
+                        f'{matchA.group(1)}add.l{matchA.group(3)}{dN},{dN}',
+                        f'{matchA.group(1)}moveq{matchA.group(3)}#0,{dN}',
                         f'{matchA.group(1)}addx.w{matchA.group(3)}{dN},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12520,7 +12542,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}rol.l{matchB.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12535,7 +12557,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}add.w {matchA.group(3)}{dN},{dN}',
+                        f'{matchA.group(1)}add.w{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}subx.w{matchB.group(3)}{dN},{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12548,7 +12570,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
@@ -12564,7 +12586,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}asr.w{matchB.group(3)}#{x},{dN}'
                     ]
@@ -12581,11 +12603,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}ext.l {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}move.w{matchA.group(3)}{dN},-(%sp)',
                         f'{matchA.group(1)}move.b{matchA.group(3)}(%sp)+,{dN}',
-                        f'{matchA.group(1)}ext.w {matchA.group(3)}{dN}'
+                        f'{matchA.group(1)}ext.w{matchA.group(3)}{dN}'
                     ]
                     return (optimized_lines, 2)
 
@@ -12598,7 +12620,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 2):
                     dN = matchB.group(5)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}moveq{matchA.group(3)}#9,{dM}',
                         f'{matchA.group(1)}asr.w{matchB.group(3)}{dM},{dN}'
@@ -12618,9 +12640,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}',
-                        f'{matchA.group(1)}swap {matchA.group(3)}{dN}',
+                        f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                         f'{matchA.group(1)}rol.l{matchB.group(3)}#{8-x},{dN}',
                         f'{matchA.group(1)}ext.l{matchA.group(3)}{dN}'
                     ]
@@ -12636,7 +12658,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     dN = matchB.group(5)
                     if_reg_not_used_anymore_then_remove_from_push_pop(dM, i_line, lines, modified_lines, 2)
                     optimized_lines = [
-                        f'{matchA.group(1)}add.l {matchA.group(3)}{dN},{dN}',
+                        f'{matchA.group(1)}add.l{matchA.group(3)}{dN},{dN}',
                         f'{matchA.group(1)}subx.l{matchB.group(3)}{dN},{dN}'
                     ]
                     return (optimized_lines, 2)
