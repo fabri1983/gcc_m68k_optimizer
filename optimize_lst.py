@@ -1224,24 +1224,25 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                         if instr_overwritten and instr_overwritten.startswith(("sub","eor")):
                             # sub or eor it self?
                             if dest in src_complex:
-                                # Only consider when the reg is totally overwritten, not partially
+                                # Only consider when the reg is totally overwritten, not partially.
                                 if instr_size == ".l":
                                     overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                                #continue
+                                    continue
                         # if matching move or lea
                         elif instr_overwritten and instr_overwritten.startswith(("move","lea")):
                             # make sure destination reg is not being used in the indirection
                             if dest not in src_complex:
-                                # Only consider when the reg is totally overwritten, not partially
+                                # Only consider when the reg is totally overwritten, not partially.
                                 if instr_size is None or instr_size == ".l":
                                     overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                                #continue
+                                    continue
                         # matching the clr or sCC instructions
                         elif instr_clr_or_sCC:
-                            # Only consider when the reg is totally overwritten, not partially. sCC size is optional
+                            # Only consider when the reg is totally overwritten, not partially.
+                            # sCC size is optional and its default size is byte but we consider sCC as a complete overwrite.
                             if clr_or_sc_size is None or clr_or_sc_size == ".l":
                                 overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
-                            #continue
+                                continue
                         else:
                             # Instruction not considered?
                             print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (1) At {func_name}: instruction not considered as clear or overwrite: {line}")
