@@ -671,9 +671,9 @@ REG_OVERWRITEN_OR_CLEARED_REGEX = re.compile(
 instr_modify_ccr_flags_for_bcc_set = {
     "bchg", "bset", "btst", "cmp", "cmpi", "cmpa", "cmpm",
     "move", "moveq",
-    "add", "addi", "addq", "sub", "subi", "subq",
+    "add", "addi", "addq", "addx", "sub", "subi", "subq", "subx",
     "and", "andi", "or", "ori", "eor", "eori",
-    "clr", "neg", "not", "ext", "swap",
+    "clr", "neg", "negx", "not", "ext", "swap",
     "muls", "mulu", "divs", "divu",
     "asl", "asr", "lsl", "lsr", "rol", "ror", "roxl", "roxr",
     "tas", "tst"
@@ -1005,7 +1005,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     Search for free after use register xM:
     Phase 1: Look backwards which regs have been used until reaching current line.
     Phase 2: Look forwards over lines array starting at i_line + 1:
-       - if xM is entirely overwritten/cleared by a move/lea or sub/eor itself, or clr, before it is 
+       - if xM is entirely overwritten/cleared by a move/lea or sub/eor itself, or clr/sCC, before it is 
          actually used in remaining lines and all possible flows, then xM is free to use immediately.
        - If xM is not used as source operand nor in any indirection (in both source and target) 
          before xM is overwritten/cleared (like previous condition), then xM is free to use immediately.
@@ -1563,8 +1563,8 @@ _ZERO_IMM = r'#(?:0+|0[xX]0+|\$0+)(?:\.[bwl])?'
 # Only instructions that write a full 32 bits zero.
 # Groups:
 #   1 = moveq dN     2 = move.l/movea.l to dN|aN     3 = move.w/movea.w to aN
-#   4 = clr.l xN     5 = sub.l dN,dN (back-ref \5)   6 = suba.l aN,aN (\6)
-#   7 = eor.l dN,dN (\7)
+#   4 = clr.l xN     5 = sub.l dN,dN (back-ref \5)   6 = suba.l aN,aN (back-ref \6)
+#   7 = eor.l dN,dN (back-ref \7)
 REG_ZEROING_REGEX = re.compile(
     r'^\s*'
     r'(?:'
@@ -1593,7 +1593,7 @@ REG_CLOBBER_REGEX = re.compile(
     r'^\s*'
     r'(?:'
     # two-operand form: instr src, dst
-    r'(?:movea?|add|adda|addi|addq|sub|suba|subi|subq'
+    r'(?:movea?|add|adda|addi|addq|addx|sub|suba|subi|subq|subx'
     r'|and|andi|or|ori|eor|eori|mulu|muls|divu|divs'
     r'|lsl|lsr|asl|asr|rol|ror|roxl|roxr'
     r'|movep|moveq|lea)'
@@ -1607,7 +1607,8 @@ REG_CLOBBER_REGEX = re.compile(
     r'(%[ad][0-7])\b'
 )
 
-# move.l/movea.l dN,dM|aM  and  move.w/movea.w dN,aM (the latter sign extends)
+# move/movea.l dN,xM
+# move/movea.w dN,aM (this does sign extension)
 REG_COPY_ZEROED_REGEX = re.compile(
     r'^\s*(?:movea?\.l\s+(%[ad][0-7]),\s*(%[ad][0-7])|movea?\.w\s+(%[ad][0-7]),\s*(%a[0-7]))'
 )
@@ -1918,7 +1919,7 @@ def replace_xN_by_xM_in_next_lines(xN: str, xM: str, i_line: int, lines: list[st
        - xN is used as source operand or in any indirection (in both source and target) operand.
        - xN is in the list (or range) of a pop from stack operation.
        Break condition is met when a rts/rte/bra/jra/jmp is reached, or xN is overwritten/cleared 
-       by a move/lea/sub/eor itself, or clr.
+       by a move/lea/sub/eor itself, or clr/sCC.
     2. Visit lines pointed by the indices collected before, and replace xN by xM.
        If the visited line pops registers from the stack then ensure xM is in the list or range, 
        otherwise update the movem/move to include it.
@@ -2457,7 +2458,7 @@ class RegisterUsageOccurrenceMode(Enum):
 def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str, i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int, reg_use_occurr_mode: RegisterUsageOccurrenceMode) -> list[str]:
     """
     Search over the remaining lines using control flow starting at i_line + 1 for one of next conditions:
-    - xN is overwritten/cleared by a move/lea/sub/eor itself, or clr, before is being used:
+    - xN is overwritten/cleared by a move/lea/sub/eor itself, or clr/sCC, before is being used:
         stop the analysis in current flow.
     - xN is used as source operand or in any indirection (in both source and target) operand:
         collect the line and stop/continue the analysis in current flow according to reg_use_occurr_mode.
@@ -3686,9 +3687,6 @@ def classify_operand(instr_op_base: str, op_size: str, operator: str) -> str | N
     # Immediate value
     if match := RE_imm_value.match(operator):
         if instr_op_base in ('addq','moveq','subq','movem','movm'):
-            # TODO: weird fix: force the size to be different than 0, otherwise it fails with out of range
-            if instr_op_base == 'moveq':
-                return '#imm.w'
             return 'encoded'  # The immediate operand is encoded inside the instr_op_base so is free
         elif operator.endswith(('.b','.w')):
             return '#imm.w'
@@ -6166,7 +6164,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                             if matchF and dN == matchF.group(1) and aN == matchF.group(2):
                                 if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6):
                                     optimized_lines = [
-                                        f'{matchA.group(1)}moveq {matchA.group(2)}#0,{dN}',
+                                        f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
                                         f'{matchA.group(1)}move.b{matchA.group(2)}{src_B},{dN}',
                                         f'{matchA.group(1)}move.w{matchA.group(2)}{dN},{aN}'
                                     ]
@@ -7214,7 +7212,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             src_E = matchE.group(1)
                             optimized_lines = [
                                 f'{matchA.group(1)}move.w{matchA.group(3)}{src_B},{dN}',
-                                f'{matchA.group(1)}swap  {matchA.group(3)}{dN}',
+                                f'{matchA.group(1)}swap{matchA.group(3)}{dN}',
                                 f'{matchA.group(1)}move.w{matchA.group(3)}{src_E},{dN}'
                             ]
                             return (optimized_lines, 5)
@@ -7271,8 +7269,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5):
                                 optimized_lines = [
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{aM}',
-                                    f'{matchA.group(1)}add.l {matchA.group(3)}{aM},{aM}',
-                                    f'{matchA.group(1)}{alu}.l {matchA.group(3)}#{val},{aM}'
+                                    f'{matchA.group(1)}add.l{matchA.group(3)}{aM},{aM}',
+                                    f'{matchA.group(1)}{alu}.l{matchA.group(3)}#{val},{aM}'
                                 ]
                                 return (optimized_lines, 5)
 
