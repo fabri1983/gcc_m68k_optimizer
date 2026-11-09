@@ -165,7 +165,7 @@ USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY = False
 
 # This optimization modifies the way gcc pushes word registers into stack.
 # WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
-USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK = False
+USE_AGGRESSIVE_COMPACT_ZERO_AND_WORD_INTO_LONG_TO_PUSH_INTO_STACK = False
 
 # This optimization modifies the way gcc clears the stack.
 # WARNING: Enabling this flag may cause unexpected side effects. Test thoroughly.
@@ -11865,11 +11865,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_lines = [line_B]
                     return (optimized_lines, 2)
 
-    if USE_AGGRESSIVE_COMPACT_TWO_WORDS_PUSH_INTO_STACK:
+    if USE_AGGRESSIVE_COMPACT_ZERO_AND_WORD_INTO_LONG_TO_PUSH_INTO_STACK:
 
-        # Push 2 words consecutively into the stack where second word is 0.
-        # Here we make a leap of faith expecting high word of xN is already 0.
-        # move.w  xN,-(sp)     ->    move.l  xN,-(sp)     ; Saves 8 cycles.
+        # Push zero and other word as a long word into the stack.
+        # Here we make a leap of faith assuming high word of xN is already 0.
+        # move.w  xN,-(sp)     ->    move.l  xN,-(sp)      ; Saves 8 cycles.
         # move.w  #0,-(sp)
         # TODO: ensure xN is already 0 in the higher word.
         matchA = re.match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
@@ -11884,9 +11884,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     else:
 
-        # Push 2 words consecutively into the stack where second word is 0.
+        # Push zero and other word as a long word into the stack.
         # NOTE: In this case we search for a reg that is already 0.
-        # move.w  xN,-(sp)     ->    move.w  xN,-(sp)     ; Saves 4 cycles.
+        # move.w  xN,-(sp)     ->    move.w  xN,-(sp)      ; Saves 4 cycles.
         # move.w  #0,-(sp)           move.w  xM,-(sp)
         matchA = re.match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
         if matchA:
