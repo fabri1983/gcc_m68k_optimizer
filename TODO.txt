@@ -122,6 +122,7 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 Multiline instructions
 ======================
 Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 (prepareMapDataRow_MTI16_BI16).
+Is also similar to: Pushing word memory values into stack with word adjustments for ABI long args compliance.
 # Move from consecutive memory indirection to random memory indirection.
 # Re order instructions to take advantage of auto increment.
 move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+    ; Saves 36 cycles

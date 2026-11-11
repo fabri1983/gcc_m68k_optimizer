@@ -4702,14 +4702,14 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                     optimized_lines = [line_B, line_C, line_D, line_E, line_F, line_A_opt, line_H]
                                                     return (optimized_lines, 8)
 
-    # Consecutive copy of memory into a single invariant memeory target.
-    # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [20,24] cycles
-    # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp3(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp4(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp5(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp6(aN),(aM)           move.s -(aN)+,(aM)
+    # Consecutive copy of memory into a single invariant memory target.
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [20,24] cycles
+    # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp5(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp6(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp7(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
@@ -5151,13 +5151,13 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                 optimized_lines = [line_B, line_C, line_D, line_E, line_A_opt, line_G]
                                                 return (optimized_lines, 7)
 
-    # Consecutive copy of memory into a single invariant memeory target.
-    # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [16,20] cycles
-    # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp3(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp4(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp5(aN),(aM)           move.s -(aN)+,(aM)
+    # Consecutive copy of memory into a single invariant memory target.
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [16,20] cycles
+    # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp5(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp6(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
@@ -5810,12 +5810,12 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                             optimized_lines = [line_B, line_C, line_D, line_A_opt, line_E]
                                             return (optimized_lines, 6)
 
-    # Consecutive copy of memory into a single invariant memeory target.
-    # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [12,16] cycles
-    # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp3(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp4(aN),(aM)           move.s -(aN)+,(aM)
+    # Consecutive copy of memory into a single invariant memory target.
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [12,16] cycles
+    # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp5(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
@@ -6798,11 +6798,11 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         optimized_lines = [line_B, line_C, line_A_opt, line_E]
                                         return (optimized_lines, 5)
 
-    # Consecutive copy of memory into a single invariant memeory target.
-    # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [8,12] cycles
-    # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp3(aN),(aM)           move.s -(aN)+,(aM)
+    # Consecutive copy of memory into a single invariant memory target.
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [8,12] cycles
+    # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
@@ -7990,10 +7990,10 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 4)
 
-    # Consecutive copy of memory into a single invariant memeory target.
-    # move.s (aN),(aM)             ->    move.s  (aN)+,(aM)           ; Saves [4,8] cycles
-    # move.s [-]disp1(aN),(aM)           move.s -(aN)+,(aM)
-    # move.s [-]disp2(aN),(aM)           move.s -(aN)+,(aM)
+    # Consecutive copy of memory into a single invariant memory target.
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [4,8] cycles
+    # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
+    # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
@@ -13564,7 +13564,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 m = val // 65536  # floor division
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(2)}#{m},{dN}',
-                    f'{match.group(1)}swap {match.group(2)}{dN}'
+                    f'{match.group(1)}swap{match.group(2)}{dN}'
                 ]
                 return (optimized_lines, True)
 
@@ -13606,7 +13606,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if 0x0001 <= (n & 0xffff) <= 0x007f:
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(2)}#{n},{dN}',
-                    f'{match.group(1)}swap {match.group(2)}{dN}'
+                    f'{match.group(1)}swap{match.group(2)}{dN}'
                 ]
                 return (optimized_lines, True)
 
@@ -13622,7 +13622,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             if 0xff80 <= (n & 0xffff) <= 0xfffe:
                 optimized_lines = [
                     f'{match.group(1)}moveq{match.group(2)}#{n},{dN}',
-                    f'{match.group(1)}swap {match.group(2)}{dN}'
+                    f'{match.group(1)}swap{match.group(2)}{dN}'
                 ]
                 return (optimized_lines, True)
 
@@ -13632,7 +13632,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         m = getMForMovelOptimization(val)
         if m is not None:
             optimized_lines = [
-                f'{match.group(1)}moveq {match.group(2)}#{m},{dN}',
+                f'{match.group(1)}moveq{match.group(2)}#{m},{dN}',
                 f'{match.group(1)}bchg.l{match.group(2)}{dN},{dN}'
             ]
             return (optimized_lines, True)
@@ -13781,7 +13781,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 dM = find_unused_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is not None:
                 optimized_lines = [
-                    f'{match.group(1)}moveq {match.group(3)}#0,{dM}',
+                    f'{match.group(1)}moveq{match.group(3)}#0,{dM}',
                     f'{match.group(1)}move.b{match.group(3)}{dN},{dM}',
                     f'{match.group(1)}move.l{match.group(3)}{dM},{dN}'
                 ]
@@ -13796,9 +13796,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         #                             swap   dN
         if val == 65535:
             optimized_lines = [
-                f'{match.group(1)}swap {match.group(3)}{dN}',
+                f'{match.group(1)}swap{match.group(3)}{dN}',
                 f'{match.group(1)}clr.w{match.group(3)}{dN}',
-                f'{match.group(1)}swap {match.group(3)}{dN}'
+                f'{match.group(1)}swap{match.group(3)}{dN}'
             ]
             return (optimized_lines, True)
 
@@ -14196,7 +14196,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 dM = find_unused_DATA_regs([], i_line, lines, modified_lines)[0]
             if dM is not None:
                 optimized_lines = [
-                    f'{match.group(1)}moveq {match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                     f'{match.group(1)}adda.l{match.group(3)}{dM},{aN}'
                 ]
                 if is_dM_free_after_use:
@@ -14258,7 +14258,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 dM = find_unused_DATA_regs([], i_line, lines, modified_lines)[0]
             if dM is not None:
                 optimized_lines = [
-                    f'{match.group(1)}moveq {match.group(3)}#{val},{dM}',
+                    f'{match.group(1)}moveq{match.group(3)}#{val},{dM}',
                     f'{match.group(1)}suba.l{match.group(3)}{dM},{aN}'
                 ]
                 if is_dM_free_after_use:
@@ -14443,7 +14443,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if match:
             dN = match.group(4)
             optimized_lines = [
-                f'{match.group(1)}ror.b {match.group(3)}#1,{dN}',
+                f'{match.group(1)}ror.b{match.group(3)}#1,{dN}',
                 f'{match.group(1)}andi.b{match.group(3)}#128,{dN}'
             ]
             return (optimized_lines, True)
@@ -14482,7 +14482,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             optimized_lines = [
                 f'{match.group(1)}move.b{match.group(3)}{dN},-(%sp)',
                 f'{match.group(1)}move.w{match.group(3)}(%sp)+,{dN}',
-                f'{match.group(1)}clr.b {match.group(3)}{dN}'
+                f'{match.group(1)}clr.b{match.group(3)}{dN}'
             ]
             return (optimized_lines, True)
 
@@ -14506,9 +14506,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         if match:
             dN = match.group(3)
             optimized_lines = [
-                f'{match.group(1)}add.b {match.group(2)}{dN},{dN}',
+                f'{match.group(1)}add.b{match.group(2)}{dN},{dN}',
                 f'{match.group(1)}subx.b{match.group(2)}{dN},{dN}',
-                f'{match.group(1)}neg.b {match.group(2)}{dN}'
+                f'{match.group(1)}neg.b{match.group(2)}{dN}'
             ]
             return (optimized_lines, True)
 
@@ -14527,7 +14527,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             dN = match.group(3)
             optimized_lines = [
                 f'{match.group(1)}move.w{match.group(2)}{dN},-(%sp)',
-                f'{match.group(1)}clr.w {match.group(2)}{dN}',
+                f'{match.group(1)}clr.w{match.group(2)}{dN}',
                 f'{match.group(1)}move.b{match.group(2)}(%sp)+,{dN}'
             ]
             return (optimized_lines, True)
@@ -14566,7 +14566,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 optimized_lines = [
                     f'{match.group(1)}move.w{match.group(2)}{dN},-(%sp)',
                     f'{match.group(1)}move.b{match.group(2)}(%sp)+,{dN}',
-                    f'{match.group(1)}ext.w {match.group(2)}{dN}',
+                    f'{match.group(1)}ext.w{match.group(2)}{dN}',
                 ]
                 return (optimized_lines, True)
 
@@ -14659,14 +14659,14 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                 optimized_lines = [
                     f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
-                    f'{match.group(1)}add.w {match.group(3)}{dM},{dM}',
-                    f'{match.group(1)}add.w {match.group(3)}{dM},{dM}',
-                    f'{match.group(1)}add.w {match.group(3)}{dM},{dN}',
+                    f'{match.group(1)}add.w{match.group(3)}{dM},{dM}',
+                    f'{match.group(1)}add.w{match.group(3)}{dM},{dM}',
+                    f'{match.group(1)}add.w{match.group(3)}{dM},{dN}',
                     f'{match.group(1)}move.w{match.group(3)}{dN},{dM}',
-                    f'{match.group(1)}lsl.w {match.group(3)}#4,{dM}',
-                    f'{match.group(1)}add.w {match.group(3)}{dM},{dM}',
-                    f'{match.group(1)}add.w {match.group(3)}#{mask},{dN}',
-                    f'{match.group(1)}rol.w {match.group(3)}#8-x,{dN}'
+                    f'{match.group(1)}lsl.w{match.group(3)}#4,{dM}',
+                    f'{match.group(1)}add.w{match.group(3)}{dM},{dM}',
+                    f'{match.group(1)}add.w{match.group(3)}#{mask},{dN}',
+                    f'{match.group(1)}rol.w{match.group(3)}#8-x,{dN}'
                 ]
                 if is_dM_free_after_use:
                     return (optimized_lines, True)
@@ -14750,8 +14750,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                     mask = ~((1<<(8+x))-1) & 0xFFFF  # Ensure 16-bit mask
                     optimized_lines = [
                         f'{match.group(1)}andi.w{match.group(3)}#{mask},{dN}',
-                        f'{match.group(1)}swap  {match.group(3)}{dN}',
-                        f'{match.group(1)}rol.l {match.group(3)}#{8-x},{dN}'
+                        f'{match.group(1)}swap{match.group(3)}{dN}',
+                        f'{match.group(1)}rol.l{match.group(3)}#{8-x},{dN}'
                     ]
                     return (optimized_lines, True)
 
@@ -14762,7 +14762,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             dN = match.group(4)
             optimized_lines = [
                 f'{match.group(1)}clr.w{match.group(3)}{dN}',
-                f'{match.group(1)}swap {match.group(3)}{dN}'
+                f'{match.group(1)}swap{match.group(3)}{dN}'
             ]
             return (optimized_lines, True)
 
@@ -14787,8 +14787,8 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             dN = match.group(6)
             optimized_lines = [
                 f'{match.group(1)}{mul}.w{match.group(4)}#{val_sign*m},{dN}',
-                f'{match.group(1)}clr.w {match.group(4)}{dN}',
-                f'{match.group(1)}swap  {match.group(4)}{dN}'
+                f'{match.group(1)}clr.w{match.group(4)}{dN}',
+                f'{match.group(1)}swap{match.group(4)}{dN}'
             ]
             return (optimized_lines, True)
             
@@ -14811,7 +14811,7 @@ def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: li
         dN = match.group(5)
         optimized_lines = [
             f'{match.group(1)}move.w{match.group(3)}{src},{dN}',
-            f'{match.group(1)}ext.l {match.group(3)}{dN}'
+            f'{match.group(1)}ext.l{match.group(3)}{dN}'
         ]
         return (optimized_lines, True)
 
@@ -14900,7 +14900,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
     print_end_asm_block = False
 
     modified_lines = []
-    skip_optimization_and_just_copy = -1
+    skip_optimization_and_just_copy_from_line = -1
     num_updates = 0  # Counts how many single patterns were applied, which is the same than single lines updated
 
     print(f'[OPT_LOG {THIS_INVOKE_ID}] {step_name}')
@@ -14913,7 +14913,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
 
         # Whenever we detect the first declaration of a .bss section we can stop the analysis
         if BSS_SECTION_REGEX.match(line):
-            skip_optimization_and_just_copy = i_line
+            skip_optimization_and_just_copy_from_line = i_line
             break
 
         i_line += 1
@@ -14974,8 +14974,8 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
             modified_lines.append(line)
 
     # Copy the reamining content
-    if skip_optimization_and_just_copy != -1:
-        start = skip_optimization_and_just_copy
+    if skip_optimization_and_just_copy_from_line != -1:
+        start = skip_optimization_and_just_copy_from_line
         for i_line in range(start, len(input_lines)):
             line = input_lines[i_line]
             modified_lines.append(line)
@@ -15013,8 +15013,8 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
     # Step 1: Optimze multiple lines first
     print(f'[OPT_LOG {THIS_INVOKE_ID}] Multi line patterns (common and custom patterns)')
 
-    modified_multi_lines = []
-    skip_optimization_and_just_copy = -1
+    modified_multi_lines: list[str] = []
+    skip_optimization_and_just_copy_from_line = -1
 
     rem_start = 0
     rem_end = len(input_lines)  # This value changes if the list decreases or increases in size
@@ -15024,7 +15024,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
 
         # Whenever we detect the first declaration of a .bss section we can stop the analysis
         if BSS_SECTION_REGEX.match(line):
-            skip_optimization_and_just_copy = i_line
+            skip_optimization_and_just_copy_from_line = i_line
             break
 
         i_line += 1
@@ -15136,8 +15136,8 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
                 multi_span_size -= 1
 
     # Copy the reamining content
-    if skip_optimization_and_just_copy != -1:
-        start = skip_optimization_and_just_copy
+    if skip_optimization_and_just_copy_from_line != -1:
+        start = skip_optimization_and_just_copy_from_line
         for i_line in range(start, len(input_lines)):
             line = input_lines[i_line]
             modified_multi_lines.append(line)
@@ -15301,14 +15301,14 @@ def applyGccConversions(lines: list[str]) -> list[str]:
     """
     Convert some gcc idioms, indirections, dereferences, and regs encodings for easy reading.
     """
-    skip_optimization_and_just_copy = -1
+    skip_optimization_and_just_copy_from_line = -1
     modified_lines: list[str] = []
     for i_line in range(0, len(lines)):
         line = lines[i_line]
 
         # Whenever we detect the first declaration of a .bss section we can stop the analysis
         if BSS_SECTION_REGEX.match(line):
-            skip_optimization_and_just_copy = i_line
+            skip_optimization_and_just_copy_from_line = i_line
             break
 
         # Rewrite the line without any trailing whitespace. The content of lines will be used in other methods
@@ -15339,8 +15339,8 @@ def applyGccConversions(lines: list[str]) -> list[str]:
         modified_lines.append(line)
 
     # Copy the reamining content
-    if skip_optimization_and_just_copy != -1:
-        start = skip_optimization_and_just_copy
+    if skip_optimization_and_just_copy_from_line != -1:
+        start = skip_optimization_and_just_copy_from_line
         for i_line in range(start, len(lines)):
             line = lines[i_line]
             modified_lines.append(line.rstrip())
