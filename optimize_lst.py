@@ -6056,8 +6056,8 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                         # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
                         matchF = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_F)
                         if matchF and aN not in matchF.group(2):
-                            s_F = matchE.group(1)
-                            ea_F = matchE.group(2)
+                            s_F = matchF.group(1)
+                            ea_F = matchF.group(2)
                             symbolName_2 = ''.join(matchF.group(i) for i in range(3, 5) if matchF.group(i))
                             op_2_str = '' if not matchF.group(5) else matchF.group(5)
                             symbolName_2_op = 0 if not op_2_str else int(op_2_str)
