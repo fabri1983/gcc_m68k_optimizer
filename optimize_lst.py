@@ -4235,19 +4235,19 @@ btst_val_dN_pattern = re.compile(
 )
 
 move_disp_aN_or_pc_into_aM_pattern = re.compile(
-    r'^(\s*)(?:move|movea)\.l(\s+)'          # Instruction
+    r'^(\s*)(?:move|movea)\.l(\s+)'        # Instruction
     r'(?:'                                 # Non-capturing group
         r'(-?\d+(?:[\-\+\*]\d+)?)?\('      # "val(" or just "(" where val can be val[+-*N]
     r')'                                   # End non-capturing group
-    r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # aN),aM
+    r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # Match with: aN),aM
 )
 
 move_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
-    r'^(\s*)(?:move|movea)\.l(\s+)'          # Instruction
+    r'^(\s*)(?:move|movea)\.l(\s+)'        # Instruction
     r'(?:'                                 # Non-capturing group
         r'(-?\d+(?:[\-\+\*]\d+)?)?\('      # "val(" or just "(" where val can be val[+-*N]
     r')'                                   # End non-capturing group
-    r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # aN,dN.s),aM
+    r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # Match with: aN,dN.s),aM
 )
 
 lea_label_or_disp_aN_or_pc_into_aM_pattern = re.compile(
@@ -4255,7 +4255,7 @@ lea_label_or_disp_aN_or_pc_into_aM_pattern = re.compile(
     r'(?:'                                   # Non-capturing group
         r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
     r')'                                     # End non-capturing group
-    r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # aN),aM
+    r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # Match with: aN),aM
 )
 
 lea_label_or_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
@@ -4263,7 +4263,7 @@ lea_label_or_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
     r'(?:'                                 # Non-capturing group
         r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
     r')'                                   # End non-capturing group
-    r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # aN,dN.s),aM
+    r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # Match with: aN,dN.s),aM
 )
 
 move_ea_into_dN_pattern = re.compile(
@@ -5888,6 +5888,237 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                     ]
                                                 return (optimized_lines, 6)
 
+    # Writing multiple values from random memory or regs to sequential memory.
+    # Where symbolName+P = symbolName+Q +/- 1/2/4
+    # Where symbolName+Q = symbolName+R +/- 1/2/4
+    # Where symbolName+R = symbolName+S +/- 1/2/4
+    # Where symbolName+S = symbolName+T +/- 1/2/4
+    # Where symbolName+T = symbolName+U +/- 1/2/4
+    # move.s  <ea_1>,symbolName+P     ->    lea symbolName+offset,aN          ; Saves 32 cycles.
+    # move.s  <ea_2>,symbolName+Q           move.s  <ea_1>,(aN)[+]
+    # move.s  <ea_3>,symbolName+R           move.s  <ea_2>,[-](aN)[+]
+    # move.s  <ea_4>,symbolName+S           move.s  <ea_3>,[-](aN)[+]
+    # move.s  <ea_5>,symbolName+T           move.s  <ea_4>,[-](aN)[+]
+    # move.s  <ea_6>,symbolName+U           move.s  <ea_5>,[-](aN)[+]
+    #                                       move.s  <ea_6>,[-](aN)
+    # Needs a free aN address register.
+    # Ensure aN is not used in the <ea>.
+    matchA = move_ea_into_symbol_pattern.match(line_A)
+    if matchA:
+        s_A = matchA.group(2)
+        matchB = move_ea_into_symbol_pattern.match(line_B)
+        if matchB:
+            s_B = matchB.group(2)
+            matchC = move_ea_into_symbol_pattern.match(line_C)
+            if matchC:
+                s_C = matchC.group(2)
+                matchD = move_ea_into_symbol_pattern.match(line_D)
+                if matchD:
+                    s_D = matchD.group(2)
+                    matchE = move_ea_into_symbol_pattern.match(line_E)
+                    if matchE:
+                        s_E = matchE.group(2)
+                        matchF = move_ea_into_symbol_pattern.match(line_F)
+                        if matchF:
+                            s_F = matchF.group(2)
+                            symbolName_1 = ''.join(matchA.group(i) for i in range(10, 12) if matchA.group(i))
+                            symbolName_2 = ''.join(matchB.group(i) for i in range(10, 12) if matchB.group(i))
+                            symbolName_3 = ''.join(matchC.group(i) for i in range(10, 12) if matchC.group(i))
+                            symbolName_4 = ''.join(matchD.group(i) for i in range(10, 12) if matchD.group(i))
+                            symbolName_5 = ''.join(matchE.group(i) for i in range(10, 12) if matchE.group(i))
+                            symbolName_6 = ''.join(matchF.group(i) for i in range(10, 12) if matchF.group(i))
+                            op_1_str = '' if not matchA.group(12) else matchA.group(12)
+                            op_2_str = '' if not matchB.group(12) else matchB.group(12)
+                            op_3_str = '' if not matchC.group(12) else matchC.group(12)
+                            op_4_str = '' if not matchD.group(12) else matchD.group(12)
+                            op_5_str = '' if not matchE.group(12) else matchE.group(12)
+                            op_6_str = '' if not matchF.group(12) else matchF.group(12)
+                            symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+                            symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+                            symbolName_3_op = 0 if not op_3_str else int(op_3_str)
+                            symbolName_4_op = 0 if not op_4_str else int(op_4_str)
+                            symbolName_5_op = 0 if not op_5_str else int(op_5_str)
+                            symbolName_6_op = 0 if not op_6_str else int(op_6_str)
+
+                            if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4 and symbolName_4 == symbolName_5 and symbolName_5 == symbolName_6:
+                                use_post_inc = False
+                                use_pre_inc = False
+                                s_A_size = 1
+                                if s_A == 'w':
+                                    s_A_size = 2
+                                elif s_A == 'l':
+                                    s_A_size = 4
+                                s_B_size = 1
+                                if s_B == 'w':
+                                    s_B_size = 2
+                                elif s_B == 'l':
+                                    s_B_size = 4
+                                s_C_size = 1
+                                if s_C == 'w':
+                                    s_C_size = 2
+                                elif s_C == 'l':
+                                    s_C_size = 4
+                                s_D_size = 1
+                                if s_D == 'w':
+                                    s_D_size = 2
+                                elif s_D == 'l':
+                                    s_D_size = 4
+                                s_E_size = 1
+                                if s_E == 'w':
+                                    s_E_size = 2
+                                elif s_E == 'l':
+                                    s_E_size = 4
+
+                                if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op) and (symbolName_4_op + s_D_size == symbolName_5_op) and (symbolName_5_op + s_E_size == symbolName_6_op):
+                                    use_post_inc = True
+                                elif (symbolName_1_op - s_A_size == symbolName_2_op) and (symbolName_2_op - s_B_size == symbolName_3_op) and (symbolName_3_op - s_C_size == symbolName_4_op) and (symbolName_4_op - s_D_size == symbolName_5_op) and (symbolName_5_op - s_E_size == symbolName_6_op):
+                                    use_pre_inc = True
+
+                                if use_post_inc or use_pre_inc:
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 6)
+                                    is_any_aN_free_after_use = True
+                                    if free_addr_regs[0] is None:
+                                        is_any_aN_free_after_use = False
+                                        free_addr_regs = find_unused_ADDRESS_regs([], i_line, lines, modified_lines, 6)
+                                        if free_addr_regs[0] is None:
+                                            free_addr_regs = []
+                                    if len(free_addr_regs) > 0:
+                                        ea_A = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
+                                        ea_B = next((matchB.group(i) for i in range(4, 10) if matchB.group(i)), None)
+                                        ea_C = next((matchC.group(i) for i in range(4, 10) if matchC.group(i)), None)
+                                        ea_D = next((matchD.group(i) for i in range(4, 10) if matchD.group(i)), None)
+                                        ea_E = next((matchE.group(i) for i in range(4, 10) if matchE.group(i)), None)
+                                        ea_F = next((matchF.group(i) for i in range(4, 10) if matchF.group(i)), None)
+                                        # Pick an address register not present in either ea
+                                        eas = (ea_A, ea_B, ea_C, ea_D, ea_E, ea_F)
+                                        aN = next((r for r in free_addr_regs if all(r not in s for s in eas)), None)
+                                        if aN is not None:
+                                            optimized_lines = []
+                                            if use_post_inc:
+                                                optimized_lines = [
+                                                    f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
+                                                    f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})+',
+                                                    f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},({aN})+',
+                                                    f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{ea_C},({aN})+',
+                                                    f'{matchA.group(1)}move.{s_D}{matchA.group(3)}{ea_D},({aN})+',
+                                                    f'{matchA.group(1)}move.{s_E}{matchA.group(3)}{ea_E},({aN})+',
+                                                    f'{matchA.group(1)}move.{s_F}{matchA.group(3)}{ea_F},({aN})'
+                                                ]
+                                            else:  # use_pre_inc
+                                                optimized_lines = [
+                                                    f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
+                                                    f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
+                                                    f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},-({aN})',
+                                                    f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{ea_C},-({aN})',
+                                                    f'{matchA.group(1)}move.{s_D}{matchA.group(3)}{ea_D},-({aN})',
+                                                    f'{matchA.group(1)}move.{s_E}{matchA.group(3)}{ea_E},-({aN})',
+                                                    f'{matchA.group(1)}move.{s_F}{matchA.group(3)}{ea_F},-({aN})'
+                                                ]
+
+                                            if is_any_aN_free_after_use:
+                                                return (optimized_lines, 6)
+                                            elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
+                                                return (optimized_lines, 6)
+
+    # Writing multiple values from random memory or regs to sequential memory.
+    # This particular case applies when the last consecutive memory value is a symbol.
+    # Where symbolName+P = symbolName+Q +/- 1/2/4
+    # lea     symbolName+P,aN         ->    lea symbolName+offset,aN          ; Saves 8 cycles.
+    # move.s  <ea_1>,(%aN)[+]               move.s  <ea_1>,(%aN)[+]
+    # move.s  <ea_2>,[-](aN)[+]             move.s  <ea_2>,[-](aN)[+]
+    # move.s  <ea_3>,[-](aN)[+]             move.s  <ea_3>,[-](aN)[+]
+    # move.s  <ea_4>,[-](aN)                move.s  <ea_4>,[-](aN)[+]
+    # move.s  <ea_5>,symbolName+Q           move.s  <ea_5>,[-](aN)
+    # Ensure aN is not used in any <ea>.
+    matchA = re.match(r'^(\s*)lea(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
+    if matchA:
+        symbolName_1 = ''.join(matchA.group(i) for i in range(3, 5) if matchA.group(i))
+        op_1_str = '' if not matchA.group(5) else matchA.group(5)
+        symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+        aN = matchA.group(7)
+        # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+        matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*\((%a[0-7])\)(\+)?\s*(?:;.*)?$', line_B)
+        if matchB and aN == matchB.group(3) and aN not in matchB.group(2):
+            s_B = matchB.group(1)
+            # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+            matchC = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(-)?\((%a[0-7])\)(\+)?\s*(?:;.*)?$', line_C)
+            if matchC and aN == matchC.group(4) and aN not in matchC.group(2):
+                s_C = matchC.group(1)
+                # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+                matchD = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(-)?\((%a[0-7])\)(\+)?\s*(?:;.*)?$', line_D)
+                if matchD and aN == matchD.group(4) and aN not in matchD.group(2):
+                    s_D = matchD.group(1)
+                    # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+                    matchE = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(-)?\((%a[0-7])\)\s*(?:;.*)?$', line_E)
+                    if matchE and aN == matchE.group(4) and aN not in matchE.group(2):
+                        s_E = matchE.group(1)
+                        ea_E = matchE.group(2)                    
+                        # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+                        matchF = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_F)
+                        if matchF and aN not in matchF.group(2):
+                            s_F = matchE.group(1)
+                            ea_F = matchE.group(2)
+                            symbolName_2 = ''.join(matchF.group(i) for i in range(3, 5) if matchF.group(i))
+                            op_2_str = '' if not matchF.group(5) else matchF.group(5)
+                            symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+
+                            # Get what type of operation is performed to the (aN) indirection
+                            post_inc = True if matchB.group(4) and matchC.group(5) and matchD.group(5) else False
+                            pre_decr = True if matchC.group(3) and matchD.group(3) and matchE.group(3) else False
+
+                            # Only one of them can be True, so use XOR.
+                            # Symbols must match.
+                            if (post_inc ^ pre_decr) and symbolName_1 == symbolName_2:
+
+                                s_B_size = 1
+                                if s_B == 'w':
+                                    s_B_size = 2
+                                elif s_B == 'l':
+                                    s_B_size = 4
+                                s_C_size = 1
+                                if s_C == 'w':
+                                    s_C_size = 2
+                                elif s_C == 'l':
+                                    s_C_size = 4
+                                s_D_size = 1
+                                if s_D == 'w':
+                                    s_D_size = 2
+                                elif s_D == 'l':
+                                    s_D_size = 4
+                                s_E_size = 1
+                                if s_E == 'w':
+                                    s_E_size = 2
+                                elif s_E == 'l':
+                                    s_E_size = 4
+
+                                use_post_inc = False
+                                use_pre_inc = False
+                                if post_inc and (symbolName_1_op + s_B_size + s_C_size + s_D_size + s_E_size == symbolName_2_op):
+                                    use_post_inc = True
+                                elif pre_decr and (symbolName_1_op - s_B_size - s_C_size - s_D_size - s_E_size == symbolName_2_op):
+                                    use_pre_inc = True
+
+                                if use_post_inc:
+                                    optimized_lines = [
+                                        line_A,
+                                        line_B,
+                                        line_C,
+                                        line_D,
+                                        f'{matchA.group(1)}move.{s_E}{matchA.group(2)}{ea_E},({aN})+',
+                                        f'{matchA.group(1)}move.{s_F}{matchA.group(2)}{ea_F},({aN})'
+                                    ]
+                                    return (optimized_lines, 6)
+                                elif use_pre_inc:
+                                    optimized_lines = [
+                                        line_A,
+                                        line_B,
+                                        line_C,
+                                        line_D,
+                                        line_E,
+                                        f'{matchA.group(1)}move.{s_F}{matchA.group(2)}{ea_F},-({aN})'
+                                    ]
+                                    return (optimized_lines, 6)
+
     if USE_MOVEM_OPTIMIZATIONS:
 
         # Consecutively push into stack a sequence of registers.
@@ -6957,7 +7188,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     ea_D = next((matchD.group(i) for i in range(4, 10) if matchD.group(i)), None)
                                     ea_E = next((matchE.group(i) for i in range(4, 10) if matchE.group(i)), None)
                                     # Pick an address register not present in either ea
-                                    eas = (ea_A, ea_B, ea_C, ea_D)
+                                    eas = (ea_A, ea_B, ea_C, ea_D, ea_E)
                                     aN = next((r for r in free_addr_regs if all(r not in s for s in eas)), None)
                                     if aN is not None:
                                         optimized_lines = []
@@ -6984,6 +7215,93 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                             return (optimized_lines, 5)
                                         elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
                                             return (optimized_lines, 5)
+
+    # Writing multiple values from random memory or regs to sequential memory.
+    # This particular case applies when the last consecutive memory value is a symbol.
+    # Where symbolName+P = symbolName+Q +/- 1/2/4
+    # lea     symbolName+P,aN         ->    lea symbolName+offset,aN          ; Saves 8 cycles.
+    # move.s  <ea_1>,(%aN)[+]               move.s  <ea_1>,(%aN)[+]
+    # move.s  <ea_2>,[-](aN)[+]             move.s  <ea_2>,[-](aN)[+]
+    # move.s  <ea_3>,[-](aN)                move.s  <ea_3>,[-](aN)[+]
+    # move.s  <ea_4>,symbolName+Q           move.s  <ea_4>,[-](aN)
+    # Ensure aN is not used in any <ea>.
+    matchA = re.match(r'^(\s*)lea(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
+    if matchA:
+        symbolName_1 = ''.join(matchA.group(i) for i in range(3, 5) if matchA.group(i))
+        op_1_str = '' if not matchA.group(5) else matchA.group(5)
+        symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+        aN = matchA.group(7)
+        # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+        matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*\((%a[0-7])\)(\+)?\s*(?:;.*)?$', line_B)
+        if matchB and aN == matchB.group(3) and aN not in matchB.group(2):
+            s_B = matchB.group(1)
+            # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+            matchC = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(-)?\((%a[0-7])\)(\+)?\s*(?:;.*)?$', line_C)
+            if matchC and aN == matchC.group(4) and aN not in matchC.group(2):
+                s_C = matchC.group(1)
+                # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+                matchD = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(-)?\((%a[0-7])\)\s*(?:;.*)?$', line_D)
+                if matchD and aN == matchD.group(4) and aN not in matchD.group(2):
+                    s_D = matchD.group(1)
+                    ea_D = matchD.group(2)
+                    # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+                    matchE = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_E)
+                    if matchE and aN not in matchE.group(2):
+                        s_E = matchE.group(1)
+                        ea_E = matchE.group(2)
+                        symbolName_2 = ''.join(matchE.group(i) for i in range(3, 5) if matchE.group(i))
+                        op_2_str = '' if not matchE.group(5) else matchE.group(5)
+                        symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+
+                        # Get what type of operation is performed to the (aN) indirection
+                        post_inc = True if matchB.group(4) and matchC.group(5) else False
+                        pre_decr = True if matchC.group(3) and matchD.group(3) else False
+
+                        # Only one of them can be True, so use XOR.
+                        # Symbols must match.
+                        if (post_inc ^ pre_decr) and symbolName_1 == symbolName_2:
+
+                            s_B_size = 1
+                            if s_B == 'w':
+                                s_B_size = 2
+                            elif s_B == 'l':
+                                s_B_size = 4
+                            s_C_size = 1
+                            if s_C == 'w':
+                                s_C_size = 2
+                            elif s_C == 'l':
+                                s_C_size = 4
+                            s_D_size = 1
+                            if s_D == 'w':
+                                s_D_size = 2
+                            elif s_D == 'l':
+                                s_D_size = 4
+
+                            use_post_inc = False
+                            use_pre_inc = False
+                            if post_inc and (symbolName_1_op + s_B_size + s_C_size + s_D_size == symbolName_2_op):
+                                use_post_inc = True
+                            elif pre_decr and (symbolName_1_op - s_B_size - s_C_size - s_D_size == symbolName_2_op):
+                                use_pre_inc = True
+
+                            if use_post_inc:
+                                optimized_lines = [
+                                    line_A,
+                                    line_B,
+                                    line_C,
+                                    f'{matchA.group(1)}move.{s_D}{matchA.group(2)}{ea_D},({aN})+',
+                                    f'{matchA.group(1)}move.{s_E}{matchA.group(2)}{ea_E},({aN})'
+                                ]
+                                return (optimized_lines, 5)
+                            elif use_pre_inc:
+                                optimized_lines = [
+                                    line_A,
+                                    line_B,
+                                    line_C,
+                                    line_D,
+                                    f'{matchA.group(1)}move.{s_E}{matchA.group(2)}{ea_E},-({aN})'
+                                ]
+                                return (optimized_lines, 5)
 
     if USE_MOVEM_OPTIMIZATIONS:
 
@@ -8689,6 +9007,81 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                         return (optimized_lines, 4)
                                     elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
                                         return (optimized_lines, 4)
+
+    # Writing multiple values from random memory or regs to sequential memory.
+    # This particular case applies when the last consecutive memory value is a symbol.
+    # Where symbolName+P = symbolName+Q +/- 1/2/4
+    # lea     symbolName+P,aN         ->    lea symbolName+offset,aN          ; Saves 8 cycles.
+    # move.s  <ea_1>,(%aN)[+]               move.s  <ea_1>,(%aN)[+]
+    # move.s  <ea_2>,[-](aN)                move.s  <ea_2>,[-](aN)[+]
+    # move.s  <ea_3>,symbolName+Q           move.s  <ea_3>,[-](aN)
+    # Ensure aN is not used in any <ea>.
+    matchA = re.match(r'^(\s*)lea(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
+    if matchA:
+        symbolName_1 = ''.join(matchA.group(i) for i in range(3, 5) if matchA.group(i))
+        op_1_str = '' if not matchA.group(5) else matchA.group(5)
+        symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+        aN = matchA.group(7)
+        # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+        matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*\((%a[0-7])\)(\+)?\s*(?:;.*)?$', line_B)
+        if matchB and aN == matchB.group(3) and aN not in matchB.group(2):
+            s_B = matchB.group(1)
+            # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+            matchC = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(-)?\((%a[0-7])\)\s*(?:;.*)?$', line_C)
+            if matchC and aN == matchC.group(4) and aN not in matchC.group(2):
+                s_C = matchC.group(1)
+                ea_C = matchC.group(2)
+                # (.+?) is non-greedy capture everything, and the final $ forces to match the ',' and whatever is after
+                matchD = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_D)
+                if matchD and aN not in matchD.group(2):
+                    s_D = matchD.group(1)
+                    ea_D = matchD.group(2)
+                    symbolName_2 = ''.join(matchD.group(i) for i in range(3, 5) if matchD.group(i))
+                    op_2_str = '' if not matchD.group(5) else matchD.group(5)
+                    symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+
+                    # Get what type of operation is performed to the (aN) indirection
+                    post_inc = True if matchB.group(4) else False
+                    pre_decr = True if matchC.group(3) else False
+
+                    # Only one of them can be True, so use XOR.
+                    # Symbols must match.
+                    if (post_inc ^ pre_decr) and symbolName_1 == symbolName_2:
+
+                        s_B_size = 1
+                        if s_B == 'w':
+                            s_B_size = 2
+                        elif s_B == 'l':
+                            s_B_size = 4
+                        s_C_size = 1
+                        if s_C == 'w':
+                            s_C_size = 2
+                        elif s_C == 'l':
+                            s_C_size = 4
+
+                        use_post_inc = False
+                        use_pre_inc = False
+                        if post_inc and (symbolName_1_op + s_B_size + s_C_size == symbolName_2_op):
+                            use_post_inc = True
+                        elif pre_decr and (symbolName_1_op - s_B_size - s_C_size == symbolName_2_op):
+                            use_pre_inc = True
+
+                        if use_post_inc:
+                            optimized_lines = [
+                                line_A,
+                                line_B,
+                                f'{matchA.group(1)}move.{s_C}{matchA.group(2)}{ea_C},({aN})+',
+                                f'{matchA.group(1)}move.{s_D}{matchA.group(2)}{ea_D},({aN})'
+                            ]
+                            return (optimized_lines, 4)
+                        elif use_pre_inc:
+                            optimized_lines = [
+                                line_A,
+                                line_B,
+                                line_C,
+                                f'{matchA.group(1)}move.{s_D}{matchA.group(2)}{ea_D},-({aN})'
+                            ]
+                            return (optimized_lines, 4)
 
     # Tail recursion for BSR/JSR or exploiting PEA opportunities.
     bsr_jsr_routine = r'^(\s*)(bsr|jsr)(\.[bsw])?(\s+)([0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+\*]\d+)?(\.[bwl])?\s*(?:;.*)?$'
@@ -11830,7 +12223,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         s = matchA.group(1)
         dN = matchA.group(2)
-        # (.+?) is non-greedy capture everything, and with the $ we force it to also match the ,\s*%dN
+        # (.+?) is non-greedy capture everything, and the final $ forces to also match the ,\s*%dN
         matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
         if matchB and s == matchB.group(1) and dN == matchB.group(3):
             optimized_lines = [line_B]
@@ -11844,7 +12237,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     matchA = re.match(r'^\s*(moveq|move)(\.l)?\s+#0,\s*(%d[0-7])', line_A)
     if matchA:
         dN = matchA.group(3)
-        # (.+?) is non-greedy capture everything, and with the $ we force it to also match the ,\s*%dN
+        # (.+?) is non-greedy capture everything, and the final $ forces to also match the ,\s*%dN
         matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
         if matchB and dN == matchB.group(3):
             s_B = matchB.group(1)
