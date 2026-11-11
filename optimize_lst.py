@@ -5943,35 +5943,17 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                             if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4 and symbolName_4 == symbolName_5 and symbolName_5 == symbolName_6:
                                 use_post_inc = False
                                 use_pre_inc = False
-                                s_A_size = 1
-                                if s_A == 'w':
-                                    s_A_size = 2
-                                elif s_A == 'l':
-                                    s_A_size = 4
-                                s_B_size = 1
-                                if s_B == 'w':
-                                    s_B_size = 2
-                                elif s_B == 'l':
-                                    s_B_size = 4
-                                s_C_size = 1
-                                if s_C == 'w':
-                                    s_C_size = 2
-                                elif s_C == 'l':
-                                    s_C_size = 4
-                                s_D_size = 1
-                                if s_D == 'w':
-                                    s_D_size = 2
-                                elif s_D == 'l':
-                                    s_D_size = 4
-                                s_E_size = 1
-                                if s_E == 'w':
-                                    s_E_size = 2
-                                elif s_E == 'l':
-                                    s_E_size = 4
+                                _SIZE = {'w': 2, 'l': 4}
+                                s_A_size = _SIZE.get(s_A, 1)
+                                s_B_size = _SIZE.get(s_B, 1)
+                                s_C_size = _SIZE.get(s_C, 1)
+                                s_D_size = _SIZE.get(s_D, 1)
+                                s_E_size = _SIZE.get(s_E, 1)
+                                s_F_size = _SIZE.get(s_F, 1)
 
                                 if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op) and (symbolName_4_op + s_D_size == symbolName_5_op) and (symbolName_5_op + s_E_size == symbolName_6_op):
                                     use_post_inc = True
-                                elif (symbolName_1_op - s_A_size == symbolName_2_op) and (symbolName_2_op - s_B_size == symbolName_3_op) and (symbolName_3_op - s_C_size == symbolName_4_op) and (symbolName_4_op - s_D_size == symbolName_5_op) and (symbolName_5_op - s_E_size == symbolName_6_op):
+                                elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op) and (symbolName_3_op - s_D_size == symbolName_4_op) and (symbolName_4_op - s_E_size == symbolName_5_op) and (symbolName_5_op - s_F_size == symbolName_6_op):
                                     use_pre_inc = True
 
                                 if use_post_inc or use_pre_inc:
@@ -6070,32 +6052,18 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                             # Symbols must match.
                             if (post_inc ^ pre_decr) and symbolName_1 == symbolName_2:
 
-                                s_B_size = 1
-                                if s_B == 'w':
-                                    s_B_size = 2
-                                elif s_B == 'l':
-                                    s_B_size = 4
-                                s_C_size = 1
-                                if s_C == 'w':
-                                    s_C_size = 2
-                                elif s_C == 'l':
-                                    s_C_size = 4
-                                s_D_size = 1
-                                if s_D == 'w':
-                                    s_D_size = 2
-                                elif s_D == 'l':
-                                    s_D_size = 4
-                                s_E_size = 1
-                                if s_E == 'w':
-                                    s_E_size = 2
-                                elif s_E == 'l':
-                                    s_E_size = 4
+                                _SIZE = {'w': 2, 'l': 4}
+                                s_B_size = _SIZE.get(s_B, 1)
+                                s_C_size = _SIZE.get(s_C, 1)
+                                s_D_size = _SIZE.get(s_D, 1)
+                                s_E_size = _SIZE.get(s_E, 1)
+                                s_F_size = _SIZE.get(s_F, 1)
 
                                 use_post_inc = False
                                 use_pre_inc = False
                                 if post_inc and (symbolName_1_op + s_B_size + s_C_size + s_D_size + s_E_size == symbolName_2_op):
                                     use_post_inc = True
-                                elif pre_decr and (symbolName_1_op - s_B_size - s_C_size - s_D_size - s_E_size == symbolName_2_op):
+                                elif pre_decr and (symbolName_1_op - s_C_size - s_D_size - s_E_size - s_F_size == symbolName_2_op):
                                     use_pre_inc = True
 
                                 if use_post_inc:
@@ -7147,30 +7115,16 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                         if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4 and symbolName_4 == symbolName_5:
                             use_post_inc = False
                             use_pre_inc = False
-                            s_A_size = 1
-                            if s_A == 'w':
-                                s_A_size = 2
-                            elif s_A == 'l':
-                                s_A_size = 4
-                            s_B_size = 1
-                            if s_B == 'w':
-                                s_B_size = 2
-                            elif s_B == 'l':
-                                s_B_size = 4
-                            s_C_size = 1
-                            if s_C == 'w':
-                                s_C_size = 2
-                            elif s_C == 'l':
-                                s_C_size = 4
-                            s_D_size = 1
-                            if s_D == 'w':
-                                s_D_size = 2
-                            elif s_D == 'l':
-                                s_D_size = 4
+                            _SIZE = {'w': 2, 'l': 4}
+                            s_A_size = _SIZE.get(s_A, 1)
+                            s_B_size = _SIZE.get(s_B, 1)
+                            s_C_size = _SIZE.get(s_C, 1)
+                            s_D_size = _SIZE.get(s_D, 1)
+                            s_E_size = _SIZE.get(s_E, 1)
 
                             if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op) and (symbolName_4_op + s_D_size == symbolName_5_op):
                                 use_post_inc = True
-                            elif (symbolName_1_op - s_A_size == symbolName_2_op) and (symbolName_2_op - s_B_size == symbolName_3_op) and (symbolName_3_op - s_C_size == symbolName_4_op) and (symbolName_4_op - s_D_size == symbolName_5_op):
+                            elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op) and (symbolName_3_op - s_D_size == symbolName_4_op) and (symbolName_4_op - s_E_size == symbolName_5_op):
                                 use_pre_inc = True
 
                             if use_post_inc or use_pre_inc:
@@ -7261,27 +7215,17 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                         # Symbols must match.
                         if (post_inc ^ pre_decr) and symbolName_1 == symbolName_2:
 
-                            s_B_size = 1
-                            if s_B == 'w':
-                                s_B_size = 2
-                            elif s_B == 'l':
-                                s_B_size = 4
-                            s_C_size = 1
-                            if s_C == 'w':
-                                s_C_size = 2
-                            elif s_C == 'l':
-                                s_C_size = 4
-                            s_D_size = 1
-                            if s_D == 'w':
-                                s_D_size = 2
-                            elif s_D == 'l':
-                                s_D_size = 4
+                            _SIZE = {'w': 2, 'l': 4}
+                            s_B_size = _SIZE.get(s_B, 1)
+                            s_C_size = _SIZE.get(s_C, 1)
+                            s_D_size = _SIZE.get(s_D, 1)
+                            s_E_size = _SIZE.get(s_E, 1)
 
                             use_post_inc = False
                             use_pre_inc = False
                             if post_inc and (symbolName_1_op + s_B_size + s_C_size + s_D_size == symbolName_2_op):
                                 use_post_inc = True
-                            elif pre_decr and (symbolName_1_op - s_B_size - s_C_size - s_D_size == symbolName_2_op):
+                            elif pre_decr and (symbolName_1_op - s_C_size - s_D_size - s_E_size == symbolName_2_op):
                                 use_pre_inc = True
 
                             if use_post_inc:
@@ -8947,25 +8891,15 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4:
                         use_post_inc = False
                         use_pre_inc = False
-                        s_A_size = 1
-                        if s_A == 'w':
-                            s_A_size = 2
-                        elif s_A == 'l':
-                            s_A_size = 4
-                        s_B_size = 1
-                        if s_B == 'w':
-                            s_B_size = 2
-                        elif s_B == 'l':
-                            s_B_size = 4
-                        s_C_size = 1
-                        if s_C == 'w':
-                            s_C_size = 2
-                        elif s_C == 'l':
-                            s_C_size = 4
+                        _SIZE = {'w': 2, 'l': 4}
+                        s_A_size = _SIZE.get(s_A, 1)
+                        s_B_size = _SIZE.get(s_B, 1)
+                        s_C_size = _SIZE.get(s_C, 1)
+                        s_D_size = _SIZE.get(s_D, 1)
 
                         if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op):
                             use_post_inc = True
-                        elif (symbolName_1_op - s_A_size == symbolName_2_op) and (symbolName_2_op - s_B_size == symbolName_3_op) and (symbolName_3_op - s_C_size == symbolName_4_op):
+                        elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op) and (symbolName_3_op - s_D_size == symbolName_4_op):
                             use_pre_inc = True
 
                         if use_post_inc or use_pre_inc:
@@ -9048,22 +8982,16 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     # Symbols must match.
                     if (post_inc ^ pre_decr) and symbolName_1 == symbolName_2:
 
-                        s_B_size = 1
-                        if s_B == 'w':
-                            s_B_size = 2
-                        elif s_B == 'l':
-                            s_B_size = 4
-                        s_C_size = 1
-                        if s_C == 'w':
-                            s_C_size = 2
-                        elif s_C == 'l':
-                            s_C_size = 4
+                        _SIZE = {'w': 2, 'l': 4}
+                        s_B_size = _SIZE.get(s_B, 1)
+                        s_C_size = _SIZE.get(s_C, 1)
+                        s_D_size = _SIZE.get(s_D, 1)
 
                         use_post_inc = False
                         use_pre_inc = False
                         if post_inc and (symbolName_1_op + s_B_size + s_C_size == symbolName_2_op):
                             use_post_inc = True
-                        elif pre_decr and (symbolName_1_op - s_B_size - s_C_size == symbolName_2_op):
+                        elif pre_decr and (symbolName_1_op - s_C_size - s_D_size == symbolName_2_op):
                             use_pre_inc = True
 
                         if use_post_inc:
@@ -9543,20 +9471,14 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3:
                     use_post_inc = False
                     use_pre_inc = False
-                    s_A_size = 1
-                    if s_A == 'w':
-                        s_A_size = 2
-                    elif s_A == 'l':
-                        s_A_size = 4
-                    s_B_size = 1
-                    if s_B == 'w':
-                        s_B_size = 2
-                    elif s_B == 'l':
-                        s_B_size = 4
+                    _SIZE = {'w': 2, 'l': 4}
+                    s_A_size = _SIZE.get(s_A, 1)
+                    s_B_size = _SIZE.get(s_B, 1)
+                    s_C_size = _SIZE.get(s_C, 1)
 
                     if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op):
                         use_post_inc = True
-                    elif (symbolName_1_op - s_A_size == symbolName_2_op) and (symbolName_2_op - s_B_size == symbolName_3_op):
+                    elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op):
                         use_pre_inc = True
 
                     if use_post_inc or use_pre_inc:
@@ -11507,15 +11429,13 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if symbolName_1 == symbolName_2:
                 use_post_inc = False
                 use_pre_inc = False
-                s_A_size = 1
-                if s_A == 'w':
-                    s_A_size = 2
-                elif s_A == 'l':
-                    s_A_size = 4
+                _SIZE = {'w': 2, 'l': 4}
+                s_A_size = _SIZE.get(s_A, 1)
+                s_B_size = _SIZE.get(s_B, 1)
 
                 if (symbolName_1_op + s_A_size == symbolName_2_op):
                     use_post_inc = True
-                elif (symbolName_1_op - s_A_size == symbolName_2_op):
+                elif (symbolName_1_op - s_B_size == symbolName_2_op):
                     use_pre_inc = True
 
                 if use_post_inc or use_pre_inc:
