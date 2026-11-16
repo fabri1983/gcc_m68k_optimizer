@@ -125,48 +125,13 @@ Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 
 Is also similar to: Pushing word memory values into stack with word adjustments for ABI long args compliance.
 # Move from consecutive memory indirection to random memory indirection.
 # Re order instructions to take advantage of auto increment.
-move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+    ; Saves 36 cycles
-addq.w  #4,%a2                   move.w (aN)+,(aM)+
+move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+      ; Saves 36 cycles
+addq.w  #4,%aM                   move.w (aN)+,(aM)+
 move.w  2(%aN),-2(%aM)           move.w (aN)+,(aP)+
 move.w  4(%aN),(%aP)             move.w (aN)+,(aP)+
-addq.w  #4,%a3
+addq.w  #4,%aP
 move.w  6(%aN),-2(%aP)
 # Ensure aN is not used anymore or cleared/overwritten before use.
-
-See the implementation for 2 lines for next patterns:
-# Clear consecutive memory. All same size accesor.
-clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [24,28,32] cycles.
-clr.l  symbol_or_mem+Q          move.l   xN,xM
-clr.l  symbol_or_mem+R          move.l   xN,xP
-                                movem.l  xN/xM/xP,symbol_or_mem+offset
-# If symbol_or_mem+P = symbol_or_mem+Q +/- 4
-# If symbol_or_mem+Q = symbol_or_mem+R +/- 4
-# Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
-# xN must be a data reg in case no regs were found holding 0.
-
-# Clear consecutive memory. All same size accesor.
-clr.l  symbol_or_mem+P    ->    moveq    #0,xN           ; Saves [64,68,72,76] cycles.
-clr.l  symbol_or_mem+Q          move.l   xN,xM
-clr.l  symbol_or_mem+R          move.l   xN,xP
-clr.l  symbol_or_mem+S          move.l   xN,xQ
-                                movem.l  xN/xM/xP/xQ,symbol_or_mem+offset
-# If symbol_or_mem+P = symbol_or_mem+Q +/- 4
-# If symbol_or_mem+Q = symbol_or_mem+R +/- 4
-# If symbol_or_mem+R = symbol_or_mem+S +/- 4
-# Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
-# xN must be a data reg in case no regs were found holding 0.
-
-# Clear consecutive memory. Different size accesor.
-clr.[wl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [20,24,28] cycles.
-clr.[wl]  symbol_or_mem+Q          move.l   xN,xM
-clr.[wl]  symbol_or_mem+R          movem.l  xN/xM,symbol_or_mem+offset
-                                   move.w   xN,symbol_or_mem+R
-# Size combinations: llw, lwl, wll
-# If symbol_or_mem+P = symbol_or_mem+Q +/- 2/4
-# If symbol_or_mem+Q = symbol_or_mem+R +/- 2/4
-# If symbol_or_mem+R = symbol_or_mem+S +/- 2/4
-# Needs xN/xM free registers, or as much as possible regs already holding 0.
-# xN must be a data reg in case no regs were found holding 0.
 
 # Read-Modify-Write and increment pointer.
 move.s  (aN),dN         ->    add.w   dM,(aN)+           ; Saves [8,12] cycles. Leaves dN different.

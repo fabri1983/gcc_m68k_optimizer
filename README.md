@@ -10,17 +10,18 @@ Features:
 - Instructions re ordering when possible to match a given pattern.
 - Exploit address register sign extension.
 - Exploit address loading by a constant offset from another address register already loaded.
+- Local backward search for registers holding 0 to be used for rapidly clear of memory.
 - Multiple lines span optimizations: up to 8 lines for pattern matching optimizations.
 - Many more optimizations.
 
 Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds a m68k elf artifact prior 
 to the final binary rom artifact.
 
-This python script is intended to be executed from gcc plugin feature at `PLUGIN_FINISH` phase, which is 
+This python script is intended to be executed by gcc plugin feature at `PLUGIN_FINISH` phase, which is 
 the last opportunity we have to access assembly code before exiting gcc and start the linking phase.
 
 At `PLUGIN_FINISH` phase we can access the m68k assembly code (in MIT Syntax AT&T-style) generated from all the **.c units** in our project 
-and those by the **SGDK** library, including the inline asm blocks. Assembly units **.s, .S, .asm** are excluded from this phase.
+and those by the **SGDK** library, including the inline asm blocks (you can skip them if needed). Assembly units **.s, .S, .asm** are excluded from this phase.
 
 The optimizations depend heavily on the project you run on it. On some, it saves 1% of CPU per frame 
 (approximately 2 scanlines), which is a sign that the project's hot path might be better rewritten in asm (if not already).
@@ -54,7 +55,7 @@ Use script [build_gcc.sh](build_gcc.sh "build_gcc.sh") (or [build_gcc_mingw64_wi
 Add the toolchain into your PATH so SGDK can see it, and also to correctly build the plugin in next step.
 
 Then, compile the gcc plugin `optimizer_plugin.c` responsible to execute the python script over the 
-gcc m68k assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
+generated assembly code. See script [build_plugin.sh](build_plugin.sh "build_plugin.sh") 
 (or [build_plugin_mingw64_windows.sh](build_plugin_mingw64_windows.sh "build_plugin_mingw64_windows.sh") **WIP**).  
 This will create `optimizer_plugin.so`/`optimizer_plugin.dll` file. Move it into SGDK's `tools` folder.  
 Move `optimize_lst.py` and `optimize_mul_patterns.py` files into SGDK's `tools` folder.
@@ -114,5 +115,5 @@ As well as a function attribute:
 void __attribute__((fastcall)) func(u16 a, u16 b);
 ```
 
-Unfortunatelly some of my projects crash, and others work well up to a point. So is not production ready.
+Unfortunatelly some of my projects crash, and others work well up to a point. So this experimental gcc 15.2.0 is not final.
 You can go feature by feature (see _PeyloW_ github repo) and try diabling/enabling them to see which features work for your project.

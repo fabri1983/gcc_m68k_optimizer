@@ -15186,6 +15186,13 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
 
     return (modified_multi_lines, num_updated_lines_found, num_patterns_found)
 
+def convert_from_gcc_fp_style(line: str) -> str:
+    """
+    Convert operand from %fp to %a6
+    """
+    # Replaces all occurrences of %fp by %a6
+    return line.replace('%fp', '%a6')
+
 # %pc@(disp,%xN:s)
 gcc_indirection_style_pattern = re.compile(r'%pc@\((-?\d+),%([ad])([0-7]):([bwl])\)')
 
@@ -15195,10 +15202,11 @@ def convert_from_gcc_indirection_style(line: str) -> str:
     """
     return gcc_indirection_style_pattern.sub(lambda m: f"{m.group(1)}(%pc,%{m.group(2)}{m.group(3)}.{m.group(4)})", line)
 
+# Allows spaces
 gcc_inner_displacement_style_pattern = re.compile(
-    r'(?:\((-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?),(%a[0-7]|%sp|%pc)\))'  # (label_or_disp[.bwl][+-*N],aN/sp/pc)
+    r'(?:\(\s*(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?)\s*,\s*(%a[0-7]|%sp|%pc)\s*\))'  # (label_or_disp[.bwl][+-*N],aN/sp/pc)
     r'|'
-    r'(?:\((-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?),(%a[0-7]|%sp|%pc),(%[ad][0-7])(\.[wl])?\))'  # (label_or_disp[.bwl][+-*N],aN/sp/pc,%xN[.s])
+    r'(?:\(\s*(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+\*]\d+)?)\s*,\s*(%a[0-7]|%sp|%pc)\s*,\s*(%[ad][0-7])(\.[wl])?\s*\))'  # (label_or_disp[.bwl][+-*N],aN/sp/pc,%xN[.s])
 )
 
 def convert_from_gcc_inner_displacement_style(line: str) -> str:
@@ -15252,12 +15260,6 @@ def replace_gcc_dn_long_indirection_by_word(line: str) -> str:
     # We need to make sure no symbol nor memory address was loaded into dN in previous instructions.
     # TODO: implement
     return line
-
-def convert_from_gcc_fp_style(line: str) -> str:
-    """
-    Convert operand from %fp to %a6
-    """
-    return line.replace('%fp', '%a6')
 
 MOVEM_REGS_INTO_MEM_REGEX = re.compile(r'^\s*(?:movem|movm)\.[wl]\s+([^,]+),\s*-\((?:%a[0-7]|%sp)\)')
 
@@ -15323,12 +15325,12 @@ def applyGccConversions(lines: list[str]) -> list[str]:
                 # Continue with next line
                 continue
 
+        # Replace %fp by %a6
+        line = convert_from_gcc_fp_style(line)
         # Replace gcc indirection style %pc@(disp,%xN:s) on certain instructions
         line = convert_from_gcc_indirection_style(line)
         # Convert gcc inner displacement style which comes inside parenthesis, into normal style
         line = convert_from_gcc_inner_displacement_style(line)
-        # Replace %fp by %a6
-        line = convert_from_gcc_fp_style(line)
         # Replace dN.l by dN.w in indirection accesses when possible
         line = replace_gcc_dn_long_indirection_by_word(line)
         # Replace gcc encoded list of regs by a human readable format
