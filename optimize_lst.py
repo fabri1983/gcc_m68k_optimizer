@@ -185,7 +185,8 @@ MULTIPLE_LINES_OPTIMIZATION_LIMIT = 8
 # a load of a constant. Using bigger values increase considerably the time of analysis.
 SYMBOL_OR_MEM_LOAD_BY_OFFSET_WINDOW_MAX_SIZE = 64
 
-# Helps to identify the many invocations of the plugin
+# Helps to identify the many invocations of the plugin when gcc produce multi lto objects.
+# You can force one big fat lto object by using flag: -flto-partition=one
 THIS_INVOKE_ID: str = '0'
 
 # Registry for public functions
@@ -4184,6 +4185,31 @@ def get_best_exg_sequence(unsorted_regs: list[str], sorted_regs: list[str]) -> l
         return []
     return seq
 
+def take_N_free_regs_from(free_data_regs: list[str], free_addr_regs: list[str], n: int) -> list[str | None]:
+    """
+    Pick N free registers, preferring data over address regs.
+    Return up to N available regs. If fewer, then the list is filled with None elements.
+    """
+
+    # Locate up to N slots without mutating anything
+    slots: list[tuple[list[str], int]] = []
+    for regs in (free_data_regs, free_addr_regs):
+        for i in range(len(regs)):
+            slots.append((regs, i))
+            if len(slots) == n:
+                break
+        if len(slots) == n:
+            break
+
+    # Create a list populated with N elements with None as value
+    picked: list[str | None] = [None]*n
+
+    # Pass 2: extract
+    for dest, (regs, src) in enumerate(slots):
+        picked[dest] = regs[src]
+
+    return picked
+
 IS_ASL_INSTRUCTION_REGEX = re.compile(r'^\s*asl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 
 IS_ASR_INSTRUCTION_REGEX = re.compile(r'^\s*asr\.[bwl]\s+[^,]+,\s*%d[0-7]')
@@ -4328,6 +4354,32 @@ instr_single_op_modify_dN_for_ccr_pattern = re.compile(
 
 copy_memory_by_consecutive_indirection_into_memory_aN_pattern = re.compile(
     r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\)\s*(?:;.*)?$'
+)
+
+# clr.s  symbolName[.wl][+/-N]
+clr_symbol_pattern = re.compile(
+    r'^(\s*)clr\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
+)
+
+# clr.b  -(sp)
+clr_b_stack_by_pushing_pattern = re.compile(
+    r'^(\s*)clr\.b(\s+)-\(%sp\)'
+)
+# clr.w  -(sp)
+clr_w_stack_by_pushing_pattern = re.compile(
+    r'^(\s*)clr\.w(\s+)-\(%sp\)'
+)
+# move.w #0,-(sp)
+move_w_0_to_stack_by_pushing_pattern = re.compile(
+    r'^(\s*)move\.w(\s+)#0,\s*-\(%sp\)'
+)
+# clr.l  -(sp)
+clr_l_stack_by_pushing_pattern = re.compile(
+    r'^(\s*)clr\.l(\s+)-\(%sp\)'
+)
+# pea  0[.wl]
+pea_0wl_pattern = re.compile(
+    r'^(\s*)pea(\s+)0(\.[wl])?'
 )
 
 def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str] | None, int]:
@@ -4711,6 +4763,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
     # move.s disp6(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp7(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
+    # Where s is w/l
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
@@ -5159,6 +5212,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
     # move.s disp5(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp6(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
+    # Where s is w/l
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
@@ -5817,6 +5871,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp5(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
+    # Where s is w/l
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
@@ -8531,15 +8586,15 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         # Get free data regs
                         free_data_regs_1 = find_free_after_use_DATA_regs(used_data_regs, i_line, lines, modified_lines, 4)
                         free_data_regs_2 = find_unused_DATA_regs(used_data_regs, i_line, lines, modified_lines, 4)
-                        free_data_regs_1 = [] if free_data_regs_1[0] == None else free_data_regs_1
-                        free_data_regs_2 = [] if free_data_regs_2[0] == None else free_data_regs_2
+                        free_data_regs_1 = [] if free_data_regs_1[0] is None else free_data_regs_1
+                        free_data_regs_2 = [] if free_data_regs_2[0] is None else free_data_regs_2
                         free_data_regs = sorted(list(set(free_data_regs_1) | set(free_data_regs_2)), key=lambda r: int(r[2:]))
 
                         # Get free address regs
                         free_addr_regs_1 = find_free_after_use_ADDRESS_regs(used_addr_regs, i_line, lines, modified_lines, 4)
                         free_addr_regs_2 = find_unused_ADDRESS_regs(used_addr_regs, i_line, lines, modified_lines, 4)
-                        free_addr_regs_1 = [] if free_addr_regs_1[0] == None else free_addr_regs_1
-                        free_addr_regs_2 = [] if free_addr_regs_2[0] == None else free_addr_regs_2
+                        free_addr_regs_1 = [] if free_addr_regs_1[0] is None else free_addr_regs_1
+                        free_addr_regs_2 = [] if free_addr_regs_2[0] is None else free_addr_regs_2
                         free_addr_regs = sorted(list(set(free_addr_regs_1) | set(free_addr_regs_2)), key=lambda r: int(r[2:]))
                         
                         free_regs = free_data_regs + free_addr_regs
@@ -9049,14 +9104,20 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.w  -(sp)
         # clr.w  -(sp)
         # clr.w  -(sp)
-        matchA = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line_A)
+        # Also considers: move.w #0,-(sp)
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
         if matchA:
-            matchB = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_B)
-            if matchB:
-                matchC = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_C)
-                if matchC:
-                    matchD = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_D)
-                    if matchD:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
+                matchC_clr = clr_w_stack_by_pushing_pattern.match(line_C)
+                matchC_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_C)
+                if matchC_clr or matchC_move_0:
+                    matchD_clr = clr_w_stack_by_pushing_pattern.match(line_D)
+                    matchD_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_D)
+                    if matchD_clr or matchD_move_0:
                         optimized_lines = [
                             f'{matchA.group(1)}subq.l{matchA.group(2)}#8,%sp'
                         ]
@@ -9067,20 +9128,20 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.l  -(sp)
         # clr.l  -(sp)
         # clr.l  -(sp)
-        # Also considers:  pea  0.w
-        matchA_clr = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line_A)
-        matchA_pea = re.match(r'^(\s*)pea(\s+)0.w', line_A)
-        matchA = matchA_clr or matchA_pea
+        # Also considers:  pea  0[.wl]
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
         if matchA:
-            matchB_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_B)
-            matchB_pea = re.match(r'^\s*pea\s+0.w', line_B)
-            if matchB_clr or matchB_pea:
-                matchC_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_C)
-                matchC_pea = re.match(r'^\s*pea\s+0.w', line_C)
-                if matchC_clr or matchC_pea:
-                    matchD_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_D)
-                    matchD_pea = re.match(r'^\s*pea\s+0.w', line_D)
-                    if matchD_clr or matchD_pea:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
+                matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
+                matchC_pea_0 = pea_0wl_pattern.match(line_C)
+                if matchC_clr or matchC_pea_0:
+                    matchD_clr = clr_l_stack_by_pushing_pattern.match(line_D)
+                    matchD_pea_0 = pea_0wl_pattern.match(line_D)
+                    if matchD_clr or matchD_pea_0:
                         optimized_lines = [
                             f'{matchA.group(1)}lea{matchA.group(2)}-16(%sp),%sp'
                         ]
@@ -9089,18 +9150,101 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     else:
 
         # Clearing consecutively the stack by pushing 0.
+        # clr.w  -(sp)     ->    moveq   #0,xN         ; Saves [24,28,32] cycles.
+        # clr.w  -(sp)           move.l  xN,xM
+        # clr.w  -(sp)           movem.l xN/xM,-(sp)
+        # clr.w  -(sp)
+        # Also considers: move.w #0,-(sp)
+        # Needs xN/xM free registers, or as much as possible regs already holding 0.
+        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
+        if matchA:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
+                matchC_clr = clr_w_stack_by_pushing_pattern.match(line_C)
+                matchC_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_C)
+                if matchC_clr or matchC_move_0:
+                    matchD_clr = clr_w_stack_by_pushing_pattern.match(line_D)
+                    matchD_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_D)
+                    if matchD_clr or matchD_move_0:
+                        # Search for regs holding 0
+                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                        # Found 2 regs holding 0
+                        if len(regs_holding_zero) >= 2:
+                            xN, xM = regs_holding_zero[0:2]
+                            optimized_lines = [
+                                f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM},-(%sp)'
+                            ]
+                            return (optimized_lines, 4)
+
+                        # Found 1 reg holding 0
+                        elif len(regs_holding_zero) == 1:
+                            xN = regs_holding_zero[0]
+                            # Search 1 free reg: xM
+                            xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)[0]
+                            if xM is None:
+                                xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)[0]
+
+                            # Free reg found?
+                            if xM is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xM}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM},-(%sp)'
+                                ]
+                                return (optimized_lines, 4)
+
+                        # No regs holding 0
+                        else:
+                            # Search 2 free regs: xN,xM
+                            xN, xM = None, None
+                            free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xN,xM,xP,xQ
+                            xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                            # Free regs found?
+                            if xN is not None and xM is not None:
+                                load_0_instr = ''
+                                if xN.startswith('%d'):
+                                    load_0_instr = f'{matchA.group(1)}moveq{matchA.group(2)}#0,{xN}'
+                                else:
+                                    load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(2)}{xN},{xN}'
+
+                                optimized_lines = [
+                                    load_0_instr,
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xM}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM},-(%sp)'
+                                ]
+                                return (optimized_lines, 4)
+
+        # Clearing consecutively the stack by pushing 0.
+        # NOTE: This is the old alternative for previous pattern.
         # clr.w  -(sp)     ->    pea     0.w           ; Saves 24 cycles.
         # clr.w  -(sp)           pea     0.w
         # clr.w  -(sp)
         # clr.w  -(sp)
-        matchA = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line_A)
+        # Also considers: move.w #0,-(sp)
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
         if matchA:
-            matchB = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_B)
-            if matchB:
-                matchC = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_C)
-                if matchC:
-                    matchD = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_D)
-                    if matchD:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
+                matchC_clr = clr_w_stack_by_pushing_pattern.match(line_C)
+                matchC_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_C)
+                if matchC_clr or matchC_move_0:
+                    matchD_clr = clr_w_stack_by_pushing_pattern.match(line_D)
+                    matchD_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_D)
+                    if matchD_clr or matchD_move_0:
                         optimized_lines = [
                             f'{matchA.group(1)}pea{matchA.group(2)}0.w',
                             f'{matchA.group(1)}pea{matchA.group(2)}0.w'
@@ -9108,6 +9252,133 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 4)
 
         # Clearing consecutively the stack by pushing 0.
+        # clr.l  -(sp)     ->    moveq   #0,xN         ; Saves [32,36,40,44,48] cycles.
+        # clr.l  -(sp)           move.l  xN,xM
+        # clr.l  -(sp)           move.l  xN,xP
+        # clr.l  -(sp)           move.l  xN,xQ
+        #                        movem.l xN/xM/xP/xQ,-(sp)
+        # Also considers:  pea  0[.wl]
+        # Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
+        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
+        if matchA:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
+                matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
+                matchC_pea_0 = pea_0wl_pattern.match(line_C)
+                if matchC_clr or matchC_pea_0:
+                    matchD_clr = clr_l_stack_by_pushing_pattern.match(line_D)
+                    matchD_pea_0 = pea_0wl_pattern.match(line_D)
+                    if matchD_clr or matchD_pea_0:
+                        # Search for regs holding 0
+                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                        # Found 4 regs holding 0
+                        if len(regs_holding_zero) >= 4:
+                            xN, xM, xP, xQ = regs_holding_zero[0:4]
+                            optimized_lines = [
+                                f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP}/{xQ},-(%sp)'
+                            ]
+                            return (optimized_lines, 4)
+
+                        # Found 3 regs holding 0
+                        elif len(regs_holding_zero) == 3:
+                            xN, xM, xP = regs_holding_zero[0:3]
+                            # Search 1 free reg: xP
+                            xQ = find_free_after_use_DATA_regs([xN,xM,xP], i_line, lines, modified_lines, 4)[0]
+                            if xQ is None:
+                                xQ = find_free_after_use_ADDRESS_regs([xN,xM,xP], i_line, lines, modified_lines, 4)[0]
+
+                            # Free reg found?
+                            if xQ is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xQ}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP}/{xQ},-(%sp)'
+                                ]
+                                return (optimized_lines, 4)
+
+                        # Found 2 regs holding 0
+                        elif len(regs_holding_zero) == 2:
+                            xN, xM = regs_holding_zero[0:2]
+                            # Search 2 free regs: xP,xQ
+                            xP, xQ = None, None
+                            free_data_regs = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 4)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 4)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xM,xP
+                            xP, xQ = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                            # Free regs found?
+                            if xP is not None and xQ is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xP}',
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xQ}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP}/{xQ},-(%sp)'
+                                ]
+                                return (optimized_lines, 4)
+
+                        # Found 1 reg holding 0
+                        elif len(regs_holding_zero) == 1:
+                            xN = regs_holding_zero[0]
+                            # Search 3 free regs: xM,xP,xQ
+                            xM, xP, xQ = None, None, None
+                            free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xM,xP
+                            xM, xP, xQ = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                            # Free regs found?
+                            if xM is not None and xP is not None and xQ is not None:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xP}',
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xQ}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP}/{xQ},-(%sp)'
+                                ]
+                                return (optimized_lines, 4)
+
+                        # No regs holding 0
+                        else:
+                            # Search 4 free regs: xN,xM,xP,xQ
+                            xN, xM, xP, xQ = None, None, None, None
+                            free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                            if free_data_regs[0] is None:
+                                free_data_regs = []
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xN,xM,xP,xQ
+                            xN, xM, xP, xQ = take_N_free_regs_from(free_data_regs, free_addr_regs, 4)[0:4]
+
+                            # Free regs found?
+                            if xN is not None and xM is not None and xP is not None and xQ is not None:
+                                load_0_instr = ''
+                                if xN.startswith('%d'):
+                                    load_0_instr = f'{matchA.group(1)}moveq{matchA.group(2)}#0,{xN}'
+                                else:
+                                    load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(2)}{xN},{xN}'
+
+                                optimized_lines = [
+                                    load_0_instr,
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xM}',
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xP}',
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xQ}',
+                                    f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP}/{xQ},-(%sp)'
+                                ]
+                                return (optimized_lines, 4)
+
+        # Clearing consecutively the stack by pushing 0.
+        # NOTE: This is the old alternative for previous pattern.
         # clr.l  -(sp)     ->    moveq   #0,dN         ; Saves 32 cycles.
         # clr.l  -(sp)           moveq   #0,dM
         # clr.l  -(sp)           moveq   #0,dP
@@ -9115,24 +9386,24 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         #                        movem.l dN/dM/dP/dQ,-(sp)
         # Needs 4 free data registers or already holding 0.
         # Also considers:  pea  0.w
-        matchA_clr = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line_A)
-        matchA_pea = re.match(r'^(\s*)pea(\s+)0.w', line_A)
-        matchA = matchA_clr or matchA_pea
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
         if matchA:
-            matchB_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_B)
-            matchB_pea = re.match(r'^\s*pea\s+0.w', line_B)
-            if matchB_clr or matchB_pea:
-                matchC_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_C)
-                matchC_pea = re.match(r'^\s*pea\s+0.w', line_C)
-                if matchC_clr or matchC_pea:
-                    matchD_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_D)
-                    matchD_pea = re.match(r'^\s*pea\s+0.w', line_D)
-                    if matchD_clr or matchD_pea:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
+                matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
+                matchC_pea_0 = pea_0wl_pattern.match(line_C)
+                if matchC_clr or matchC_pea_0:
+                    matchD_clr = clr_l_stack_by_pushing_pattern.match(line_D)
+                    matchD_pea_0 = pea_0wl_pattern.match(line_D)
+                    if matchD_clr or matchD_pea_0:
                         free_d_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
                         is_any_dN_free_after_use = True
                         if len(free_d_regs) < 4:
                             is_any_dN_free_after_use = False
-                            existent_candidates = [] if free_d_regs[0] == None else free_d_regs
+                            existent_candidates = [] if free_d_regs[0] is None else free_d_regs
                             free_d_regs = find_unused_DATA_regs(existent_candidates, i_line, lines, modified_lines, 4)
                             free_d_regs = existent_candidates + [r for r in free_d_regs if r]  # Discards None reg
                         if len(free_d_regs) >= 4:
@@ -9148,6 +9419,528 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 4)
                             elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dN,dM,dP,dQ], i_line, lines, modified_lines):
                                 return (optimized_lines, 4)
+
+    # Clearing consecutive memory from same symbolName.
+    matchA = clr_symbol_pattern.match(line_A)
+    if matchA:
+        matchB = clr_symbol_pattern.match(line_B)
+        if matchB:
+            matchC = clr_symbol_pattern.match(line_C)
+            if matchC:
+                matchD = clr_symbol_pattern.match(line_D)
+                if matchD:
+                    sA = matchA.group(2)
+                    sB = matchB.group(2)
+                    sC = matchC.group(2)
+                    sD = matchD.group(2)
+                    symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
+                    symbolName_2 = ''.join(matchB.group(i) for i in range(4, 6) if matchB.group(i))
+                    symbolName_3 = ''.join(matchC.group(i) for i in range(4, 6) if matchC.group(i))
+                    symbolName_4 = ''.join(matchD.group(i) for i in range(4, 6) if matchD.group(i))
+                    op_1_str = '' if not matchA.group(6) else matchA.group(6)
+                    op_2_str = '' if not matchB.group(6) else matchB.group(6)
+                    op_3_str = '' if not matchC.group(6) else matchC.group(6)
+                    op_4_str = '' if not matchD.group(6) else matchD.group(6)
+                    symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+                    symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+                    symbolName_3_op = 0 if not op_3_str else int(op_3_str)
+                    symbolName_4_op = 0 if not op_4_str else int(op_4_str)
+
+                    if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4:
+
+                        _SIZE = {'w': 2, 'l': 4}
+                        sA_size = _SIZE.get(sA, 1)
+                        sB_size = _SIZE.get(sB, 1)
+                        sC_size = _SIZE.get(sC, 1)
+                        sD_size = _SIZE.get(sD, 1)
+                        size_strs = (sA, sB, sC, sD)
+
+                        # Clear consecutive memory. All same size accesor.
+                        # clr.l  symbolName+P    ->    moveq    #0,xN           ; Saves [64,68,72,76] cycles.
+                        # clr.l  symbolName+Q          move.l   xN,xM
+                        # clr.l  symbolName+R          move.l   xN,xP
+                        # clr.l  symbolName+S          move.l   xN,xQ
+                        #                              movem.l  xN/xM/xP/xQ,symbolName+offset
+                        # Where symbolName+P = symbolName+Q +/- 4
+                        # Where symbolName+Q = symbolName+R +/- 4
+                        # Where symbolName+R = symbolName+S +/- 4
+                        # Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
+                        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                        if size_strs.count('l') == 4:
+                            target_symbol = ''
+                            offset_str = ''
+
+                            if symbolName_1_op + 4 == symbolName_2_op and symbolName_2_op + 4 == symbolName_3_op and symbolName_3_op + 4 == symbolName_4_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                            elif symbolName_1_op - 4 == symbolName_2_op and symbolName_2_op - 4 == symbolName_3_op and symbolName_3_op - 4 == symbolName_4_op:
+                                target_symbol = symbolName_4
+                                offset_str = op_4_str
+
+                            if target_symbol:
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                                # Found 4 regs holding 0
+                                if len(regs_holding_zero) >= 4:
+                                    xN, xM, xP, xQ = regs_holding_zero[0:4]
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP}/{xQ},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 4)
+
+                                # Found 3 regs holding 0
+                                elif len(regs_holding_zero) == 3:
+                                    xN, xM, xP = regs_holding_zero[0:3]
+                                    # Search 1 free reg: xP
+                                    xQ = find_free_after_use_DATA_regs([xN,xM,xP], i_line, lines, modified_lines, 4)[0]
+                                    if xQ is None:
+                                        xQ = find_free_after_use_ADDRESS_regs([xN,xM,xP], i_line, lines, modified_lines, 4)[0]
+
+                                    # Free reg found?
+                                    if xQ is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xQ}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP}/{xQ},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # Found 2 regs holding 0
+                                elif len(regs_holding_zero) == 2:
+                                    xN, xM = regs_holding_zero[0:2]
+                                    # Search 2 free regs: xP,xQ
+                                    xP, xQ = None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xM,xP
+                                    xP, xQ = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                    # Free regs found?
+                                    if xP is not None and xQ is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xQ}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP}/{xQ},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # Found 1 reg holding 0
+                                elif len(regs_holding_zero) == 1:
+                                    xN = regs_holding_zero[0]
+                                    # Search 3 free regs: xM,xP,xQ
+                                    xM, xP, xQ = None, None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xM,xP
+                                    xM, xP, xQ = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                                    # Free regs found?
+                                    if xM is not None and xP is not None and xQ is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xQ}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP}/{xQ},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 4 free regs: xN,xM,xP,xQ
+                                    xN, xM, xP, xQ = None, None, None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xN,xM,xP,xQ
+                                    xN, xM, xP, xQ = take_N_free_regs_from(free_data_regs, free_addr_regs, 4)[0:4]
+
+                                    # Free regs found?
+                                    if xN is not None and xM is not None and xP is not None and xQ is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xQ}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP}/{xQ},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                        # Clear consecutive memory. All same size accesor.
+                        # clr.b  symbolName+P    ->    moveq    #0,xN           ; Saves [56,60] cycles.
+                        # clr.b  symbolName+Q          move.l   xN,symbolName+offset
+                        # clr.b  symbolName+R
+                        # clr.b  symbolName+S
+                        # Where symbolName+P = symbolName+Q +/- 1
+                        # Where symbolName+Q = symbolName+R +/- 1
+                        # Where symbolName+R = symbolName+S +/- 1
+                        # Needs xN free register, or a reg already holding 0.
+                        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                        elif size_strs.count('b') == 4:
+                            target_symbol = ''
+                            offset_str = ''
+                            # Ensure offset is even. Symbols are always at an even address.
+                            is_offset_even = False
+
+                            if symbolName_1_op + 1 == symbolName_2_op and symbolName_2_op + 1 == symbolName_3_op and symbolName_3_op + 1 == symbolName_4_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                                is_offset_even = symbolName_1_op % 2
+                            elif symbolName_1_op - 1 == symbolName_2_op and symbolName_2_op - 1 == symbolName_3_op and symbolName_3_op - 1 == symbolName_4_op:
+                                target_symbol = symbolName_4
+                                offset_str = op_4_str
+                                is_offset_even = symbolName_4_op % 2
+
+                            if target_symbol and is_offset_even and not in_a_SGDK_sound_related_routine(modified_lines):
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                                # Found 1 reg holding 0
+                                if len(regs_holding_zero) >= 1:
+                                    xN = regs_holding_zero[0]
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 4)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 1 free reg: xN
+                                    xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)[0]
+                                    if xN is None:
+                                        xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
+
+                                    # Free reg found?
+                                    if xN is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                        # Clear consecutive memory. All same size accesor.
+                        # clr.[bwl]  symbolName+P    ->    moveq    #0,xN           ; Saves [42,46,50,54] cycles.
+                        # clr.[bwl]  symbolName+Q          move.l   xN,xM
+                        # clr.[bwl]  symbolName+R          movem.l  xN/xM,symbolName+offset
+                        # clr.[bwl]  symbolName+S          move.w   xN,symbolName+S
+                        # Size combinations: wwwl, wwlw, wlww, lwww, 
+                        #                    bbwl, bblw, wbbl, lbbw, bwbl, blbw, wlbb, lwbb, wblb, lbwb
+                        # Where symbolName+P = symbolName+Q +/- 1/2/4
+                        # Where symbolName+Q = symbolName+R +/- 1/2/4
+                        # Where symbolName+R = symbolName+S +/- 1/2/4
+                        # Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
+                        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                        elif (size_strs.count('w') == 3 or (size_strs.count('w') == 1 and size_strs.count('b') == 2)) and size_strs.count('l') == 1:
+                            target_symbol = ''
+                            offset_str = ''
+
+                            if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op and symbolName_3_op + sC_size == symbolName_4_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                            elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op and symbolName_3_op - sD_size == symbolName_4_op:
+                                # Here we set symbolName_3 because symbolName_4 goes separatedly
+                                target_symbol = symbolName_3
+                                offset_str = op_3_str
+
+                            # Accomodate last operation offset
+                            last_op_offset = symbolName_4_op + 2 if sD == 'l' else symbolName_4_op
+                            last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
+
+                            if target_symbol and (size_strs.count('b') == 0 or not in_a_SGDK_sound_related_routine(modified_lines)):
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                                # Found 2 regs holding 0
+                                if len(regs_holding_zero) >= 2:
+                                    xN, xM = regs_holding_zero[0:2]
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                        f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                    ]
+                                    return (optimized_lines, 4)
+
+                                # Found 1 reg holding 0
+                                elif len(regs_holding_zero) == 1:
+                                    xN = regs_holding_zero[0]
+                                    # Search 1 free reg: xM
+                                    xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)[0]
+                                    if xM is None:
+                                        xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)[0]
+
+                                    # Free reg found?
+                                    if xM is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 2 free regs: xN,xM)
+                                    xN, xM = None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xN,xM
+                                    xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                    # Free regs found?
+                                    if xN is not None and xM is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                        # Clear consecutive memory. All same size accesor.
+                        # clr.[wl]  symbolName+P    ->    moveq    #0,xN           ; Saves [44,48,52,56] cycles.
+                        # clr.[wl]  symbolName+Q          move.l   xN,xM
+                        # clr.[wl]  symbolName+R          move.l   xN,xP
+                        # clr.[wl]  symbolName+S          movem.l  xN/xM/xP,symbolName+offset
+                        # Size combinations: llww, lwwl, wwll, wllw, lwlw, wlwl
+                        # Where symbolName+P = symbolName+Q +/- 2/4
+                        # Where symbolName+Q = symbolName+R +/- 2/4
+                        # Where symbolName+R = symbolName+S +/- 2/4
+                        # Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
+                        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                        elif size_strs.count('l') == 2 and size_strs.count('w') == 2:
+                            target_symbol = ''
+                            offset_str = ''
+
+                            if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op and symbolName_3_op + sC_size == symbolName_4_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                            elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op and symbolName_3_op - sD_size == symbolName_4_op:
+                                target_symbol = symbolName_4
+                                offset_str = op_4_str
+
+                            if target_symbol:
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                                # Found 3 regs holding 0
+                                if len(regs_holding_zero) >= 3:
+                                    xN, xM, xP = regs_holding_zero[0:3]
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 4)
+
+                                # Found 2 regs holding 0
+                                elif len(regs_holding_zero) == 2:
+                                    xN, xM = regs_holding_zero[0:2]
+                                    # Search 1 free reg: xP
+                                    xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 4)[0]
+                                    if xP is None:
+                                        xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 4)[0]
+
+                                    # Free reg found?
+                                    if xP is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # Found 1 reg holding 0
+                                elif len(regs_holding_zero) == 1:
+                                    xN = regs_holding_zero[0]
+                                    # Search 2 free regs: xM,xP
+                                    xM, xP = None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xM,xP
+                                    xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                    # Free regs found?
+                                    if xM is not None and xP is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 3 free regs: xN,xM,xP
+                                    xN, xM, xP = None, None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xN,xM,xP
+                                    xN, xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                                    # Free regs found?
+                                    if xN is not None and xM is not None and xP is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                        # Clear consecutive memory. All same size accesor.
+                        # clr.[wl]  symbolName+P    ->    moveq    #0,xN           ; Saves [42,46,50,54] cycles.
+                        # clr.[wl]  symbolName+Q          move.l   xN,xM
+                        # clr.[wl]  symbolName+R          move.l   xN,xP
+                        # clr.[wl]  symbolName+S          movem.l  xN/xM/xP,symbolName+offset
+                        #                                 move.w   xN,symbolName+S
+                        # Size combinations: lllw, llwl, lwll, wlll
+                        # Where symbolName+P = symbolName+Q +/- 2/4
+                        # Where symbolName+Q = symbolName+R +/- 2/4
+                        # Where symbolName+R = symbolName+S +/- 2/4
+                        # Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
+                        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                        elif size_strs.count('l') == 3 and size_strs.count('w') == 1:
+                            target_symbol = ''
+                            offset_str = ''
+
+                            if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op and symbolName_3_op + sC_size == symbolName_4_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                            elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op and symbolName_3_op - sD_size == symbolName_4_op:
+                                # Here we set symbolName_3 because symbolName_4 goes separatedly
+                                target_symbol = symbolName_3
+                                offset_str = op_3_str
+
+                            # Accomodate last operation offset
+                            last_op_offset = symbolName_4_op + 2 if sD == 'l' else symbolName_4_op
+                            last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
+
+                            if target_symbol:
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+
+                                # Found 3 regs holding 0
+                                if len(regs_holding_zero) >= 3:
+                                    xN, xM, xP = regs_holding_zero[0:3]
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}',
+                                        f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                    ]
+                                    return (optimized_lines, 4)
+
+                                # Found 2 regs holding 0
+                                elif len(regs_holding_zero) == 2:
+                                    xN, xM = regs_holding_zero[0:2]
+                                    # Search 1 free reg: xP
+                                    xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 4)[0]
+                                    if xP is None:
+                                        xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 4)[0]
+
+                                    # Free reg found?
+                                    if xP is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}',
+                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # Found 1 reg holding 0
+                                elif len(regs_holding_zero) == 1:
+                                    xN = regs_holding_zero[0]
+                                    # Search 2 free regs: xM,xP
+                                    xM, xP = None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xM,xP
+                                    xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                    # Free regs found?
+                                    if xM is not None and xP is not None:
+                                        optimized_lines = [
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}',
+                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 3 free regs: xN,xM,xP
+                                    xN, xM, xP = None, None, None
+                                    free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                                    if free_data_regs[0] is None:
+                                        free_data_regs = []
+                                    if free_addr_regs[0] is None:
+                                        free_addr_regs = []
+                                    # Assign a reg or None to: xN,xM
+                                    xN, xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                                    # Free regs found?
+                                    if xN is not None and xM is not None and xP is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}',
+                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                        ]
+                                        return (optimized_lines, 4)
+
 
     return (None, 0)
 
@@ -9880,12 +10673,17 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.w  -(sp)     ->    subq.l  #6,sp         ; Saves 34 cycles.
         # clr.w  -(sp)
         # clr.w  -(sp)
-        matchA = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line_A)
+        # Also considers: move.w #0,-(sp)
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
         if matchA:
-            matchB = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_B)
-            if matchB:
-                matchC = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_C)
-                if matchC:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
+                matchC_clr = clr_w_stack_by_pushing_pattern.match(line_C)
+                matchC_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_C)
+                if matchC_clr or matchC_move_0:
                     optimized_lines = [
                         f'{matchA.group(1)}subq.l{matchA.group(2)}#6,%sp'
                     ]
@@ -9895,17 +10693,17 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.l  -(sp)     ->    lea     -12(sp),sp    ; Saves 58 cycles.
         # clr.l  -(sp)
         # clr.l  -(sp)
-        # Also considers:  pea  0.w
-        matchA_clr = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line_A)
-        matchA_pea = re.match(r'^(\s*)pea(\s+)0.w', line_A)
-        matchA = matchA_clr or matchA_pea
+        # Also considers:  pea  0[.wl]
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
         if matchA:
-            matchB_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_B)
-            matchB_pea = re.match(r'^\s*pea\s+0.w', line_B)
-            if matchB_clr or matchB_pea:
-                matchC_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_C)
-                matchC_pea = re.match(r'^\s*pea\s+0.w', line_C)
-                if matchC_clr or matchC_pea:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.macth(line_B)
+            if matchB_clr or matchB_pea_0:
+                matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
+                matchC_pea_0 = pea_0wl_pattern.match(line_C)
+                if matchC_clr or matchC_pea_0:
                     optimized_lines = [
                         f'{matchA.group(1)}lea{matchA.group(2)}-12(%sp),%sp'
                     ]
@@ -9914,15 +10712,72 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     else:
 
         # Clearing consecutively the stack by pushing 0.
+        # clr.w  -(sp)     ->    moveq   #0,xN         ; Saves [18,22] cycles.
+        # clr.w  -(sp)           move.l  xN,-(sp)
+        # clr.w  -(sp)           move.w  xN,-(sp)
+        # Also considers: move.w #0,-(sp)
+        # Needs xN free register, or a reg already holding 0.
+        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
+        if matchA:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
+                matchC_clr = clr_w_stack_by_pushing_pattern.match(line_C)
+                matchC_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_C)
+                if matchC_clr or matchC_move_0:
+                        # Search for regs holding 0
+                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                        # Found 1 reg holding 0
+                        if len(regs_holding_zero) >= 1:
+                            xN = regs_holding_zero[0]
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)',
+                                f'{matchA.group(1)}move.w{matchA.group(2)}{xN},-(%sp)'
+                            ]
+                            return (optimized_lines, 3)
+
+                        # No regs holding 0
+                        else:
+                            # Search 1 free reg: xN
+                            xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+                            if xN is None:
+                                xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+
+                            # Free regs found?
+                            if xN is not None:
+                                load_0_instr = ''
+                                if xN.startswith('%d'):
+                                    load_0_instr = f'{matchA.group(1)}moveq{matchA.group(2)}#0,{xN}'
+                                else:
+                                    load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(2)}{xN},{xN}'
+
+                                optimized_lines = [
+                                    load_0_instr,
+                                    f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)',
+                                    f'{matchA.group(1)}move.w{matchA.group(2)}{xN},-(%sp)'
+                                ]
+                                return (optimized_lines, 3)
+
+        # Clearing consecutively the stack by pushing 0.
+        # NOTE: This is the old alternative for previous pattern.
         # clr.w  -(sp)     ->    pea     0.w           ; Saves 14 cycles.
         # clr.w  -(sp)           move.w  #0,-(sp)
         # clr.w  -(sp)
-        matchA = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line_A)
+        # Also considers: move.w #0,-(sp)
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
         if matchA:
-            matchB = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_B)
-            if matchB:
-                matchC = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_C)
-                if matchC:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
+                matchC_clr = clr_w_stack_by_pushing_pattern.match(line_C)
+                matchC_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_C)
+                if matchC_clr or matchC_move_0:
                     optimized_lines = [
                         f'{matchA.group(1)}pea{matchA.group(2)}0.w,{dN}',
                         f'{matchA.group(1)}move.w{matchA.group(2)}#0,-(%sp)'
@@ -9930,27 +10785,125 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 3)
 
         # Clearing consecutively the stack by pushing 0.
+        # clr.l  -(sp)     ->    moveq   #0,xN         ; Saves [22,26,30,34] cycles.
+        # clr.l  -(sp)           move.l  xN,xM
+        # clr.l  -(sp)           move.l  xN,xP
+        #                        movem.l xN/xM/xP,-(sp)
+        # Also considers:  pea  0[.wl]
+        # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
+        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
+        if matchA:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
+                matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
+                matchC_pea_0 = pea_0wl_pattern.match(line_C)
+                if matchC_clr or matchC_pea_0:
+                    # Search for regs holding 0
+                    regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                    # Found 3 regs holding 0
+                    if len(regs_holding_zero) >= 3:
+                        xN, xM, xP = regs_holding_zero[0:3]
+                        optimized_lines = [
+                            f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP},-(%sp)'
+                        ]
+                        return (optimized_lines, 3)
+
+                    # Found 2 regs holding 0
+                    elif len(regs_holding_zero) == 2:
+                        xN, xM = regs_holding_zero[0:2]
+                        # Search 1 free reg: xP
+                        xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 3)[0]
+                        if xP is None:
+                            xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 3)[0]
+
+                        # Free reg found?
+                        if xP is not None:
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xP}',
+                                f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP},-(%sp)'
+                            ]
+                            return (optimized_lines, 3)
+
+                    # Found 1 reg holding 0
+                    elif len(regs_holding_zero) == 1:
+                        xN = regs_holding_zero[0]
+                        # Search 2 free regs: xM,xP
+                        xM, xP = None, None
+                        free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 3)
+                        free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 3)
+                        if free_data_regs[0] is None:
+                            free_data_regs = []
+                        if free_addr_regs[0] is None:
+                            free_addr_regs = []
+                        # Assign a reg or None to: xM,xP
+                        xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                        # Free regs found?
+                        if xM is not None and xP is not None:
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xM}',
+                                f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xP}',
+                                f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP},-(%sp)'
+                            ]
+                            return (optimized_lines, 3)
+
+                    # No regs holding 0
+                    else:
+                        # Search 3 free regs: xN,xM,xP
+                        xN, xM, xP = None, None, None
+                        free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)
+                        free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)
+                        if free_data_regs[0] is None:
+                            free_data_regs = []
+                        if free_addr_regs[0] is None:
+                            free_addr_regs = []
+                        # Assign a reg or None to: xN,xM,xP
+                        xN, xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                        # Free regs found?
+                        if xN is not None and xM is not None and xP is not None:
+                            load_0_instr = ''
+                            if xN.startswith('%d'):
+                                load_0_instr = f'{matchA.group(1)}moveq{matchA.group(2)}#0,{xN}'
+                            else:
+                                load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(2)}{xN},{xN}'
+
+                            optimized_lines = [
+                                load_0_instr,
+                                f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xM}',
+                                f'{matchA.group(1)}move.l{matchA.group(2)}{xN},{xP}',
+                                f'{matchA.group(1)}movem.l{matchA.group(2)}{xN}/{xM}/{xP},-(%sp)'
+                            ]
+                            return (optimized_lines, 3)
+
+        # Clearing consecutively the stack by pushing 0.
+        # NOTE: This is the old alternative for previous pattern.
         # clr.l  -(sp)     ->    moveq   #0,dN         ; Saves 22 cycles.
         # clr.l  -(sp)           moveq   #0,dM
         # clr.l  -(sp)           moveq   #0,dP
         #                        movem.l dN/dM/dP,-(sp)
         # Needs 3 free data registers or already holding 0.
-        # Also considers:  pea  0.w
-        matchA_clr = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line_A)
-        matchA_pea = re.match(r'^(\s*)pea(\s+)0.w', line_A)
-        matchA = matchA_clr or matchA_pea
+        # Also considers:  pea  0[.wl]
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
         if matchA:
-            matchB_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_B)
-            matchB_pea = re.match(r'^\s*pea\s+0.w', line_B)
-            if matchB_clr or matchB_pea:
-                matchC_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_C)
-                matchC_pea = re.match(r'^\s*pea\s+0.w', line_C)
-                if matchC_clr or matchC_pea:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
+                matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
+                matchC_pea_0 = pea_0wl_pattern.match(line_C)
+                if matchC_clr or matchC_pea_0:
                     free_d_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)
                     is_any_dN_free_after_use = True
                     if len(free_d_regs) < 3:
                         is_any_dN_free_after_use = False
-                        existent_candidates = [] if free_d_regs[0] == None else free_d_regs
+                        existent_candidates = [] if free_d_regs[0] is None else free_d_regs
                         free_d_regs = find_unused_DATA_regs(existent_candidates, i_line, lines, modified_lines, 3)
                         free_d_regs = existent_candidates + [r for r in free_d_regs if r]  # Discards None reg
                     if len(free_d_regs) >= 3:
@@ -9965,6 +10918,408 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 3)
                         elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dN,dM,dP], i_line, lines, modified_lines):
                             return (optimized_lines, 3)
+
+    # Clearing consecutive memory from same symbolName.
+    matchA = clr_symbol_pattern.match(line_A)
+    if matchA:
+        matchB = clr_symbol_pattern.match(line_B)
+        if matchB:
+            matchC = clr_symbol_pattern.match(line_C)
+            if matchC:
+                sA = matchA.group(2)
+                sB = matchB.group(2)
+                sC = matchC.group(2)
+                symbolName_1 = ''.join(matchA.group(i) for i in range(4, 6) if matchA.group(i))
+                symbolName_2 = ''.join(matchB.group(i) for i in range(4, 6) if matchB.group(i))
+                symbolName_3 = ''.join(matchC.group(i) for i in range(4, 6) if matchC.group(i))
+                op_1_str = '' if not matchA.group(6) else matchA.group(6)
+                op_2_str = '' if not matchB.group(6) else matchB.group(6)
+                op_3_str = '' if not matchC.group(6) else matchC.group(6)
+                symbolName_1_op = 0 if not op_1_str else int(op_1_str)
+                symbolName_2_op = 0 if not op_2_str else int(op_2_str)
+                symbolName_3_op = 0 if not op_3_str else int(op_3_str)
+
+                if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3:
+
+                    _SIZE = {'w': 2, 'l': 4}
+                    sA_size = _SIZE.get(sA, 1)
+                    sB_size = _SIZE.get(sB, 1)
+                    sC_size = _SIZE.get(sC, 1)
+                    size_strs = (sA, sB, sC)
+
+                    # Clear consecutive memory. All same size accesor.
+                    # clr.l  symbolName+P    ->    moveq    #0,xN           ; Saves [24,28,32] cycles.
+                    # clr.l  symbolName+Q          move.l   xN,xM
+                    # clr.l  symbolName+R          move.l   xN,xP
+                    #                              movem.l  xN/xM/xP,symbolName+offset
+                    # Where symbolName+P = symbolName+Q +/- 4
+                    # Where symbolName+Q = symbolName+R +/- 4
+                    # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
+                    # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                    if size_strs.count('l') == 3:
+                        target_symbol = ''
+                        offset_str = ''
+
+                        if symbolName_1_op + 4 == symbolName_2_op and symbolName_2_op + 4 == symbolName_3_op:
+                            target_symbol = symbolName_1
+                            offset_str = op_1_str
+                        elif symbolName_1_op - 4 == symbolName_2_op and symbolName_2_op - 4 == symbolName_3_op:
+                            target_symbol = symbolName_3
+                            offset_str = op_3_str
+
+                        if target_symbol:
+                            # Search for regs holding 0
+                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                            # Found 3 regs holding 0
+                            if len(regs_holding_zero) >= 3:
+                                xN, xM, xP = regs_holding_zero[0:3]
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 3)
+
+                            # Found 2 regs holding 0
+                            elif len(regs_holding_zero) == 2:
+                                xN, xM = regs_holding_zero[0:2]
+                                # Search 1 free reg: xP
+                                xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 3)[0]
+                                if xP is None:
+                                    xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 3)[0]
+
+                                # Free reg found?
+                                if xP is not None:
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                            # Found 1 reg holding 0
+                            elif len(regs_holding_zero) == 1:
+                                xN = regs_holding_zero[0]
+                                # Search 2 free regs: xM,xP
+                                xM, xP = None, None
+                                free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 3)
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 3)
+                                if free_data_regs[0] is None:
+                                    free_data_regs = []
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
+                                # Assign a reg or None to: xM,xP
+                                xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                # Free regs found?
+                                if xM is not None and xP is not None:
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                            # No regs holding 0
+                            else:
+                                # Search 3 free regs: xN,xM,xP
+                                xN, xM, xP = None, None, None
+                                free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)
+                                if free_data_regs[0] is None:
+                                    free_data_regs = []
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
+                                # Assign a reg or None to: xN,xM,xP
+                                xN, xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                                # Free regs found?
+                                if xN is not None and xM is not None and xP is not None:
+                                    load_0_instr = ''
+                                    if xN.startswith('%d'):
+                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                    else:
+                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                    optimized_lines = [
+                                        load_0_instr,
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                    # Clear consecutive memory. Different size accesor.
+                    # clr.[bw]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [40,44] cycles.
+                    # clr.[bw]  symbol_or_mem+Q          move.l   xN,symbol_or_mem+offset
+                    # clr.[bw]  symbol_or_mem+R
+                    # Size combinations: bbw, bwb, wbb
+                    # Where symbol_or_mem+P = symbol_or_mem+Q +/- 1/2
+                    # Where symbol_or_mem+Q = symbol_or_mem+R +/- 1/2
+                    # Needs xN free register, or a reg already holding 0.
+                    # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                    elif size_strs.count('b') == 2 and size_strs.count('w') == 1:
+                        target_symbol = ''
+                        offset_str = ''
+
+                        if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
+                            target_symbol = symbolName_1
+                            offset_str = op_1_str
+                        elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
+                            target_symbol = symbolName_3
+                            offset_str = op_3_str
+                        
+                        if target_symbol:
+                            # Search for regs holding 0
+                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                            # Found 1 reg holding 0
+                            if len(regs_holding_zero) >= 1:
+                                xN = regs_holding_zero[0]
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 3)
+
+                            # No regs holding 0
+                            else:
+                                # Search 1 free reg: xN
+                                xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+                                if xN is None:
+                                    xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+
+                                # Free reg found?
+                                if xN is not None:
+                                    load_0_instr = ''
+                                    if xN.startswith('%d'):
+                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                    else:
+                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                    optimized_lines = [
+                                        load_0_instr,
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                    # Clear consecutive memory. Different size accesor.
+                    # clr.[bl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [30,34] cycles.
+                    # clr.[bl]  symbol_or_mem+Q          move.l   xN,symbol_or_mem+offset
+                    # clr.[bl]  symbol_or_mem+R          move.w   xN,symbol_or_mem+R
+                    # Size combinations: bbl, blb, lbb
+                    # Where symbol_or_mem+P = symbol_or_mem+Q +/- 1/4
+                    # Where symbol_or_mem+Q = symbol_or_mem+R +/- 1/4
+                    # Needs xN free register, or a reg already holding 0.
+                    # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                    elif size_strs.count('b') == 2 and size_strs.count('l') == 1:
+                        target_symbol = ''
+                        offset_str = ''
+
+                        if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
+                            target_symbol = symbolName_1
+                            offset_str = op_1_str
+                        elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
+                            # Here we set symbolName_2 because symbolName_3 goes separatedly
+                            target_symbol = symbolName_2
+                            offset_str = op_2_str
+
+                        # Accomodate last operation offset
+                        last_op_offset = symbolName_3_op + 2 if sC == 'l' else symbolName_3_op
+                        last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
+
+                        if target_symbol:
+                            # Search for regs holding 0
+                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                            # Found 1 reg holding 0
+                            if len(regs_holding_zero) >= 1:
+                                xN = regs_holding_zero[0]
+                                optimized_lines = [
+                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}',
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
+                                ]
+                                return (optimized_lines, 3)
+
+                            # No regs holding 0
+                            else:
+                                # Search 1 free reg: xN
+                                xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+                                if xN is None:
+                                    xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+
+                                # Free reg found?
+                                if xN is not None:
+                                    load_0_instr = ''
+                                    if xN.startswith('%d'):
+                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                    else:
+                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                    optimized_lines = [
+                                        load_0_instr,
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}',
+                                        f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                    # Clear consecutive memory. Different size accesor.
+                    # clr.[wl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [36,40,44] cycles.
+                    # clr.[wl]  symbol_or_mem+Q          move.l   xN,xM
+                    # clr.[wl]  symbol_or_mem+R          movem.l  xN/xM,symbol_or_mem+offset
+                    # Size combinations: wwl, wlw, lww
+                    # Where symbol_or_mem+P = symbol_or_mem+Q +/- 2/4
+                    # Where symbol_or_mem+Q = symbol_or_mem+R +/- 2/4
+                    # Needs xN/xM free registers, or as much as possible regs already holding 0.
+                    # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                    elif size_strs.count('w') == 2 and size_strs.count('l') == 1:
+                        target_symbol = ''
+                        offset_str = ''
+
+                        if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
+                            target_symbol = symbolName_1
+                            offset_str = op_1_str
+                        elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
+                            target_symbol = symbolName_3
+                            offset_str = op_3_str
+                        
+                        if target_symbol:
+                            # Search for regs holding 0
+                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                            # Found 2 regs holding 0
+                            if len(regs_holding_zero) >= 2:
+                                xN, xM = regs_holding_zero[0:2]
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
+                                ]
+                                return (optimized_lines, 3)
+
+                            # Found 1 reg holding 0
+                            elif len(regs_holding_zero) == 1:
+                                xN = regs_holding_zero[0]
+                                # Search 1 free reg: xM
+                                xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 3)[0]
+                                if xM is None:
+                                    xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 3)[0]
+
+                                # Free reg found?
+                                if xM is not None:
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                            # No regs holding 0
+                            else:
+                                # Search 2 free regs: xN,xM
+                                xN, xM = None, None
+                                free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)
+                                if free_data_regs[0] is None:
+                                    free_data_regs = []
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
+                                # Assign a reg or None to: xN,xM
+                                xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                # Free regs found?
+                                if xN is not None and xM is not None:
+                                    load_0_instr = ''
+                                    if xN.startswith('%d'):
+                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                    else:
+                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                    optimized_lines = [
+                                        load_0_instr,
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                    # Clear consecutive memory. Different size accesor.
+                    # clr.[wl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [20,24,28] cycles.
+                    # clr.[wl]  symbol_or_mem+Q          move.l   xN,xM
+                    # clr.[wl]  symbol_or_mem+R          movem.l  xN/xM,symbol_or_mem+offset
+                    #                                    move.w   xN,symbol_or_mem+R
+                    # Size combinations: llw, lwl, wll
+                    # Where symbol_or_mem+P = symbol_or_mem+Q +/- 2/4
+                    # Where symbol_or_mem+Q = symbol_or_mem+R +/- 2/4
+                    # Needs xN/xM free registers, or as much as possible regs already holding 0.
+                    # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                    elif size_strs.count('l') == 2 and size_strs.count('w') == 1:
+                        target_symbol = ''
+                        offset_str = ''
+
+                        if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
+                            target_symbol = symbolName_1
+                            offset_str = op_1_str
+                        elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
+                            # Here we set symbolName_2 because symbolName_3 goes separatedly
+                            target_symbol = symbolName_2
+                            offset_str = op_2_str
+
+                        # Accomodate last operation offset
+                        last_op_offset = symbolName_3_op + 2 if sC == 'l' else symbolName_3_op
+                        last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
+
+                        if target_symbol:
+                            # Search for regs holding 0
+                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+
+                            # Found 2 regs holding 0
+                            if len(regs_holding_zero) >= 2:
+                                xN, xM = regs_holding_zero[0:2]
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                    f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
+                                ]
+                                return (optimized_lines, 3)
+
+                            # Found 1 reg holding 0
+                            elif len(regs_holding_zero) == 1:
+                                xN = regs_holding_zero[0]
+                                # Search 1 free reg: xM
+                                xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 3)[0]
+                                if xM is None:
+                                    xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 3)[0]
+
+                                # Free reg found?
+                                if xM is not None:
+                                    optimized_lines = [
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                        f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
+
+                            # No regs holding 0
+                            else:
+                                # Search 2 free regs: xN,xM
+                                xN, xM = None, None
+                                free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)
+                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)
+                                if free_data_regs[0] is None:
+                                    free_data_regs = []
+                                if free_addr_regs[0] is None:
+                                    free_addr_regs = []
+                                # Assign a reg or None to: xN,xM
+                                xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                # Free regs found?
+                                if xN is not None and xM is not None:
+                                    load_0_instr = ''
+                                    if xN.startswith('%d'):
+                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                    else:
+                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                    optimized_lines = [
+                                        load_0_instr,
+                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                        f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
+                                    ]
+                                    return (optimized_lines, 3)
 
     # Clear mask: using dN as a clearing mask over dM
     # not.s  dN       ->    or.s   dN,dM           ; Saves 4 cycles.
@@ -11526,10 +12881,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Clearing consecutive memory from same symbolName.
-    clr_from_symbol_pattern = r'^(\s*)clr\.([bwl])(\s+)([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
-    matchA = re.match(clr_from_symbol_pattern, line_A)
+    matchA = clr_symbol_pattern.match(line_A)
     if matchA:
-        matchB = re.match(clr_from_symbol_pattern, line_B)
+        matchB = clr_symbol_pattern.match(line_B)
         if matchB:
             sA = matchA.group(2)
             sB = matchB.group(2)
@@ -11540,69 +12894,70 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             symbolName_1_op = 0 if not op_1_str else int(op_1_str)
             symbolName_2_op = 0 if not op_2_str else int(op_2_str)
 
-            # If clearing symbolName and symbolName+1.
-            # clr.b   symbolName       ->    clr.w   symbolName      ; Saves 20 cycles.
-            # clr.b   symbolName+1
-            # Offset (if any) from 1st instruction must be even.
-            if sA == 'b' and sB == 'b':
-                if symbolName_1 == symbolName_2 and (symbolName_1_op + 1 == symbolName_2_op) and (symbolName_1_op % 2 == 0):
-                    # This optimization won't work if inside a sound related function
-                    # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+            if symbolName_1 == symbolName_2:
+
+                # If clearing symbolName and symbolName+1.
+                # clr.b   symbolName       ->    clr.w   symbolName      ; Saves 20 cycles.
+                # clr.b   symbolName+1
+                # Offset (if any) from 1st instruction must be even.
+                if sA == 'b' and sB == 'b':
+                    if symbolName_1_op + 1 == symbolName_2_op and symbolName_1_op % 2 == 0:
+                        # This optimization won't work if inside a sound related function
+                        # since we can only send bytes to the Z80 ports
+                        if not in_a_SGDK_sound_related_routine(modified_lines):
+                            optimized_lines = [
+                                f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_1}{op_1_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+                # If clearing symbolName and symbolName-1.
+                # clr.b   symbolName       ->    clr.w   symbolName-1    ; Saves 20 cycles.
+                # clr.b   symbolName-1
+                # Offset (if any) from 2nd instruction must be even.
+                if sA == 'b' and sB == 'b':
+                    if symbolName_1_op - 1 == symbolName_2_op and symbolName_2_op % 2 == 0:
+                        # This optimization won't work if inside a sound related function
+                        # since we can only send bytes to the Z80 ports
+                        if not in_a_SGDK_sound_related_routine(modified_lines):
+                            optimized_lines = [
+                                f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_2}{op_2_str}'
+                            ]
+                            return (optimized_lines, 2)
+
+                # If clearing symbolName and symbolName+2.
+                # clr.w   symbolName       ->    clr.l   symbolName      ; Saves 12 cycles.
+                # clr.w   symbolName+2
+                if sA == 'w' and sB == 'w':
+                    if (symbolName_1_op + 2 == symbolName_2_op):
                         optimized_lines = [
-                            f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_1}{op_1_str}'
+                            f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_1}{op_1_str}'
                         ]
                         return (optimized_lines, 2)
 
-            # If clearing symbolName and symbolName-1.
-            # clr.b   symbolName       ->    clr.w   symbolName-1    ; Saves 20 cycles.
-            # clr.b   symbolName-1
-            # Offset (if any) from 2nd instruction must be even.
-            if sA == 'b' and sB == 'b':
-                if symbolName_1 == symbolName_2 and (symbolName_1_op - 1 == symbolName_2_op) and (symbolName_2_op % 2 == 0):
-                    # This optimization won't work if inside a sound related function
-                    # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                # If clearing symbolName and symbolName-2.
+                # clr.w   symbolName       ->    clr.l   symbolName-2    ; Saves 12 cycles.
+                # clr.w   symbolName-2
+                if sA == 'w' and sB == 'w':
+                    if (symbolName_1_op - 2 == symbolName_2_op):
                         optimized_lines = [
-                            f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_2}{op_2_str}'
+                            f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_2}{op_2_str}'
                         ]
                         return (optimized_lines, 2)
 
-            # If clearing symbolName and symbolName+2.
-            # clr.w   symbolName       ->    clr.l   symbolName      ; Saves 12 cycles.
-            # clr.w   symbolName+2
-            if sA == 'w' and sB == 'w':
-                if symbolName_1 == symbolName_2 and (symbolName_1_op + 2 == symbolName_2_op):
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_1}{op_1_str}'
-                    ]
-                    return (optimized_lines, 2)
-
-            # If clearing symbolName and symbolName-2.
-            # clr.w   symbolName       ->    clr.l   symbolName-2    ; Saves 12 cycles.
-            # clr.w   symbolName-2
-            if sA == 'w' and sB == 'w':
-                if symbolName_1 == symbolName_2 and (symbolName_1_op - 2 == symbolName_2_op):
-                    optimized_lines = [
-                        f'{matchA.group(1)}clr.l{matchA.group(3)}{symbolName_2}{op_2_str}'
-                    ]
-                    return (optimized_lines, 2)
-
-            # If clearing symbolName and symbolName +/- 4.
-            # clr.l   symbolName       ->    moveq    #0,xN           ; Saves [16,20,24] cycles.
-            # clr.l   symbolName+/-4         move.l   xN,xM
-            #                                movem.l  xN/xM,symbolName+offset
-            # Needs xN/xM free registers, or as much as possible regs already holding 0.
-            # xN must be a data reg in case no regs were found holding 0.
-            if sA == 'l' and sB == 'l':
-                if symbolName_1 == symbolName_2:
+                # If clearing symbolName and symbolName +/- 4.
+                # clr.l   symbolName       ->    moveq    #0,xN           ; Saves [16,20,24] cycles.
+                # clr.l   symbolName+/-4         move.l   xN,xM
+                #                                movem.l  xN/xM,symbolName+offset
+                # Needs xN/xM free registers, or as much as possible regs already holding 0.
+                # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                if sA == 'l' and sB == 'l':
                     target_symbol = ''
                     offset_str = ''
 
-                    if (symbolName_1_op + 4 == symbolName_2_op):
+                    if symbolName_1_op + 4 == symbolName_2_op:
                         target_symbol = symbolName_1
                         offset_str = op_1_str
-                    elif (symbolName_1_op - 4 == symbolName_2_op):
+                    elif symbolName_1_op - 4 == symbolName_2_op:
                         target_symbol = symbolName_2
                         offset_str = op_2_str
 
@@ -11637,43 +12992,49 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         # No regs holding 0
                         else:
                             # Search 2 free regs: xN,xM
-                            # (xN must be a data reg)
                             xN, xM = None, None
                             free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
                             if free_data_regs[0] is None:
                                 free_data_regs = []
-                            if len(free_data_regs) >= 2:
-                                xN, xM = free_data_regs[0:2]
-                            elif len(free_data_regs) == 1:
-                                xN = free_data_regs[0]
-                                xM = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xN,xM
+                            xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
 
                             # Free regs found?
                             if xN is not None and xM is not None:
+                                load_0_instr = ''
+                                if xN.startswith('%d'):
+                                    load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                else:
+                                    load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
                                 optimized_lines = [
-                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                    load_0_instr,
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
                                     f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}'
                                 ]
                                 return (optimized_lines, 2)
 
-            # If clearing symbolName and symbolName +/- 2/4. Different size accesor.
-            # clr.[wl]   symbolName         ->    moveq    #0,xN           ; Saves [8,12,16,20] cycles.
-            # clr.[wl]   symbolName +/- 2/4       move.l   xN,xM
-            #                                     move.l   xN,xP
-            #                                     movem.w  xN/xM/xP,symbolName+offset
-            # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
-            # xN must be a data reg in case no regs were found holding 0.
-            if (sA == 'w' and sB == 'l') or (sA == 'l' and sB == 'w'):
-                if symbolName_1 == symbolName_2:
+                # If clearing symbolName and symbolName +/- 2/4. Different size accesor.
+                # clr.[wl]   symbolName         ->    moveq    #0,xN           ; Saves [8,12,16,20] cycles.
+                # clr.[wl]   symbolName +/- 2/4       move.l   xN,xM
+                #                                     move.l   xN,xP
+                #                                     movem.w  xN/xM/xP,symbolName+offset
+                # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
+                # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+                elif (sA == 'w' and sB == 'l') or (sA == 'l' and sB == 'w'):
                     target_symbol = ''
                     offset_str = ''
-                    s_size = 2 if sA == 'w' else 4
+                    _SIZE = {'w': 2, 'l': 4}
+                    sA_size = _SIZE.get(sA, 1)
+                    sB_size = _SIZE.get(sB, 1)
 
-                    if (symbolName_1_op + s_size == symbolName_2_op):
+                    if symbolName_1_op + sA_size == symbolName_2_op:
                         target_symbol = symbolName_1
                         offset_str = op_1_str
-                    elif (symbolName_1_op - s_size == symbolName_2_op):
+                    elif symbolName_1_op - sB_size == symbolName_2_op:
                         target_symbol = symbolName_2
                         offset_str = op_2_str
 
@@ -11711,19 +13072,13 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             # Search 2 free regs: xM,xP
                             xM, xP = None, None
                             free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
                             if free_data_regs[0] is None:
                                 free_data_regs = []
-                            if len(free_data_regs) >= 2:
-                                xM, xP = free_data_regs[0:2]
-                            elif len(free_data_regs) == 1:
-                                xM = free_data_regs[0]
-                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
-                            else:
-                                free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
-                                if free_addr_regs[0] is None:
-                                    free_addr_regs = []
-                                if len(free_addr_regs) >= 2:
-                                    xM, xP = free_addr_regs[0:2]
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xM,xP
+                            xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
 
                             # Free regs found?
                             if xM is not None and xP is not None:
@@ -11737,28 +13092,26 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         # No regs holding 0
                         else:
                             # Search 3 free regs: xN,xM,xP
-                            # (xN must be a data reg)
                             xN, xM, xP = None, None, None
                             free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                            free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
                             if free_data_regs[0] is None:
                                 free_data_regs = []
-                            if len(free_data_regs) >= 3:
-                                xN, xM, xP = free_data_regs[0:3]
-                            elif len(free_data_regs) == 2:
-                                xN, xM = free_data_regs[0:2]
-                                xP = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
-                            elif len(free_data_regs) == 1:
-                                xN = free_data_regs[0]
-                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
-                                if free_addr_regs[0] is None:
-                                    free_addr_regs = []
-                                if len(free_addr_regs) >= 2:
-                                    xM, xP = free_addr_regs[0:2]
+                            if free_addr_regs[0] is None:
+                                free_addr_regs = []
+                            # Assign a reg or None to: xN,xM,xP
+                            xN, xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
 
                             # Free regs found?
                             if xN is not None and xM is not None and xP is not None:
+                                load_0_instr = ''
+                                if xN.startswith('%d'):
+                                    load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                else:
+                                    load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
                                 optimized_lines = [
-                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                    load_0_instr,
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
                                     f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
                                     f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_symbol}{offset_str}'
@@ -11767,10 +13120,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Clearing consecutive memory.
     # Note that gcc might use negative numbers.
-    clr_from_memory_pattern = r'^(\s*)clr\.([bwl])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
-    matchA = re.match(clr_from_memory_pattern, line_A)
+    clr_from_memory_address_pattern = r'^(\s*)clr\.([bwl])(\s+)#?(-?\d+|0[xX][0-9a-fA-F]+)(\.[wl])?\s*(?:;.*)?$'
+    matchA = re.match(clr_from_memory_address_pattern, line_A)
     if matchA:
-        matchB = re.match(clr_from_memory_pattern, line_B)
+        matchB = re.match(clr_from_memory_address_pattern, line_B)
         if matchB:
             sA = matchA.group(2)
             sB = matchB.group(2)
@@ -11834,15 +13187,15 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.l   mem2             move.l   xN,xM
             #                          movem.l  xN/xM,mem+offset
             # Needs xN/xM free registers, or as much as possible regs already holding 0.
-            # xN must be a data reg in case no regs were found holding 0.
+            # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
             if sA == 'l' and sB == 'l':
                 target_mem = ''
                 offset_str = ''
 
-                if (mem1 + 4 == mem2):
+                if mem1 + 4 == mem2:
                     target_mem = mem1
                     offset_str = '' if not matchA.group(5) else matchA.group(5)
-                elif (mem1 - 4 == mem2):
+                elif mem1 - 4 == mem2:
                     target_mem = mem2
                     offset_str = '' if not matchB.group(5) else matchB.group(5)
 
@@ -11877,21 +13230,26 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     # No regs holding 0
                     else:
                         # Search 2 free regs: xN,xM
-                        # (xN must be a data reg)
                         xN, xM = None, None
                         free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                        free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
                         if free_data_regs[0] is None:
                             free_data_regs = []
-                        if len(free_data_regs) >= 2:
-                            xN, xM = free_data_regs[0:2]
-                        elif len(free_data_regs) == 1:
-                            xN = free_data_regs[0]
-                            xM = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+                        if free_addr_regs[0] is None:
+                            free_addr_regs = []
+                        # Assign a reg or None to: xM,xP
+                        xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
 
                         # Free regs found?
                         if xN is not None and xM is not None:
+                            load_0_instr = ''
+                            if xN.startswith('%d'):
+                                load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                            else:
+                                load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
                             optimized_lines = [
-                                f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
+                                load_0_instr,
                                 f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
                                 f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_mem}{offset_str}'
                             ]
@@ -11903,106 +13261,100 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             #                          move.l   xN,xP
             #                          movem.w  xN/xM/xP,mem+offset
             # Needs xN/xM/xP free registers, or as much as possible regs already holding 0.
-            # xN must be a data reg in case no regs were found holding 0.
-            if (sA == 'w' and sB == 'l') or (sA == 'l' and sB == 'w'):
-                    target_mem = ''
-                    offset_str = ''
-                    s_size = 2 if sA == 'w' else 4
+            # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+            elif (sA == 'w' and sB == 'l') or (sA == 'l' and sB == 'w'):
+                target_mem = ''
+                offset_str = ''
+                _SIZE = {'w': 2, 'l': 4}
+                sA_size = _SIZE.get(sA, 1)
+                sB_size = _SIZE.get(sB, 1)
 
-                    if (mem1 + s_size == mem2):
-                        target_mem = mem1
-                        offset_str = op_1_str
-                    elif (mem1 - s_size == mem2):
-                        target_mem = mem2
-                        offset_str = op_2_str
+                if mem1 + sA_size == mem2:
+                    target_mem = mem1
+                    offset_str = op_1_str
+                elif mem1 - sB_size == mem2:
+                    target_mem = mem2
+                    offset_str = op_2_str
 
-                    if target_mem:
-                        # Search for regs holding 0
-                        regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 2)
+                if target_mem:
+                    # Search for regs holding 0
+                    regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 2)
 
-                        # Found 3 regs holding 0
-                        if len(regs_holding_zero) >= 3:
-                            xN, xM, xP = regs_holding_zero[0:3]
+                    # Found 3 regs holding 0
+                    if len(regs_holding_zero) >= 3:
+                        xN, xM, xP = regs_holding_zero[0:3]
+                        optimized_lines = [
+                            f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                        ]
+                        return (optimized_lines, 2)
+
+                    # Found 2 regs holding 0
+                    elif len(regs_holding_zero) == 2:
+                        xN, xM = regs_holding_zero[0:2]
+                        # Search 1 free reg: xP
+                        xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                        if xP is None:
+                            xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+
+                        # Free reg found?
+                        if xP is not None:
                             optimized_lines = [
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
                                 f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
                             ]
                             return (optimized_lines, 2)
 
-                        # Found 2 regs holding 0
-                        elif len(regs_holding_zero) == 2:
-                            xN, xM = regs_holding_zero[0:2]
-                            # Search 1 free reg: xP
-                            xP = find_free_after_use_DATA_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
-                            if xP is None:
-                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                    # Found 1 reg holding 0
+                    elif len(regs_holding_zero) == 1:
+                        xN = regs_holding_zero[0]
+                        # Search 2 free regs: xM,xP
+                        xM, xP = None, None
+                        free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
+                        free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
+                        if free_data_regs[0] is None:
+                            free_data_regs = []
+                        if free_addr_regs[0] is None:
+                            free_addr_regs = []
+                        # Assign a reg or None to: xM,xP
+                        xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
 
-                            # Free reg found?
-                            if xP is not None:
-                                optimized_lines = [
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
-                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
-                                ]
-                                return (optimized_lines, 2)
+                        # Free regs found?
+                        if xM is not None and xP is not None:
+                            optimized_lines = [
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
 
-                        # Found 1 reg holding 0
-                        elif len(regs_holding_zero) == 1:
-                            xN = regs_holding_zero[0]
-                            # Search 2 free regs: xM,xP
-                            xM, xP = None, None
-                            free_data_regs = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 2)
-                            if free_data_regs[0] is None:
-                                free_data_regs = []
-                            if len(free_data_regs) >= 2:
-                                xM, xP = free_data_regs[0:2]
-                            elif len(free_data_regs) == 1:
-                                xM = free_data_regs[0]
-                                xP = find_free_after_use_ADDRESS_regs([xN,xM], i_line, lines, modified_lines, 2)[0]
+                    # No regs holding 0
+                    else:
+                        # Search 3 free regs: xN,xM,xP
+                        xN, xM, xP = None, None, None
+                        free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
+                        free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
+                        if free_data_regs[0] is None:
+                            free_data_regs = []
+                        if free_addr_regs[0] is None:
+                            free_addr_regs = []
+                        # Assign a reg or None to: xN,xM,xP
+                        xN, xM, xP = take_N_free_regs_from(free_data_regs, free_addr_regs, 3)[0:3]
+
+                        # Free regs found?
+                        if xN is not None and xM is not None and xP is not None:
+                            load_0_instr = ''
+                            if xN.startswith('%d'):
+                                load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
                             else:
-                                free_addr_regs = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 2)
-                                if free_addr_regs[0] is None:
-                                    free_addr_regs = []
-                                if len(free_addr_regs) >= 2:
-                                    xM, xP = free_addr_regs[0:2]
+                                load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
 
-                            # Free regs found?
-                            if xM is not None and xP is not None:
-                                optimized_lines = [
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
-                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
-                                ]
-                                return (optimized_lines, 2)
-
-                        # No regs holding 0
-                        else:
-                            # Search 3 free regs: xN,xM,xP
-                            # (xN must be a data reg)
-                            xN, xM, xP = None, None, None
-                            free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)
-                            if free_data_regs[0] is None:
-                                free_data_regs = []
-                            if len(free_data_regs) >= 3:
-                                xN, xM, xP = free_data_regs[0:3]
-                            elif len(free_data_regs) == 2:
-                                xN, xM = free_data_regs[0:2]
-                                xP = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
-                            elif len(free_data_regs) == 1:
-                                xN = free_data_regs[0]
-                                free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
-                                if free_addr_regs[0] is None:
-                                    free_addr_regs = []
-                                if len(free_addr_regs) >= 2:
-                                    xM, xP = free_addr_regs[0:2]
-
-                            # Free regs found?
-                            if xN is not None and xM is not None and xP is not None:
-                                optimized_lines = [
-                                    f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}',
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
-                                    f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
-                                ]
-                                return (optimized_lines, 2)
+                            optimized_lines = [
+                                load_0_instr,
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xP}',
+                                f'{matchA.group(1)}movem.w{matchA.group(3)}{xN}/{xM}/{xP},{target_mem}{offset_str}'
+                            ]
+                            return (optimized_lines, 2)
 
     # Clearing consecutive memory calculated from effective address.
     clr_mem_ea_pattern = r'^(\s*)clr\.([bw])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]|%sp)\)\s*(?:;.*)?$'
@@ -12161,10 +13513,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchB = re.match(r'^\s*move\.([bwl])\s+(.+?),\s*(%d[0-7])\s*(?:;.*)?$', line_B)
         if matchB and dN == matchB.group(3):
             s_B = matchB.group(1)
-            # If target move size is .l -> nothing to check
+            # If target move size is .l -> ensure dN is not used anymore before is overwritten or cleared
             if s_B == 'l':
-                optimized_lines = [line_B]
-                return (optimized_lines, 2)
+                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 2):
+                    optimized_lines = [line_B]
+                    return (optimized_lines, 2)
             # Target move size is either .w or .b -> ensure dN is used always as either word or byte but not both
             else:
                 only_used_as_target_size_ok = False
@@ -12188,7 +13541,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchA = re.match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
         if matchA:
             xN = matchA.group(3)
-            matchB = re.match(r'^\s*move\.w\s+#0,\s*-\(%sp\)', line_B)
+            matchB = move_w_0_to_stack_by_pushing_pattern.match(line_B)
             if matchB:
                 optimized_lines = [
                     f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)'
@@ -12204,7 +13557,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchA = re.match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
         if matchA:
             xN = matchA.group(3)
-            matchB = re.match(r'^\s*move\.w\s+#0,\s*-\(%sp\)', line_B)
+            matchB = move_w_0_to_stack_by_pushing_pattern.match(line_B)
             if matchB:
                 zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
                 if len(zeroed_regs) > 0:
@@ -12220,10 +13573,14 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # Clearing consecutively the stack by just offseting the sp.
         # clr.w  -(sp)     ->    subq.l  #4,sp     ; Saves 20 cycles.
         # clr.w  -(sp)
-        matchA = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line_A)
+        # Also considers: move.w #0,-(sp)
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
         if matchA:
-            matchB = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_B)
-            if matchB:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
                 optimized_lines = [
                     f'{matchA.group(1)}subq.l{matchA.group(2)}#4,%sp'
                 ]
@@ -12232,14 +13589,14 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # Clearing consecutively the stack by just offseting the sp.
         # clr.l  -(sp)     ->    subq.l  #8,sp     ; Saves 36 cycles.
         # clr.l  -(sp)
-        # Also considers:  pea  0.w
-        matchA_clr = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line_A)
-        matchA_pea = re.match(r'^(\s*)pea(\s+)0.w', line_A)
-        matchA = matchA_clr or matchA_pea
+        # Also considers:  pea  0[.wl]
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
         if matchA:
-            matchB_clr = re.match(r'^\s*clr\.l\s+-\(%sp\)', line_B)
-            matchB_pea = re.match(r'^\s*pea\s+0.w', line_B)
-            if matchB_clr or matchB_pea:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
                 optimized_lines = [
                     f'{matchA.group(1)}subq.l{matchA.group(2)}#8,%sp'
                 ]
@@ -12248,12 +13605,65 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     else:
 
         # Clearing consecutively the stack by pushing 0.
+        # clr.l  -(sp)     ->    moveq   #0,xN         ; Saves [16,20] cycles.
+        # clr.l  -(sp)           move.l  xN,-(sp)
+        #                        move.l  xN,-(sp)
+        # Also considers:  pea  0[.wl]
+        # Needs xN free register, or a reg already holding 0.
+        # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
+        matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
+        matchA_pea_0 = pea_0wl_pattern.match(line_A)
+        matchA = matchA_clr or matchA_pea_0
+        if matchA:
+            matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
+            if matchB_clr or matchB_pea_0:
+                # Search for regs holding 0
+                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 1)
+
+                # Found 1 reg holding 0
+                if len(regs_holding_zero) >= 1:
+                    xN = regs_holding_zero[0]
+                    optimized_lines = [
+                        f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)',
+                        f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)'
+                    ]
+                    return (optimized_lines, 2)
+
+                # No regs holding 0
+                else:
+                    # Search 1 free reg: xN
+                    xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 2)[0]
+                    if xN is None:
+                        xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)[0]
+
+                    # Free reg found?
+                    if xN is not None:
+                        load_0_instr = ''
+                        if xN.startswith('%d'):
+                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(2)}#0,{xN}'
+                        else:
+                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(2)}{xN},{xN}'
+
+                        optimized_lines = [
+                            load_0_instr,
+                            f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)',
+                            f'{matchA.group(1)}move.l{matchA.group(2)}{xN},-(%sp)'
+                        ]
+                        return (optimized_lines, 2)
+
+        # Clearing consecutively the stack by pushing 0.
+        # NOTE: This is the old alternative for previous pattern.
         # clr.w  -(sp)     ->    pea   0.w       ; Saves 12 cycles.
         # clr.w  -(sp)
-        matchA = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line_A)
+        # Also considers: move.w #0,-(sp)
+        matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
+        matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
+        matchA = matchA_clr or matchA_move_0
         if matchA:
-            matchB = re.match(r'^\s*clr\.w\s+-\(%sp\)', line_B)
-            if matchB:
+            matchB_clr = clr_w_stack_by_pushing_pattern.match(line_B)
+            matchB_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_B)
+            if matchB_clr or matchB_move_0:
                 optimized_lines = [
                     f'{matchA.group(1)}pea{matchA.group(2)}0.w'
                 ]
@@ -13717,9 +15127,15 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         aN = match.group(4)
         zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
         if len(zeroed_regs) > 0:
-            xN = zeroed_regs[0]
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},-({aN})'
-            return ([optimized_line], True)
+            xN = None
+            # if size is byte then avoid address reg
+            if s == 'b':
+                xN = next((r for r in zeroed_regs if not r.startswith('%a')), None)
+            else:
+                xN = zeroed_regs[0]
+            if xN is not None:
+                optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},-({aN})'
+                return ([optimized_line], True)
 
     # Clearing memory using existent xN already holding 0 value.
     # clr.s   (aN)+      ->    move.s  xN,(aN)+        ; Saves [4,8] cycles.
@@ -13729,9 +15145,15 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         aN = match.group(4)
         zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
         if len(zeroed_regs) > 0:
-            xN = zeroed_regs[0]
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},({aN})+'
-            return ([optimized_line], True)
+            xN = None
+            # if size is byte then avoid address reg
+            if s == 'b':
+                xN = next((r for r in zeroed_regs if not r.startswith('%a')), None)
+            else:
+                xN = zeroed_regs[0]
+            if xN is not None:
+                optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},({aN})+'
+                return ([optimized_line], True)
 
     # Clearing memory using existent xN already holding 0 value.
     # clr.s   disp(aN)   ->    move.s  xN,disp(aN)     ; Saves [4,8] cycles.
@@ -13743,9 +15165,15 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         aN = match.group(5)
         zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
         if len(zeroed_regs) > 0:
-            xN = zeroed_regs[0]
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{disp}({aN})'
-            return ([optimized_line], True)
+            xN = None
+            # if size is byte then avoid address reg
+            if s == 'b':
+                xN = next((r for r in zeroed_regs if not r.startswith('%a')), None)
+            else:
+                xN = zeroed_regs[0]
+            if xN is not None:
+                optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{disp}({aN})'
+                return ([optimized_line], True)
 
     # Clearing memory using existent xN already holding 0 value.
     # clr.s   disp(aN,xM.[wl])   ->    move.s  xN,disp(aN,xM.[wl])       ; Saves [4,8] cycles.
@@ -13758,9 +15186,15 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         xM_indirection = ''.join(match.group(i) for i in range(6, 8) if match.group(i))
         zeroed_regs = find_regs_holding_zero(i_line, lines, modified_lines, 0)
         if len(zeroed_regs) > 0:
-            xN = zeroed_regs[0]
-            optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{disp}({aN},{xM_indirection})'
-            return ([optimized_line], True)
+            xN = None
+            # if size is byte then avoid address reg
+            if s == 'b':
+                xN = next((r for r in zeroed_regs if not r.startswith('%a')), None)
+            else:
+                xN = zeroed_regs[0]
+            if xN is not None:
+                optimized_line = f'{match.group(1)}move.{s}{match.group(3)}{xN},{disp}({aN},{xM_indirection})'
+                return ([optimized_line], True)
 
     match = re.match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
@@ -13936,15 +15370,21 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
     if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
-        # clr.w   -(sp)     ->    subq.l  #2,sp     ; Saves 6 cycles.
-        match = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line)
+        # clr.w   -(sp)     ->    subq.l  #2,sp     ; Saves [4,6] cycles.
+        # Also considers: move.w #0,-(sp)
+        match_clr = clr_w_stack_by_pushing_pattern.match(line)
+        match_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line)
+        match = match_clr or match_move_0
         if match:
             optimized_line = f'{match.group(1)}subq.l{match.group(2)}#2,%sp'
             print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
             return ([optimized_line], True)
 
-        # clr.l   -(sp)     ->    subq.l  #4,sp     ; Saves 14 cycles.
-        match = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line)
+        # clr.l   -(sp)     ->    subq.l  #4,sp     ; Saves [8,14] cycles.
+        # Also considers: pea  0[.wl]
+        match_clr = clr_l_stack_by_pushing_pattern.match(line)
+        match_pea_0 = pea_0wl_pattern.match(line)
+        match = match_clr or match_pea_0
         if match:
             optimized_line = f'{match.group(1)}subq.l{match.group(2)}#4,%sp'
             print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
@@ -13952,13 +15392,13 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     else:
 
         # clr.w   -(sp)     ->    move.w  #0,-(sp)  ; Saves 2 cycles. But now time is multiple of 4. Status flags wrong.
-        match = re.match(r'^(\s*)clr\.w(\s+)-\(%sp\)', line)
+        match = clr_w_stack_by_pushing_pattern.match(line)
         if match:
             optimized_line = f'{match.group(1)}move.w{match.group(2)}#0,-(%sp)'
             return ([optimized_line], True)
 
         # clr.l   -(sp)     ->    pea  0.w          ; Saves 6 cycles. Status flags wrong.
-        match = re.match(r'^(\s*)clr\.l(\s+)-\(%sp\)', line)
+        match =clr_l_stack_by_pushing_pattern.match(line)
         if match:
             optimized_line = f'{match.group(1)}pea{match.group(2)}0.w'
             return ([optimized_line], True)
@@ -15327,7 +16767,7 @@ def applyGccConversions(lines: list[str]) -> list[str]:
 
         # Replace %fp by %a6
         line = convert_from_gcc_fp_style(line)
-        # Replace gcc indirection style %pc@(disp,%xN:s) on certain instructions
+        # Replace gcc indirection style %pc@(disp,%xN:s) on specific instructions
         line = convert_from_gcc_indirection_style(line)
         # Convert gcc inner displacement style which comes inside parenthesis, into normal style
         line = convert_from_gcc_inner_displacement_style(line)
