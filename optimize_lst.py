@@ -805,6 +805,50 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
                             if this_label in backward_number_labels and this_label[0] == number_label:
                                 lines[k] = this_line.replace(this_label, new_label, 1)
 
+def comment_line_at(lines: list[str], i_line: int):
+    line = lines[i_line]
+    if line != "#APP" and line != "#NO_APP":
+        lines[i_line] = '#' + line
+
+def uncomment_line_at(lines: list[str], i_line: int):
+    line = lines[i_line]
+    if line.startswith('#'):
+        if line != "#APP" and line != "#NO_APP":
+            lines[i_line] = line[1:]
+
+def comment_last_N_lines(modified_lines: list[str], n_lines: int):
+    """
+    Starting from the end of the array, replace last N lines by '#' + line.
+    """
+    if n_lines <= 0:
+        return
+    start_index = max(0, len(modified_lines) - n_lines)
+    for i in range(start_index, len(modified_lines)):
+        line = modified_lines[i]
+        if (
+            CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
+            CONDITIONAL_DBCC_FLOW_REGEX.match(line) or
+            UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
+            LABEL_REGEX.match(line) or
+            FUNCTION_EXIT_REGEX.match(line)
+        ):
+            continue
+        elif line != "#APP" and line != "#NO_APP":
+            modified_lines[i] = '#' + line
+
+def uncomment_last_N_lines(modified_lines: list[str], n_lines: int):
+    """
+    Starting from the end of the array, remove from last N lines the initial character '#'.
+    """
+    if n_lines <= 0:
+        return
+    start_index = max(0, len(modified_lines) - n_lines)
+    for i in range(start_index, len(modified_lines)):
+        line = modified_lines[i]
+        if line.startswith('#'):
+            if line != "#APP" and line != "#NO_APP":
+                modified_lines[i] = line[1:]
+
 @dataclass
 class ControlFlowPosInArray:
     """ Position in lines where the label is defined"""
@@ -991,7 +1035,7 @@ def get_function_name(i_line: int, lines: list[str]) -> str:
             func_name = match_func.group(1)
             break
     return func_name
-    
+
 @export_func
 def find_free_after_use_DATA_regs(excludes: list[str], i_line: int, lines: list[str], modified_lines: list[str], ignore_N_previous_lines: int=0) -> list[str | None]:
     return find_free_after_use_register(excludes, i_line, lines, modified_lines, "%d", ignore_N_previous_lines)
@@ -1101,6 +1145,10 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
     flow_return_frames: list[ControlFlowReturnFrame] = []
 
+    # acá
+    # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
+    #target_array = modified_lines
+    #rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
     target_array = lines
     rem_start = i_line + 1
@@ -1234,7 +1282,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
                             # make sure destination reg is not being used in the indirection
                             if dest not in src_complex:
                                 # Only consider when the reg is totally overwritten, not partially.
-                                if instr_size is None or instr_size == ".l":
+                                if instr_size is None or instr_size == ".l" or (instr_size == ".w" and reg_type == "%a"):
                                     overwritten_or_cleared_mask |= 1 << reg_index  # mark candidate as overwritten/cleared
                                     continue
                         # matching the clr or sCC instructions
@@ -1295,7 +1343,7 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
         if candidate_mask == 0:
             break  # Exit the master control flow loop
 
-        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it was a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -1525,7 +1573,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
         if candidate_mask == 0:
             break  # Stop the analysis at current flow
 
-        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it was a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -2127,6 +2175,10 @@ def is_reg_used_before_overwritten_cleared_after_label_definition(xN: str, i_lin
     label_reached = False
     reg_xN_used = False
 
+    # acá
+    # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
+    #target_array = modified_lines
+    #rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
     target_array = lines
     rem_start = i_line + 1
@@ -2287,7 +2339,7 @@ def is_reg_used_before_overwritten_cleared_after_label_definition(xN: str, i_lin
         if reg_xN_used:
             break  # Exit the master control flow loop
 
-        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it was a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -2326,6 +2378,10 @@ def can_code_reach_label_definition_location(i_line: int, lines: list[str], modi
 
     label_reached = False
 
+    # acá
+    # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
+    #target_array = modified_lines
+    #rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
     target_array = lines
     rem_start = i_line + 1
@@ -2434,7 +2490,7 @@ def can_code_reach_label_definition_location(i_line: int, lines: list[str], modi
         if label_reached:
             break  # Exit the master control flow loop
 
-        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it was a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -2486,6 +2542,10 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
     # all the lines that satisfy the criteria
     collected_lines: list[str] = []
 
+    # acá
+    # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
+    #target_array = modified_lines
+    #rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
     target_array = lines
     rem_start = i_line + 1
@@ -2648,7 +2708,7 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
                     else:
                         break  # Stop the analysis at current flow
 
-        # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1]
+        # Afer exhausting all the modified_lines array, we can continue from lines[i_line+1] as if it was a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -3310,6 +3370,10 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
     flow_return_frames: list[ControlFlowReturnFrame] = []
 
+    # acá
+    # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
+    #target_array = modified_lines
+    #rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
     target_array = lines
     rem_start = i_line + 1
@@ -3454,7 +3518,7 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
                         # Instruction not considered?
                         print(f"{Fore.RED}[ERROR {THIS_INVOKE_ID}]{Style.RESET_ALL} (4) At {func_name}: instruction not considered as clear or overwrite: {line}")
 
-        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it were a continued code base
+        # Afer exhausting all the modified_lines array, continue from lines[i_line+1] as if it was a continued code base
         if target_array is modified_lines and i == rem_end:
             i = i_line+1
             target_array = lines
@@ -3972,42 +4036,6 @@ def is_label_within_8_bytes_range(label: str, i_line: int, lines: list[str], mod
     )
 
     return is_in_range
-
-def comment_line_at(lines: list[str], i_line: int):
-    line = lines[i_line]
-    if line != "#APP" and line != "#NO_APP":
-        lines[i_line] = '#' + line
-
-def uncomment_line_at(lines: list[str], i_line: int):
-    line = lines[i_line]
-    if line.startswith('#'):
-        if line != "#APP" and line != "#NO_APP":
-            lines[i_line] = line[1:]
-
-def comment_last_N_lines(modified_lines: list[str], n_lines: int):
-    """
-    Starting from the end of the array, replace last N lines by '#' + line.
-    """
-    if n_lines <= 0:
-        return
-    start_index = max(0, len(modified_lines) - n_lines)
-    for i in range(start_index, len(modified_lines)):
-        line = modified_lines[i]
-        if line != "#APP" and line != "#NO_APP":
-            modified_lines[i] = '#' + line
-
-def uncomment_last_N_lines(modified_lines: list[str], n_lines: int):
-    """
-    Starting from the end of the array, remove from last N lines the initial character '#'.
-    """
-    if n_lines <= 0:
-        return
-    start_index = max(0, len(modified_lines) - n_lines)
-    for i in range(start_index, len(modified_lines)):
-        line = modified_lines[i]
-        if line.startswith('#'):
-            if line != "#APP" and line != "#NO_APP":
-                modified_lines[i] = line[1:]
 
 def is_dN_set_for_ccr_for_bcc(lines: list[str], modified_lines: list[str], dN: str, target_label: str, control_flow_dict: dict[str, ControlFlowPosInArray]) -> bool:
     """
@@ -10136,6 +10164,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 3)
 
+    # Load address and offset from an address reg to another address reg
     matchA = re.match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         matchC = re.match(r'^\s*(add|adda)\.([bwl])\s+(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_C)
@@ -10149,6 +10178,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             # Same size and same aP regs? And different regs?
             if sA == sC and aP == matchC.group(4) and aN != aP and aP != aM and aN != aM:
 
+                # Load address and offset from an address reg to another address reg
                 # If -32768 <= val <= 32767
                 # move.s  aN,aP      ->    lea     val(aN,aM),aP
                 # add.s   #val,aP
@@ -10167,6 +10197,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 3)
 
+                # Load address and offset from an address reg to another address reg
                 # If -32768 <= val <= 32767
                 # move.s  aN,aP      ->    lea     -val(aN,aM),aP
                 # sub.s   #val,aP
@@ -10510,7 +10541,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # Unnecessary copy.
         # move.l  dN,aN     ->   move.l  dN,aN             ; Saves 4 cycles
         # move.w  aN,dN          instr other than jcc/bcc
-        # instr other than jcc/bcc
+        # <any_instr> other than jcc/bcc
         matchA = re.match(r'^(\s*)move\.l(\s+)(%d[0-7]),\s*(%a[0-7])', line_A)
         if matchA:
             dN = matchA.group(3)
@@ -10667,6 +10698,25 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         #                    ]
         #                    return (optimized_lines, 3)
 
+    # Clear mask: using dN as a clearing mask over dM
+    # not.s  dN       ->    or.s   dN,dM           ; Saves 4 cycles.
+    # and.s  dN,dM          eor.s  dN,dM
+    # not.s  dN
+    matchA = re.match(r'^(\s*)not\.([bwl])(\s+)(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(2)
+        dN = matchA.group(4)
+        matchB = re.match(r'^\s*and\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+        if matchB and s == matchB.group(1) and dN == matchB.group(2):
+            dM = matchB.group(3)
+            matchC = re.match(r'^\s*not\.([bwl])\s+(%d[0-7])', line_C)
+            if matchC and dM != dN and s == matchC.group(1) and dN == matchC.group(2):
+                optimized_lines = [
+                    f'{matchA.group(1)}or.{s}{matchA.group(3)}{dN},{dM}',
+                    f'{matchA.group(1)}eor.{s}{matchA.group(3)}{dN},{dM}'
+                ]
+                return (optimized_lines, 3)
+
     if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
         # Clearing consecutively the stack by just offseting the sp.
@@ -10699,7 +10749,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         matchA = matchA_clr or matchA_pea_0
         if matchA:
             matchB_clr = clr_l_stack_by_pushing_pattern.match(line_B)
-            matchB_pea_0 = pea_0wl_pattern.macth(line_B)
+            matchB_pea_0 = pea_0wl_pattern.match(line_B)
             if matchB_clr or matchB_pea_0:
                 matchC_clr = clr_l_stack_by_pushing_pattern.match(line_C)
                 matchC_pea_0 = pea_0wl_pattern.match(line_C)
@@ -11320,25 +11370,6 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                                         f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
                                     ]
                                     return (optimized_lines, 3)
-
-    # Clear mask: using dN as a clearing mask over dM
-    # not.s  dN       ->    or.s   dN,dM           ; Saves 4 cycles.
-    # and.s  dN,dM          eor.s  dN,dM
-    # not.s  dN
-    matchA = re.match(r'^(\s*)not\.([bwl])(\s+)(%d[0-7])', line_A)
-    if matchA:
-        s = matchA.group(2)
-        dN = matchA.group(4)
-        matchB = re.match(r'^\s*and\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
-        if matchB and s == matchB.group(1) and dN == matchB.group(2):
-            dM = matchB.group(3)
-            matchC = re.match(r'^\s*not\.([bwl])\s+(%d[0-7])', line_C)
-            if matchC and dM != dN and s == matchC.group(1) and dN == matchC.group(2):
-                optimized_lines = [
-                    f'{matchA.group(1)}or.{s}{matchA.group(3)}{dN},{dM}',
-                    f'{matchA.group(1)}eor.{s}{matchA.group(3)}{dN},{dM}'
-                ]
-                return (optimized_lines, 3)
 
     return (None, 0)
 
@@ -14926,7 +14957,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                     return (optimized_lines, True)
 
     # Remove 0 indirection
-    # any_inst   *0(aN)*     ->    any_inst   *(aN)*     ; Saves 4 cycles.
+    # <any_instr>  *0(aN)*     ->    <any_instr>  *(aN)*     ; Saves 4 cycles.
     match = indirection_0_pattern.match(line)
     if match:
         optimized_line = indirection_0_pattern.sub(r'(\1)', line)
@@ -14960,9 +14991,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{abs(val)},{dN}'
                 return ([optimized_line], True)
 
-    # cmp.s  #0,aN     ->    move.s   aN,dM        ; Saves [6,10] cycles.
+    # cmp.[wl]  #0,aN     ->    move.s   aN,dM        ; Saves [6,10] cycles.
     # Needs a free data register dM.
-    match = re.match(r'^(\s*)(cmp|cmpa)\.([bwl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
+    match = re.match(r'^(\s*)(cmp|cmpa)\.([wl])(\s+)#0,\s*(%a[0-7]|%sp)', line)
     if match:
         dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines)[0]
         is_dM_free_after_use = True
@@ -14970,20 +15001,12 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             is_dM_free_after_use = False
             dM = find_unused_DATA_regs([], i_line, lines, modified_lines)[0]
         if dM is not None:
-            s = match.group(3)
             aN = match.group(5)
-            optimized_line = f'{match.group(1)}move.{s}{match.group(4)}{aN},{dM}'
+            optimized_line = f'{match.group(1)}move.l{match.group(4)}{aN},{dM}'
             if is_dM_free_after_use:
                 return ([optimized_line], True)
             elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 return ([optimized_line], True)
-
-    # cmp.l  #0,aN     ->    cmp.w   #0,aN         ; Saves 4 cycles.
-    match = re.match(r'^(\s*)(cmp|cmpa)\.l(\s+)#0,\s*(%a[0-7]|%sp)', line)
-    if match:
-        aN = match.group(4)
-        optimized_line = f'{match.group(1)}cmp.w{match.group(3)}#0,{aN}'
-        return ([optimized_line], True)
 
     # If -128 <= val <= 127
     # cmp.l  #val,<ea>   ->    moveq    #val,dM    ; Saves 4 cycles.

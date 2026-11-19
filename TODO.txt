@@ -121,11 +121,20 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 
 Multiline instructions
 ======================
+Add to COOL_OPTIMIZATIONS
+# Load lower word of address and offset into a data reg.
+lea     disp(aM),aN      ->    moveq   #disp,dN          ; Saves 8 cycles. Leaves aN different.
+moveq   #0,dN                  add.w   aM,dN
+move.w  aN,dN
+Where aN != aM
+Where -128 <= disp <= 127
+Ensure aN is not used anymore or cleared/overwritten before use.
+
 Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 (prepareMapDataRow_MTI16_BI16).
 Is also similar to: Pushing word memory values into stack with word adjustments for ABI long args compliance.
 # Move from consecutive memory indirection to random memory indirection.
 # Re order instructions to take advantage of auto increment.
-move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+      ; Saves 36 cycles
+move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+      ; Saves 36 cycles. Leaves aN different.
 addq.w  #4,%aM                   move.w (aN)+,(aM)+
 move.w  2(%aN),-2(%aM)           move.w (aN)+,(aP)+
 move.w  4(%aN),(%aP)             move.w (aN)+,(aP)+
