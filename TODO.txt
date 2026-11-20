@@ -122,13 +122,21 @@ Multiplication by a negative constant: see the comments in the optimizer script 
 Multiline instructions
 ======================
 Add to COOL_OPTIMIZATIONS
-# Load lower word of address and offset into a data reg.
-lea     disp(aM),aN      ->    moveq   #disp,dN          ; Saves 8 cycles. Leaves aN different.
-moveq   #0,dN                  add.w   aM,dN
-move.w  aN,dN
-Where aN != aM
-Where -128 <= disp <= 127
-Ensure aN is not used anymore or cleared/overwritten before use.
+# Load lower word of address with offset into a data reg.
+# lea     disp(aM),aN      ->    moveq   #disp,dN          ; Saves 8 cycles. Leaves aN different.
+# moveq   #0,dN                  add.w   aM,dN
+# move.w  aN,dN
+# Where aN != aM
+# Where -128 <= disp <= 127
+# Ensure aN is not used anymore or cleared/overwritten before use.
+    matchA = lea_label_or_disp_aN_or_pc_into_aM_pattern.match(line_A)
+    if matchA:
+        aM = matchA.group(4)  # avoid sp/pc
+        aN = matchA.group(5)
+        label_or_val = '' if not matchA.group(3) else matchA.group(3)
+        if aN != aM and aN != '%sp' and aM not in (('%sp','%pc')) and isValue(label_or_val):
+            val = parseConstantSigned(label_or_val, 16)
+            if -128 <= val <= 127:
 
 Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 (prepareMapDataRow_MTI16_BI16).
 Is also similar to: Pushing word memory values into stack with word adjustments for ABI long args compliance.
