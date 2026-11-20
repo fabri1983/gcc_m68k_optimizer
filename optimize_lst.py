@@ -805,8 +805,21 @@ def convert_gcc_local_labels_into_unique_labels(lines: list[str]):
                             if this_label in backward_number_labels and this_label[0] == number_label:
                                 lines[k] = this_line.replace(this_label, new_label, 1)
 
-def comment_line_at(lines: list[str], i_line: int):
+class CommentLineFilter(Enum):
+    NO_COMMENT_LINES_WITH_CONTROL_FLOW = "noctrlflow"
+    COMMENT_ALWAYS = "always"
+    
+def comment_line_at(lines: list[str], i_line: int, filter: CommentLineFilter):
     line = lines[i_line]
+    if filter == CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW:
+        if (
+            CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
+            CONDITIONAL_DBCC_FLOW_REGEX.match(line) or
+            UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
+            LABEL_REGEX.match(line) or
+            FUNCTION_EXIT_REGEX.match(line)
+        ):
+            return
     if line != "#APP" and line != "#NO_APP":
         lines[i_line] = '#' + line
 
@@ -816,7 +829,7 @@ def uncomment_line_at(lines: list[str], i_line: int):
         if line != "#APP" and line != "#NO_APP":
             lines[i_line] = line[1:]
 
-def comment_last_N_lines(modified_lines: list[str], n_lines: int):
+def comment_last_N_lines(modified_lines: list[str], n_lines: int, filter: CommentLineFilter):
     """
     Starting from the end of the array, replace last N lines by '#' + line.
     """
@@ -825,14 +838,15 @@ def comment_last_N_lines(modified_lines: list[str], n_lines: int):
     start_index = max(0, len(modified_lines) - n_lines)
     for i in range(start_index, len(modified_lines)):
         line = modified_lines[i]
-        if (
-            CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
-            CONDITIONAL_DBCC_FLOW_REGEX.match(line) or
-            UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
-            LABEL_REGEX.match(line) or
-            FUNCTION_EXIT_REGEX.match(line)
-        ):
-            continue
+        if filter == CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW:
+            if (
+                CONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
+                CONDITIONAL_DBCC_FLOW_REGEX.match(line) or
+                UNCONDITIONAL_CONTROL_FLOW_REGEX.match(line) or
+                LABEL_REGEX.match(line) or
+                FUNCTION_EXIT_REGEX.match(line)
+            ):
+                continue
         elif line != "#APP" and line != "#NO_APP":
             modified_lines[i] = '#' + line
 
@@ -1063,8 +1077,8 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     exclude_indexes = (
         {} if not excludes  # Handle empty list
@@ -1145,13 +1159,12 @@ def find_free_after_use_register(excludes: list[str], i_line: int, lines: list[s
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
     flow_return_frames: list[ControlFlowReturnFrame] = []
 
-    # acá
     # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
-    #target_array = modified_lines
-    #rem_start = len(target_array) - ignore_N_previous_lines
+    target_array = modified_lines
+    rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
-    target_array = lines
-    rem_start = i_line + 1
+    #target_array = lines
+    #rem_start = i_line + 1
     rem_end = len(target_array)
     i = rem_start
 
@@ -1411,8 +1424,8 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
@@ -1433,7 +1446,7 @@ def find_unused_register(excludes: list[str], i_line: int, lines: list[str], mod
     # Search for the first instruction in the routine
     routine_first_instruction_pos = get_routine_first_instruction_pos(modified_lines)
 
-    # Start with modified_lines array
+    # Start with modified_lines[] array at the beginning of the routine
     target_array = modified_lines
     rem_start = routine_first_instruction_pos
     rem_end = len(target_array)
@@ -1678,8 +1691,8 @@ def find_regs_holding_zero(i_line: int, lines: list[str], modified_lines: list[s
     """
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
@@ -1691,7 +1704,7 @@ def find_regs_holding_zero(i_line: int, lines: list[str], modified_lines: list[s
     regs_zeroed: set[str] = set()  # "still 0" on the current path?
     regs_zeroed_at_end: list[set[str]] = []  # One snapshot per flow that reached the end point
 
-    # Start with modified_lines array
+    # Start with modified_lines[] array at the beginning of the routine
     target_array = modified_lines
     rem_start = routine_first_instruction_pos
     rem_end = len(target_array)
@@ -2165,8 +2178,8 @@ def is_reg_used_before_overwritten_cleared_after_label_definition(xN: str, i_lin
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
@@ -2175,13 +2188,12 @@ def is_reg_used_before_overwritten_cleared_after_label_definition(xN: str, i_lin
     label_reached = False
     reg_xN_used = False
 
-    # acá
     # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
-    #target_array = modified_lines
-    #rem_start = len(target_array) - ignore_N_previous_lines
+    target_array = modified_lines
+    rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
-    target_array = lines
-    rem_start = i_line + 1
+    #target_array = lines
+    #rem_start = i_line + 1
     rem_end = len(target_array)
     i = rem_start
 
@@ -2369,8 +2381,8 @@ def can_code_reach_label_definition_location(i_line: int, lines: list[str], modi
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
@@ -2378,13 +2390,12 @@ def can_code_reach_label_definition_location(i_line: int, lines: list[str], modi
 
     label_reached = False
 
-    # acá
     # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
-    #target_array = modified_lines
-    #rem_start = len(target_array) - ignore_N_previous_lines
+    target_array = modified_lines
+    rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
-    target_array = lines
-    rem_start = i_line + 1
+    #target_array = lines
+    #rem_start = i_line + 1
     rem_end = len(target_array)
     i = rem_start
 
@@ -2531,8 +2542,8 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
@@ -2542,13 +2553,12 @@ def get_lines_where_reg_is_used_before_overwritten_or_cleared_afterwards(xN: str
     # all the lines that satisfy the criteria
     collected_lines: list[str] = []
 
-    # acá
     # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
-    #target_array = modified_lines
-    #rem_start = len(target_array) - ignore_N_previous_lines
+    target_array = modified_lines
+    rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
-    target_array = lines
-    rem_start = i_line + 1
+    #target_array = lines
+    #rem_start = i_line + 1
     rem_end = len(target_array)
     i = rem_start
 
@@ -3134,8 +3144,8 @@ def if_reg_not_used_anymore_then_remove_from_push_pop(xN: str, i_line: int, line
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
 
     # Backwards scan
     xN_used_backwards = False
@@ -3363,20 +3373,19 @@ def replace_remaining_jsr_aN_calls(aN: str, i_line: int, lines: list[str], modif
     func_name = get_function_name(i_line, lines)
 
     # Make them not to interfere with the analysis
-    comment_line_at(lines, i_line)
-    comment_last_N_lines(modified_lines, ignore_N_previous_lines)
-                    
+    comment_line_at(lines, i_line, CommentLineFilter.COMMENT_ALWAYS)
+    comment_last_N_lines(modified_lines, ignore_N_previous_lines, CommentLineFilter.NO_COMMENT_LINES_WITH_CONTROL_FLOW)
+
     control_flow_dict = build_control_flow_map(i_line + 1, lines, modified_lines)
     control_visited: set[str] = set()  # Helps to avoid looping infinitely 
     flow_return_frames: list[ControlFlowReturnFrame] = []
 
-    # acá
     # Start with modified_lines[] array ALWAYS, since the ignore_N_previous_lines might have a branching or related instruction
-    #target_array = modified_lines
-    #rem_start = len(target_array) - ignore_N_previous_lines
+    target_array = modified_lines
+    rem_start = len(target_array) - ignore_N_previous_lines
     # Start with lines array
-    target_array = lines
-    rem_start = i_line + 1
+    #target_array = lines
+    #rem_start = i_line + 1
     rem_end = len(target_array)
     i = rem_start
 
@@ -8043,6 +8052,62 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     # Re order lines
                                     optimized_lines = [line_B, line_A_opt, line_D]
                                     return (optimized_lines, 4)
+
+    # Null pointer or just comparison with 0 test improvement.
+    # move.w  #val,aN                 ->    moveq  #val,dN         ; Saves [4,8,12] cycles. Leaves aN/aM different.
+    # lea     (aN,dM.l),aM                  <move.l dN,aN>   <-- needed if aN is used before cleared/overwritten
+    # cmp.w #0,aM  or  move.l aM,dN         add.l  dM,dN
+    # bCC     label                         <move.l  dN,aM>  <-- needed if aM is used before cleared/overwritten
+    #                                       bCC    label
+    # Where -128 <= val <= 127
+    # If instruction cmp.w is a match then:
+    #    It needs a free data register dN.
+    #    Ensure dN is not used anymore or cleared/overwritten before use.
+    # Ensure dN != dM
+    # Some instructions are optional depending on aN/aM used before cleared/overwritten
+    matchA = re.match(r'^(\s*)(move|movea)\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7])', line_A)
+    if matchA:
+        val = parseConstantSigned(matchA.group(4), 16)
+        aN = matchA.group(5)
+        if -128 <= val <= 127:
+            matchB = re.match(r'^\s*lea\s+\((%a[0-7]),(%d[0-7])\.l\),\s*(%a[0-7])', line_B)
+            if matchB and aN == matchB.group(1):
+                dM = matchB.group(2)
+                aM = matchB.group(3)
+                matchC_cmp = re.match(r'^\s*cmpa?\.w\s+#0(?:\.[bwl])?,\s*(%a[0-7])', line_C)
+                matchC_move = re.match(r'^\s*move\.l\s+(%a[0-7]),\s*(%d[0-7])', line_C)
+                matchC = matchC_cmp or matchC_move
+                if matchC and aM == matchC.group(1):
+                    matchD = CONDITIONAL_CONTROL_FLOW_REGEX.match(line_D)
+                    if matchD:
+                        dN = None
+                        is_dN_free_after_use = False
+                        if matchC_move:
+                            # set to True only for the sake of avoiding the use of add_regs_into_push_pop_if_not_scratch_or_in_interrupt()
+                            is_dN_free_after_use = True
+                            dN = matchC_move.group(2)
+                        else:
+                            dN = find_free_after_use_DATA_regs([dM], i_line, lines, modified_lines)[0]
+                            is_dN_free_after_use = True
+                            if dN is None:
+                                is_dN_free_after_use = False
+                                dN = find_unused_DATA_regs([dM], i_line, lines, modified_lines)[0]
+
+                        if dN is not None and dN != dM:
+                            optimized_lines = [
+                                f'{matchA.group(1)}moveq{matchA.group(3)}#{val},{dN}'
+                            ]
+                            if is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 4):
+                                optimized_lines.append(f'{matchA.group(1)}movea.l{matchA.group(3)}{dN},{aN}')
+                            optimized_lines.append(f'{matchA.group(1)}add.l{matchA.group(3)}{dM},{dN}')
+                            if is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 4):
+                                optimized_lines.append(f'{matchA.group(1)}movea.l{matchA.group(3)}{dN},{aM}')
+                            optimized_lines.append(line_D)
+
+                            if is_dN_free_after_use:
+                                return (optimized_lines, 4)
+                            elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dN], i_line, lines, modified_lines):
+                                return (optimized_lines, 4)
 
     # Word packing.
     # swap[.w] dN           ->    swap    dN                 ; Saves [24,32] cycles. Leaves dM different.
