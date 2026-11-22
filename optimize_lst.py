@@ -4550,7 +4550,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_D.s [<ea>,]dQ
@@ -4729,7 +4729,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
         # any_instr_C.s  [<ea>,]dP        any_instr_D.s  [<ea>,]dQ
@@ -5017,7 +5017,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_D.s [<ea>,]dQ
@@ -5187,7 +5187,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
         # any_instr_C.s  [<ea>,]dP        any_instr_D.s  [<ea>,]dQ
@@ -5694,7 +5694,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_D.s [<ea>,]dQ
@@ -5855,7 +5855,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
         # any_instr_C.s  [<ea>,]dP        any_instr_D.s  [<ea>,]dQ
@@ -6700,7 +6700,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_A.s <ea>,dN
@@ -6852,7 +6852,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
         # any_instr_C.s  [<ea>,]dP        any_instr_A.s  dN
@@ -7881,7 +7881,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_A.s <ea>,dN
         # tst.s  dN                        bCC    label
@@ -8024,7 +8024,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # In this particular case we can re order the first instruction so the the optimization may apply.
+        # In this particular case we can re order the first instruction so the optimization may apply.
         # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_A.s  dN
         # tst.s  dN                       bCC    label
@@ -17508,7 +17508,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
 
                 # Reverse the list so the arguments are in the order they are popped from stack in the target function
                 #args[::-1]
-                # Get existing arguments (if the they were saved in an earlier function call)
+                # Get existing arguments (if they were saved in an earlier function call)
                 func_called = args_pushed_per_function.get(func_name)
                 if func_called is None:
                     args_pushed_per_function[func_name] = ABIFunctionData(args, total_sp_adjustment)
@@ -17824,7 +17824,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
 
         # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN       ; Saves 4 cycles
         # clr.s   mem_address   ->   clr.s   mem_address.w        ; Saves 4 cycles
-        # clr: Only if mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates on writabble RAM
+        # clr: Only if mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates on writable RAM
         elif match := (move_canonical_mem_address_pattern.match(line) or clr_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
             s = match.group(3)
