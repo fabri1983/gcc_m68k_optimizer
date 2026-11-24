@@ -12459,7 +12459,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Subtraction using indexing modes.
-    # sub.s   (aN,dP.z),xN  ->  suba.z  dP,aN          ; Saves [2,4] cycles. Leaves aN with different value than expected.
+    # sub.s   (aN,dP.z),xN  ->  suba.z  dP,aN          ; Saves [2,4] cycles. Leaves aN different.
     # sub.s   (aN,dP.z),xM      sub.s   (aN),xN
     #                           sub.s   (aN),xM
     # Make sure aN is not used before is cleared/overwitten.
@@ -12506,8 +12506,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if dP is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{dP}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({dP}),{dN}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({dP}),{dM}'
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{dP},{dN}',
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{dP},{dM}'
                     ]
                     if is_dP_free_after_use:
                         return (optimized_lines, 2)
@@ -12541,8 +12541,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if dP is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{dP}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({dP}),{dN}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({dP}),{dM}'
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}{dP},{dN}',
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}{dP},{dM}'
                     ]
                     if is_dP_free_after_use:
                         return (optimized_lines, 2)
@@ -12554,6 +12554,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # add.s   disp(aN),aP        add.s   aQ,aM
     #                            add.s   aQ,aP
     # Needs a free address register aQ.
+    # aQ can be aN.
     add_disp_aN_into_aM_pattern = r'^(\s*)adda?\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])'
     matchA = re_match(add_disp_aN_into_aM_pattern, line_A)
     if matchA:
@@ -12576,8 +12577,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if aQ is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{aQ}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({aQ}),{aM}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}({aQ}),{aP}'
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{aQ},{aM}',
+                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{aQ},{aP}'
                     ]
                     if is_aQ_free_after_use:
                         return (optimized_lines, 2)
@@ -12589,6 +12590,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # sub.s   disp(aN),aP        sub.s   aQ,aM
     #                            sub.s   aQ,aP
     # Needs a free address register aQ.
+    # aQ can be aN.
     sub_disp_aN_into_aM_pattern = r'^(\s*)suba?\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])'
     matchA = re_match(sub_disp_aN_into_aM_pattern, line_A)
     if matchA:
@@ -12611,8 +12613,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if aQ is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{aQ}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({aQ}),{aM}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}({aQ}),{aP}'
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}{aQ},{aM}',
+                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}{aQ},{aP}'
                     ]
                     if is_aQ_free_after_use:
                         return (optimized_lines, 2)
@@ -16834,7 +16836,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
         if len(modified_multi_lines) >= MULTIPLE_LINES_OPTIMIZATION_LIMIT:
 
             # Range: from MULTIPLE_LINES_OPTIMIZATION_LIMIT lines down to 2 lines
-            # while-loop so the upper bound can grow when an optimization adds lines
+            # while-loop so the upper bound can grow when an optimization adds more lines than replaced lines
             multi_span_size = MULTIPLE_LINES_OPTIMIZATION_LIMIT
             while multi_span_size >= 2:
 
@@ -16858,9 +16860,9 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
                     num_patterns_found += 1
 
                     # Get the lines being replaced
-                    original_lines = []
+                    original_lines_for_log = []
                     if PRINT_OPTIMIZATION_LOG and lines_to_remove <= len(modified_multi_lines):
-                        original_lines = modified_multi_lines[-lines_to_remove:]
+                        original_lines_for_log = modified_multi_lines[-lines_to_remove:]
 
                     # Calculate original line number for the first line being optimized
                     first_modified_line_pos = len(modified_multi_lines) - lines_to_remove
@@ -16881,16 +16883,17 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
                             print_start_asm_block = False
                             print_end_asm_block = True
                         # Print optimization log
-                        print_diff(original_lines, (i_line-1)-(lines_to_remove-1), optimized_multilines)
-                        del original_lines
+                        print_diff(original_lines_for_log, (i_line-1)-(lines_to_remove-1), optimized_multilines)
+
+                    del original_lines_for_log
 
                     # Check if the replacement produced more lines than the current span.
                     # Restart the descending scan from the new (larger) size instead of continuing downward.
-                    # TODO: it causes and infinite loop given that there is at least one same pattern that is continously applied.
-                    #growth = len(optimized_multilines) - multi_span_size
-                    #if growth > 0:
-                    #    multi_span_size = min(MULTIPLE_LINES_OPTIMIZATION_LIMIT, multi_span_size + growth)
-                    #    continue
+                    growth = len(optimized_multilines) - multi_span_size
+                    if growth > 0:
+                        multi_span_size = min(MULTIPLE_LINES_OPTIMIZATION_LIMIT, multi_span_size + growth)
+                        del optimized_multilines
+                        continue
 
                 del optimized_multilines
                 multi_span_size -= 1
@@ -16942,6 +16945,9 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
         )
         num_updated_lines_found += num_updates_4
         num_patterns_found += num_updates_4
+
+    del line_number_map
+    del mem_addr_by_symbolName_dict
 
     return (modified_multi_lines, num_updated_lines_found, num_patterns_found)
 

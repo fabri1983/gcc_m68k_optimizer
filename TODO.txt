@@ -195,19 +195,17 @@ move.l 28(a2),(a6)          move.l (a2),(a6)
 Next optimization only valid for 3 or more disp(sp).
 (see: Pushing word memory values into stack with word adjustments for ABI long args compliance)
 Adding same immediate value into subsequent memory by indirect addressing.
-    addq.w #1,44(sp)
-    0, 1, or 2 instructions here. Where sp pointer is not modified. Grab all used address regs.
-    addq.w #1,46(sp)
-    0, 1, or 2 instructions here. Where sp pointer is not modified. Grab all used address regs.
-    addq.w #1,48(sp)
-; Saves 4 cycles
-    lea 44(sp),aM
-    addq.w #1,(aM)+
-    instructions gathered in-between (if any)
-    addq.w #1,(aM)+
-    instructions gathered in-between (if any)
-    addq.w #1,(aM)
+addq.w #1,44(sp)                      ->    lea 44(sp),aM            ; Saves 4 cycles
+0, 1, or 2 instructions here.               addq.w #1,(aM)+
+  Where sp pointer is not modified.         instructions gathered in-between (if any)
+  Grab all used address regs.               addq.w #1,(aM)+
+addq.w #1,46(sp)                            instructions gathered in-between (if any)
+0, 1, or 2 instructions here.               addq.w #1,(aM)
+  Where sp pointer is not modified. 
+  Grab all used address regs.
+addq.w #1,48(sp)
 Needs a free address register aM.
+
 
 
 
