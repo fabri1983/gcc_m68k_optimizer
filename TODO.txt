@@ -125,7 +125,7 @@ Do next for 6 lines and for 3 lines. See example at big_tilemap.opt.s line 2505 
 Is also similar to: Pushing word memory values into stack with word adjustments for ABI long args compliance.
 # Move from consecutive memory indirection to random memory indirection.
 # Re order instructions to take advantage of auto increment.
-move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+      ; Saves 36 cycles. Leaves aN different.
+move.w  (%aN),(%aM)        ->    move.w (aN)+,(aM)+          ; Saves 36 cycles. Leaves aN different.
 addq.w  #4,%aM                   move.w (aN)+,(aM)+
 move.w  2(%aN),-2(%aM)           move.w (aN)+,(aP)+
 move.w  4(%aN),(%aP)             move.w (aN)+,(aP)+
@@ -133,20 +133,19 @@ addq.w  #4,%aP
 move.w  6(%aN),-2(%aP)
 # Ensure aN is not used anymore or cleared/overwritten before use.
 
-# Read-Modify-Write and increment pointer.
-move.s  (aN),dN         ->    add.w   dM,(aN)+           ; Saves [8,12] cycles. Leaves dN different.
-add.s   dM,dN
-move.s  dN,(aN)+
-# Ensure dN is not used anymore or cleared/overwritten before use.
-
-# Poping from SP into a data reg and consecutively modifying the same data reg with consecutive elements from SP. 
-# Better use auto increment on a free address reg to compensate for the poped elements.
-move.s disp1(sp),dN     ->    lea     disp1(sp),aN       ; Saves 4 cycles.
-add.s  disp2(sp),dN           move.s  (aN)+,dN
-add.s  disp3(sp),dN           add.s   (aN)+,dN
-                              add.s   (aN),dN
-# Where disp2 = disp1 + s, disp3 = disp2 + s.
-# Needs a free address register aN.
+Next optimization only valid for 3 or more disp(sp).
+(see: Pushing word memory values into stack with word adjustments for ABI long args compliance)
+Adding same immediate value into subsequent memory by indirect addressing.
+addq.w #1,44(sp)                      ->    lea 44(sp),aM            ; Saves 4 cycles
+0, 1, or 2 instructions here.               addq.w #1,(aM)+
+  Where sp pointer is not modified.         instructions gathered in-between (if any)
+  Grab all used address regs.               addq.w #1,(aM)+
+addq.w #1,46(sp)                            instructions gathered in-between (if any)
+0, 1, or 2 instructions here.               addq.w #1,(aM)
+  Where sp pointer is not modified. 
+  Grab all used address regs.
+addq.w #1,48(sp)
+Needs a free address register aM.
 
 # Gcc built-in signed multiplication with sign extension.
 # Replace by simple muls.w.
@@ -191,21 +190,6 @@ move.l 20(a2),(a6)          move.l (a2)+,(a6)
 move.l 24(a2),(a6)          move.l (a2)+,(a6)
 move.l 28(a2),(a6)          move.l (a2),(a6)
                             lea    -28(a2),a2
-
-Next optimization only valid for 3 or more disp(sp).
-(see: Pushing word memory values into stack with word adjustments for ABI long args compliance)
-Adding same immediate value into subsequent memory by indirect addressing.
-addq.w #1,44(sp)                      ->    lea 44(sp),aM            ; Saves 4 cycles
-0, 1, or 2 instructions here.               addq.w #1,(aM)+
-  Where sp pointer is not modified.         instructions gathered in-between (if any)
-  Grab all used address regs.               addq.w #1,(aM)+
-addq.w #1,46(sp)                            instructions gathered in-between (if any)
-0, 1, or 2 instructions here.               addq.w #1,(aM)
-  Where sp pointer is not modified. 
-  Grab all used address regs.
-addq.w #1,48(sp)
-Needs a free address register aM.
-
 
 
 

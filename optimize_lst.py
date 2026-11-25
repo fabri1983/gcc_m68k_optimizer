@@ -127,7 +127,7 @@ CONTROL_FLOW_ANALYSIS_BRANCH_LATER = False
 # any gain given by the optimized line/s. But it depends on how many cycles have been optimized in the routine.
 USE_FIND_NOT_USED_REG_FUNCTION = True
 
-# By default if a routine is NOT an interrupt routine then the scratch pad regs don't need to be pushed/poped 
+# By default if a routine is NOT an interrupt routine then the scratch pad regs don't need to be pushed/popped 
 # in/from the stack. In any other case we must add them. This flag enables/disables such functionality.
 USE_ADD_MISSING_REGS_INTO_PUSH_AND_POP_FUNCTION = False  # TODO: Review add_regs_into_push_pop_if_not_scratch_or_in_interrupt().
 
@@ -664,11 +664,11 @@ REG_OVERWRITTEN_OR_CLEARED_REGEX = re.compile(
         r'|'
         r'(?:\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/SP/PC,xN.s)
         r'|'
-        r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/SP/PC,xN.s)
+        r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-N](aN/SP/PC,xN.s)
         r'|'
-        r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/SP/PC)
+        r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-N](aN/SP/PC)
         r'|'
-        r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+]\d+)?)'  # label_or_disp[+-*N]
+        r'(?:(?:-?[0-9a-zA-Z_\.]+)(?:\.[bwl])?(?:[\-\+]\d+)?)'  # label_or_disp[+-N]
         # TODO: capturing everything before a comma might be dangerous if we didn't consider explicit matches before
         r'|'
         r'(?:[^,]+)'                 # Considers every other case by capturing everything before comma (greedy)
@@ -743,12 +743,12 @@ def collect_declared_functions(lines: list[str]):
 
             declared_functions_all_set.add(match.group(1))
 
-# pea symbol_or_mem[.wl][+-*N][.bwl]
+# pea symbol_or_mem[.wl][+-N][.bwl]
 PEA_REGEX = re.compile(
     r'^\s*pea\s+(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
 
-# move.[wl] #symbol_or_mem[.wl][+-*N][.bwl],-(sp)
+# move.[wl] #symbol_or_mem[.wl][+-N][.bwl],-(sp)
 PUSH_OTHER_INTO_STACK_REGEX = re.compile(
     r'^\s*move\.([wl])\s+#?(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?,\s*-\(%sp\)'
 )
@@ -1892,10 +1892,13 @@ def find_regs_holding_zero(i_line: int, lines: list[str], modified_lines: list[s
 
     return sort_regs(regs_zeroed)
 
-def in_a_SGDK_sound_related_routine(modified_lines: list[str]) -> bool:
+def in_a_SGDK_sound_or_joy_related_routine(modified_lines: list[str]) -> bool:
     """
     Search backwards up to the function declaration to see if we are in any of next type of routines:
-        Z80_xxx, XGM_xxx, XGM2_xxx, SND_xxx, PSG_xxx, YM2612_xxx
+        Sound: Z80_xxx, XGM_xxx, XGM2_xxx, SND_xxx, PSG_xxx, YM2612_xxx, MDS_, 
+               setNextXFrame, getAccess, releaseAccess, initLoadCalculation, getPCMChannel, 
+               setMusicTempo, setLoopNumber, setFMVolume, setPSGVolume, doFade, vintFadeProcess
+        Joy: JOY_xxx, TH_CONTROL_PHASE, THREELINE_HANDSHAKE, read3Btn, read6Btn
     """
     start_idx = len(modified_lines) - 1
     end_idx = 0
@@ -1903,7 +1906,11 @@ def in_a_SGDK_sound_related_routine(modified_lines: list[str]) -> bool:
         line = modified_lines[i]
         # Found a function declaration?
         if match := FUNCTION_DECLARATION_REGEX.match(line):
-            return match.group(1).startswith(('Z80_','XGM_','XGM2_','SND_','PSG_','YM2612_','MDS_'))
+            sound_startwith_matched = match.group(1).startswith(('Z80_','XGM_','XGM2_','SND_','PSG_','YM2612_','MDS_'))
+            sound_exact_matched = match.group(1) in {'setNextXFrame','getAccess','releaseAccess','initLoadCalculation','getPCMChannel','setMusicTempo','setLoopNumber','setFMVolume','setPSGVolume','doFade','vintFadeProcess'}
+            joy_startwith_matched = match.group(1).startswith(('JOY_'))
+            joy_exact_matched = match.group(1) in {'JOY_','TH_CONTROL_PHASE','THREELINE_HANDSHAKE','read3Btn','read6Btn'}
+            return sound_startwith_matched or sound_exact_matched or joy_startwith_matched or joy_exact_matched
 
     return False
 
@@ -3712,9 +3719,9 @@ RE_An_paren_plus = re.compile(r'^\((%a[0-7]|%sp)\)\+$')
 RE_An_minus_paren = re.compile(r'^-\((%a[0-7]|%sp)\)$')
 # (a[0-7]|pc,[ad][0-7][.s]), and all combinations
 RE_An_Xn = re.compile(r'^\((%a[0-7]|%sp|%pc),(%[ad][0-7]|%sp)(\.[bwl])?\)$')
-# d16[+-*N](a[0-7]|pc), and all combinations. ie: 20+2(a0)
+# d16[+-N](a[0-7]|pc), and all combinations. ie: 20+2(a0)
 RE_d16_An = re.compile(r'^(-?\d+(?:[\-\+]\d+)?|[0-9a-zA-Z_\.]+)\((%a[0-7]|%sp|%pc)\)$')
-# d8[+-*N](a[0-7]|pc,[ad][0-7][.s]), and all combinations
+# d8[+-N](a[0-7]|pc,[ad][0-7][.s]), and all combinations
 RE_d8_An_Xn = re.compile(r'^(-?\d+(?:[\-\+]\d+)?|[0-9a-zA-Z_\.]+)\((%a[0-7]|%sp|%pc),(%[ad][0-7]|%sp)(\.[bwl])?\)$')
 # Any label, function, or symbolName. ie: 1b, .L37, _loc1, memsetU16, xlt_all.0, context3D+12.l
 RE_label_function_symbol = re.compile(r'^[0-9a-zA-Z_\.]+(\.[bwl])?([\-\+]\d+)?(\.[bwl])?$')
@@ -3757,14 +3764,14 @@ def classify_operand(instr_op_base: str, op_size: str, operator: str) -> str | N
     # Match d8(An,Xn[.bwl])
     if RE_d8_An_Xn.match(operator):
         return '(d8,An,Xn)'
-    # Labels, functions, and symbols. gcc might add +-*N[.wl]. Ie: ammoInventory[.bwl][+N][.l]
+    # Labels, functions, and symbols. gcc might add +-N[.wl]. Ie: ammoInventory[.bwl][+N][.l]
     if RE_label_function_symbol.match(operator):
         if op_size == 's':
             return 'encoded'  # The label is encoded inside the instr_op_base so is free
         if instr_op_base.startswith('db') or instr_op_base in bcc_or_jcc_instructions or instr_op_base in unconditional_short_instructions:
             return 'ABS.w'
         return 'ABS.l'
-    # Symbol with starting #. gcc might add +-*N[.wl]. Ie: #ammoInventory[.bwl][+N][.l]
+    # Symbol with starting #. gcc might add +-N[.wl]. Ie: #ammoInventory[.bwl][+N][.l]
     if RE_imm_symbol.match(operator):
         return 'ABS.l'
     # Value with size (ie: pea  1.w)
@@ -4299,7 +4306,7 @@ IS_ROXL_INSTRUCTION_REGEX = re.compile(r'^\s*roxl\.[bwl]\s+[^,]+,\s*%d[0-7]')
 move_disp_aN_into_xN_pattern = re.compile(
     r'^(\s*)(?:move|movea)\.([wl])(\s+)'  # move.[w/l] or movea.[w/l]
     r'(?:'                                # Non-capturing group
-        r'(-?\d+(?:[\-\+]\d+)?)\((%a[0-7]|%sp)\)'   # disp(aN) where disp can be disp[+-*N]
+        r'(-?\d+(?:[\-\+]\d+)?)\((%a[0-7]|%sp)\)'   # disp(aN) where disp can be disp[+-N]
         r'|'                              # OR
         r'\((%a[0-7]|%sp)\)'              # (aN)
     r')'                                  # End non-capturing group
@@ -4311,9 +4318,9 @@ btst_7th_ea_pattern = re.compile(
     r'(?!'                                # Negative lookahead for invalid modes
         r'%d[0-7]\b'                      # Data registers %d0-%d7
         r'|'                              # OR
-        r'-?\d+(?:[\-\+]\d+)?\(%pc\)'     # disp(pc), where disp can be disp[+-*N]
+        r'-?\d+(?:[\-\+]\d+)?\(%pc\)'     # disp(pc), where disp can be disp[+-N]
         r'|'                              # OR
-        r'-?\d+(?:[\-\+]\d+)?\(%pc,(?:%[ad][0-7](?:\.[bwl])?|%sp)\)'   # disp(pc,xN.s) where disp can be disp[+-*N]
+        r'-?\d+(?:[\-\+]\d+)?\(%pc,(?:%[ad][0-7](?:\.[bwl])?|%sp)\)'   # disp(pc,xN.s) where disp can be disp[+-N]
     r')'                                  # End negative lookahead for invalid modes
     r'(.+?)\s*(?:;.*)?$'                  # Capture the valid effective address (non-greedy)
 )
@@ -4325,7 +4332,7 @@ btst_val_dN_pattern = re.compile(
 move_disp_aN_or_pc_into_aM_pattern = re.compile(
     r'^(\s*)(?:move|movea)\.l(\s+)'        # Instruction
     r'(?:'                                 # Non-capturing group
-        r'(-?\d+(?:[\-\+]\d+)?)?\('        # "val(" or just "(" where val can be val[+-*N]
+        r'(-?\d+(?:[\-\+]\d+)?)?\('        # "val(" or just "(" where val can be val[+-N]
     r')'                                   # End non-capturing group
     r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # Match with: aN),aM
 )
@@ -4333,7 +4340,7 @@ move_disp_aN_or_pc_into_aM_pattern = re.compile(
 move_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
     r'^(\s*)(?:move|movea)\.l(\s+)'        # Instruction
     r'(?:'                                 # Non-capturing group
-        r'(-?\d+(?:[\-\+]\d+)?)?\('        # "val(" or just "(" where val can be val[+-*N]
+        r'(-?\d+(?:[\-\+]\d+)?)?\('        # "val(" or just "(" where val can be val[+-N]
     r')'                                   # End non-capturing group
     r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # Match with: aN,dN.s),aM
 )
@@ -4342,7 +4349,7 @@ move_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
 lea_label_or_disp_aN_or_pc_into_aM_pattern = re.compile(
     r'^(\s*)lea(\s+)'                        # Instruction
     r'(?:'                                   # Non-capturing group
-        r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
+        r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-N]
     r')'                                     # End non-capturing group
     r'(%a[0-7]|%sp|%pc)\),\s*(%a[0-7]|%sp)'  # Match with: aN),aM
 )
@@ -4351,7 +4358,7 @@ lea_label_or_disp_aN_or_pc_into_aM_pattern = re.compile(
 lea_label_or_disp_aN_or_pc_dN_into_aM_pattern = re.compile(
     r'^(\s*)lea(\s+)'                      # Instruction
     r'(?:'                                 # Non-capturing group
-        r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-*N]
+        r'(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)?\('   # "label_or_disp(" or just "(". Considers [.bwl][+-N]
     r')'                                   # End non-capturing group
     r'(%a[0-7]|%sp|%pc),(%d[0-7]\.[bwl])\),\s*(%a[0-7]|%sp)'  # Match with: aN,dN.s),aM
 )
@@ -4367,9 +4374,9 @@ move_ea_into_dN_pattern = re.compile(
     r'|'
     r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/SP/PC,xN.s)
     r'|'
-    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/SP/PC)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-N](aN/SP/PC)
     r'|'
-    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/SP/PC,xN.s)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-N](aN/SP/PC,xN.s)
     r')'
     r',\s*(%d[0-7])\b'
 )
@@ -4385,9 +4392,9 @@ move_ea_into_symbol_pattern = re.compile(
     r'|'
     r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/SP/PC,xN.s)
     r'|'
-    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/SP/PC)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-N](aN/SP/PC)
     r'|'
-    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/SP/PC,xN.s)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-N](aN/SP/PC,xN.s)
     r')'
     r',\s*([a-zA-Z_\.][0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$'
 )
@@ -4404,9 +4411,9 @@ instr_set_ea_into_dN_for_ccr_pattern = re.compile(
     r'|'
     r'(\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # (aN/SP/PC,xN.s)
     r'|'
-    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-*N](aN/SP/PC)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc)\))'  # label_or_disp[+-N](aN/SP/PC)
     r'|'
-    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-*N](aN/SP/PC,xN.s)
+    r'((?:-?[0-9a-zA-Z_\.]+)(?:[\-\+]\d+)?\((?:%a[0-7]|%sp|%pc),(?:%[ad][0-7](?:\.[bwl])?|%sp)\))'  # label_or_disp[+-N](aN/SP/PC,xN.s)
     r')'
     r',\s*(%d[0-7])\b'
 )
@@ -4416,6 +4423,7 @@ instr_single_op_modify_dN_for_ccr_pattern = re.compile(
     r'^(\s*)(neg|negx|not|ext|swap|tas)(\.[bwl])?(\s+)(%d[0-7])\s*(?:;.*)?$'
 )
 
+# Only use size: w|l
 copy_memory_by_consecutive_indirection_into_memory_aN_pattern = re.compile(
     r'^(\s*)move\.([wl])(\s+)(-?\d+)?\((%a[0-7])\),\s*\((%a[0-7])\)\s*(?:;.*)?$'
 )
@@ -4506,7 +4514,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                         if s == s_tst:
                                             optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_F, line_H]
                                             return (optimized_lines, 8)
-                                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                                        # Different instruction size. Check if we can use size s_tst in the first instruction.
                                         # But avoid pre-decrement and post-increment.
                                         elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                             ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), '')
@@ -4519,10 +4527,11 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 8, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                     is_replacement_valid = True
                                             # Ok for size replacement?
-                                            if is_replacement_valid:
+                                            # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                            if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                                 line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                                # label_or_disp[+-*N](aN/SP/PC)
+                                                # label_or_disp[+-N](aN/SP/PC)
                                                 if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                                     label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                     label_or_disp_updated = label_or_disp
@@ -4533,7 +4542,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                     ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                                     line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                                # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                                # label_or_disp[+-N](aN/SP/PC,xN.s)
                                                 elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                                     label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                     label_or_disp_updated = label_or_disp
@@ -4632,7 +4641,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                 # Re order lines
                                                 optimized_lines = [line_B, line_C, line_D, line_E, line_F, line_A, line_H]
                                                 return (optimized_lines, 8)
-                                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                                            # Different instruction size. Check if we can use size s_tst in the first instruction.
                                             # But avoid pre-decrement and post-increment.
                                             elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                                 ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -4645,10 +4654,11 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                     if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 8, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                         is_replacement_valid = True
                                                 # Ok for size replacement?
-                                                if is_replacement_valid:
+                                                # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                                if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                                     line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                                    # label_or_disp[+-*N](aN/SP/PC)
+                                                    # label_or_disp[+-N](aN/SP/PC)
                                                     if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                         label_or_disp_updated = label_or_disp
@@ -4659,7 +4669,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                         ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                                         line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                                    # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                                    # label_or_disp[+-N](aN/SP/PC,xN.s)
                                                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                         label_or_disp_updated = label_or_disp
@@ -4711,7 +4721,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                         if s == s_tst:
                                             optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_F, line_H]
                                             return (optimized_lines, 8)
-                                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                                        # Different instruction size. Check if we can use size s_tst in the first instruction.
                                         # But avoid pre-decrement and post-increment.
                                         elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                             is_replacement_valid = False
@@ -4722,7 +4732,8 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 8, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                     is_replacement_valid = True
                                             # Ok for size replacement?
-                                            if is_replacement_valid:
+                                            # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                            if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                                 line_A_opt = line_A.replace(s, s_tst, 1)
                                                 optimized_lines = [line_A_opt, line_B ,line_C, line_D, line_E, line_F, line_H]
                                                 return (optimized_lines, 8)
@@ -4800,7 +4811,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                 # Re order lines
                                                 optimized_lines = [line_B, line_C, line_D, line_E, line_F, line_A, line_H]
                                                 return (optimized_lines, 8)
-                                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                                            # Different instruction size. Check if we can use size s_tst in the first instruction.
                                             # But avoid pre-decrement and post-increment.
                                             elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                                 is_replacement_valid = False
@@ -4812,7 +4823,8 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                     if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 8, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                         is_replacement_valid = True
                                                 # Ok for size replacement?
-                                                if is_replacement_valid:
+                                                # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                                if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                                     line_A_opt = line_A.replace(s, s_tst, 1)
                                                     # Re order lines
                                                     optimized_lines = [line_B, line_C, line_D, line_E, line_F, line_A_opt, line_H]
@@ -4973,7 +4985,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                     if s == s_tst:
                                         optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_G]
                                         return (optimized_lines, 7)
-                                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                                    # Different instruction size. Check if we can use size s_tst in the first instruction.
                                     # But avoid pre-decrement and post-increment.
                                     elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                         ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -4986,10 +4998,11 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                             if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 7, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                 is_replacement_valid = True
                                         # Ok for size replacement?
-                                        if is_replacement_valid:
+                                        # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                        if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                             line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                            # label_or_disp[+-*N](aN/SP/PC)
+                                            # label_or_disp[+-N](aN/SP/PC)
                                             if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                                 label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                 label_or_disp_updated = label_or_disp
@@ -5000,7 +5013,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                 ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                                 line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                            # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                            # label_or_disp[+-N](aN/SP/PC,xN.s)
                                             elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                                 label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                 label_or_disp_updated = label_or_disp
@@ -5091,7 +5104,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                             # Re order lines
                                             optimized_lines = [line_B, line_C, line_D, line_E, line_A, line_G]
                                             return (optimized_lines, 7)
-                                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                                        # Different instruction size. Check if we can use size s_tst in the first instruction.
                                         # But avoid pre-decrement and post-increment.
                                         elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                             ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -5104,10 +5117,11 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 7, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                     is_replacement_valid = True
                                             # Ok for size replacement?
-                                            if is_replacement_valid:
+                                            # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                            if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                                 line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                                # label_or_disp[+-*N](aN/SP/PC)
+                                                # label_or_disp[+-N](aN/SP/PC)
                                                 if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                                     label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                     label_or_disp_updated = label_or_disp
@@ -5118,7 +5132,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                     ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                                     line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                                # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                                # label_or_disp[+-N](aN/SP/PC,xN.s)
                                                 elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                                     label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                     label_or_disp_updated = label_or_disp
@@ -5169,7 +5183,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                     if s == s_tst:
                                         optimized_lines = [line_A, line_B, line_C, line_D, line_E, line_G]
                                         return (optimized_lines, 7)
-                                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                                    # Different instruction size. Check if we can use size s_tst in the first instruction.
                                     # But avoid pre-decrement and post-increment.
                                     elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                         is_replacement_valid = False
@@ -5180,7 +5194,8 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                             if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 7, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                 is_replacement_valid = True
                                         # Ok for size replacement?
-                                        if is_replacement_valid:
+                                        # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                        if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                             line_A_opt = line_A.replace(s, s_tst, 1)
                                             optimized_lines = [line_A_opt, line_B ,line_C, line_D, line_E, line_G]
                                             return (optimized_lines, 7)
@@ -5250,7 +5265,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                             # Re order lines
                                             optimized_lines = [line_B, line_C, line_D, line_E, line_A, line_G]
                                             return (optimized_lines, 7)
-                                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                                        # Different instruction size. Check if we can use size s_tst in the first instruction.
                                         # But avoid pre-decrement and post-increment.
                                         elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                             is_replacement_valid = False
@@ -5262,7 +5277,8 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 7, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                     is_replacement_valid = True
                                             # Ok for size replacement?
-                                            if is_replacement_valid:
+                                            # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                            if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                                 line_A_opt = line_A.replace(s, s_tst, 1)
                                                 # Re order lines
                                                 optimized_lines = [line_B, line_C, line_D, line_E, line_A_opt, line_G]
@@ -5650,7 +5666,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 if s == s_tst:
                                     optimized_lines = [line_A, line_B, line_C, line_D, line_F]
                                     return (optimized_lines, 6)
-                                # Different instruction size. Check if we can use s_tst in the first instruction.
+                                # Different instruction size. Check if we can use size s_tst in the first instruction.
                                 # But avoid pre-decrement and post-increment.
                                 elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                     ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -5663,10 +5679,11 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                         if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                             is_replacement_valid = True
                                     # Ok for size replacement?
-                                    if is_replacement_valid:
+                                    # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                    if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                         line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                        # label_or_disp[+-*N](aN/SP/PC)
+                                        # label_or_disp[+-N](aN/SP/PC)
                                         if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                             label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                             label_or_disp_updated = label_or_disp
@@ -5677,7 +5694,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                             ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                             line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                        # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                        # label_or_disp[+-N](aN/SP/PC,xN.s)
                                         elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                             label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                             label_or_disp_updated = label_or_disp
@@ -5760,7 +5777,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                         # Re order lines
                                         optimized_lines = [line_B, line_C, line_D, line_A, line_F]
                                         return (optimized_lines, 6)
-                                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                                    # Different instruction size. Check if we can use size s_tst in the first instruction.
                                     # But avoid pre-decrement and post-increment.
                                     elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                         ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -5773,10 +5790,11 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                             if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                 is_replacement_valid = True
                                         # Ok for size replacement?
-                                        if is_replacement_valid:
+                                        # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                        if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                             line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                            # label_or_disp[+-*N](aN/SP/PC)
+                                            # label_or_disp[+-N](aN/SP/PC)
                                             if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                                 label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                 label_or_disp_updated = label_or_disp
@@ -5787,7 +5805,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                 ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                                 line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                            # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                            # label_or_disp[+-N](aN/SP/PC,xN.s)
                                             elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                                 label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                                 label_or_disp_updated = label_or_disp
@@ -5837,7 +5855,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 if s == s_tst:
                                     optimized_lines = [line_A, line_B, line_C, line_D, line_F]
                                     return (optimized_lines, 6)
-                                # Different instruction size. Check if we can use s_tst in the first instruction.
+                                # Different instruction size. Check if we can use size s_tst in the first instruction.
                                 # But avoid pre-decrement and post-increment.
                                 elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                     is_replacement_valid = False
@@ -5848,7 +5866,8 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                         if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                             is_replacement_valid = True
                                     # Ok for size replacement?
-                                    if is_replacement_valid:
+                                    # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                    if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                         line_A_opt = line_A.replace(s, s_tst, 1)
                                         optimized_lines = [line_A_opt, line_B ,line_C, line_D, line_F]
                                         return (optimized_lines, 6)
@@ -5910,7 +5929,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                         # Re order lines
                                         optimized_lines = [line_B, line_C, line_D, line_A, line_E]
                                         return (optimized_lines, 6)
-                                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                                    # Different instruction size. Check if we can use size s_tst in the first instruction.
                                     # But avoid pre-decrement and post-increment.
                                     elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                         is_replacement_valid = False
@@ -5922,7 +5941,8 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                             if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 6, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                                 is_replacement_valid = True
                                         # Ok for size replacement?
-                                        if is_replacement_valid:
+                                        # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                        if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                             line_A_opt = line_A.replace(s, s_tst, 1)
                                             # Re order lines
                                             optimized_lines = [line_B, line_C, line_D, line_A_opt, line_E]
@@ -6061,7 +6081,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
 
                             if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4 and symbolName_4 == symbolName_5 and symbolName_5 == symbolName_6:
                                 use_post_inc = False
-                                use_pre_inc = False
+                                use_pre_dec = False
                                 _SIZE = {'w': 2, 'l': 4}
                                 s_A_size = _SIZE.get(s_A, 1)
                                 s_B_size = _SIZE.get(s_B, 1)
@@ -6073,9 +6093,9 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op) and (symbolName_4_op + s_D_size == symbolName_5_op) and (symbolName_5_op + s_E_size == symbolName_6_op):
                                     use_post_inc = True
                                 elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op) and (symbolName_3_op - s_D_size == symbolName_4_op) and (symbolName_4_op - s_E_size == symbolName_5_op) and (symbolName_5_op - s_F_size == symbolName_6_op):
-                                    use_pre_inc = True
+                                    use_pre_dec = True
 
-                                if use_post_inc or use_pre_inc:
+                                if use_post_inc or use_pre_dec:
                                     free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 6)
                                     is_any_aN_free_after_use = True
                                     if free_addr_regs[0] is None:
@@ -6105,7 +6125,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                                     f'{matchA.group(1)}move.{s_E}{matchA.group(3)}{ea_E},({aN})+',
                                                     f'{matchA.group(1)}move.{s_F}{matchA.group(3)}{ea_F},({aN})'
                                                 ]
-                                            else:  # use_pre_inc
+                                            else:  # use_pre_dec
                                                 optimized_lines = [
                                                     f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
                                                     f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
@@ -6179,11 +6199,11 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 s_F_size = _SIZE.get(s_F, 1)
 
                                 use_post_inc = False
-                                use_pre_inc = False
+                                use_pre_dec = False
                                 if post_inc and (symbolName_1_op + s_B_size + s_C_size + s_D_size + s_E_size == symbolName_2_op):
                                     use_post_inc = True
                                 elif pre_decr and (symbolName_1_op - s_C_size - s_D_size - s_E_size - s_F_size == symbolName_2_op):
-                                    use_pre_inc = True
+                                    use_pre_dec = True
 
                                 if use_post_inc:
                                     optimized_lines = [
@@ -6195,7 +6215,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                         f'{matchA.group(1)}move.{s_F}{matchA.group(2)}{ea_F},({aN})'
                                     ]
                                     return (optimized_lines, 6)
-                                elif use_pre_inc:
+                                elif use_pre_dec:
                                     optimized_lines = [
                                         line_A,
                                         line_B,
@@ -6429,11 +6449,11 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
     if USE_COOL_OPTIMIZATIONS:
 
         # Pushing word memory values into stack with word adjustments for ABI long args compliance.
-        # move.w  symbol_or_mem[+-*N],-(sp)   ->   move.w    symbol_or_mem[+-*N],-(sp)     ; Saves 4 cycles
-        # sub*.s  #2,sp                            subq.s    #2,sp
-        # move.w  symbol_or_mem[+-*M],-(sp)        move.w    symbol_or_mem[+-*M],-(sp)
-        # sub*.s  #2,sp                            move.w    symbol_or_mem[+-*L],-8(sp)
-        # move.w  symbol_or_mem[+-*L],-(sp)        subq.s    #6,sp
+        # move.w  symbol_or_mem[+-N],-(sp)   ->   move.w    symbol_or_mem[+-N],-(sp)     ; Saves 4 cycles
+        # sub*.s  #2,sp                           subq.s    #2,sp
+        # move.w  symbol_or_mem[+-M],-(sp)        move.w    symbol_or_mem[+-M],-(sp)
+        # sub*.s  #2,sp                           move.w    symbol_or_mem[+-L],-8(sp)
+        # move.w  symbol_or_mem[+-L],-(sp)        subq.s    #6,sp
         # sub*.s  #2,sp
         matchA = re_match(r'^(\s*)move\.w(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
         if matchA:
@@ -6526,7 +6546,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
         # lea        symbol_or_mem,aN         move.[wl]  (aN,dM.w),dP
         # move.[wl]  (aN,dM.[wl]),dP
         # Where:
-        #   symbol_or_mem[.wl][-+*N][.bwl]
+        #   symbol_or_mem[.wl][-+N][.bwl]
         #   dP can be dN
         matchA = re_match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
@@ -6656,7 +6676,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             if s == s_tst:
                                 optimized_lines = [line_A, line_B, line_C, line_E]
                                 return (optimized_lines, 5)
-                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                            # Different instruction size. Check if we can use size s_tst in the first instruction.
                             # But avoid pre-decrement and post-increment.
                             elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                 ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -6669,10 +6689,11 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                         is_replacement_valid = True
                                 # Ok for size replacement?
-                                if is_replacement_valid:
+                                # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                     line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                    # label_or_disp[+-*N](aN/SP/PC)
+                                    # label_or_disp[+-N](aN/SP/PC)
                                     if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                         label_or_disp_updated = label_or_disp
@@ -6683,7 +6704,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                         line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                    # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                    # label_or_disp[+-N](aN/SP/PC,xN.s)
                                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                         label_or_disp_updated = label_or_disp
@@ -6758,7 +6779,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     # Re order lines
                                     optimized_lines = [line_B, line_C, line_A, line_E]
                                     return (optimized_lines, 5)
-                                # Different instruction size. Check if we can use s_tst in the first instruction.
+                                # Different instruction size. Check if we can use size s_tst in the first instruction.
                                 # But avoid pre-decrement and post-increment.
                                 elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                     ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -6771,10 +6792,11 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                             is_replacement_valid = True
                                     # Ok for size replacement?
-                                    if is_replacement_valid:
+                                    # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                    if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                         line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                        # label_or_disp[+-*N](aN/SP/PC)
+                                        # label_or_disp[+-N](aN/SP/PC)
                                         if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                             label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                             label_or_disp_updated = label_or_disp
@@ -6785,7 +6807,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                             ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                             line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                        # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                        # label_or_disp[+-N](aN/SP/PC,xN.s)
                                         elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                             label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                             label_or_disp_updated = label_or_disp
@@ -6834,7 +6856,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             if s == s_tst:
                                 optimized_lines = [line_A, line_B, line_C, line_E]
                                 return (optimized_lines, 5)
-                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                            # Different instruction size. Check if we can use size s_tst in the first instruction.
                             # But avoid pre-decrement and post-increment.
                             elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                 is_replacement_valid = False
@@ -6845,7 +6867,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                         is_replacement_valid = True
                                 # Ok for size replacement?
-                                if is_replacement_valid:
+                                # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                     line_A_opt = line_A.replace(s, s_tst, 1)
                                     optimized_lines = [line_A_opt, line_B ,line_C, line_E]
                                     return (optimized_lines, 5)
@@ -6899,7 +6922,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     # Re order lines
                                     optimized_lines = [line_B, line_C, line_A, line_E]
                                     return (optimized_lines, 5)
-                                # Different instruction size. Check if we can use s_tst in the first instruction.
+                                # Different instruction size. Check if we can use size s_tst in the first instruction.
                                 # But avoid pre-decrement and post-increment.
                                 elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                     is_replacement_valid = False
@@ -6911,7 +6934,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 5, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                             is_replacement_valid = True
                                     # Ok for size replacement?
-                                    if is_replacement_valid:
+                                    # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                    if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                         line_A_opt = line_A.replace(s, s_tst, 1)
                                         # Re order lines
                                         optimized_lines = [line_B, line_C, line_A_opt, line_E]
@@ -7234,7 +7258,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
 
                         if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4 and symbolName_4 == symbolName_5:
                             use_post_inc = False
-                            use_pre_inc = False
+                            use_pre_dec = False
                             _SIZE = {'w': 2, 'l': 4}
                             s_A_size = _SIZE.get(s_A, 1)
                             s_B_size = _SIZE.get(s_B, 1)
@@ -7245,9 +7269,9 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op) and (symbolName_4_op + s_D_size == symbolName_5_op):
                                 use_post_inc = True
                             elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op) and (symbolName_3_op - s_D_size == symbolName_4_op) and (symbolName_4_op - s_E_size == symbolName_5_op):
-                                use_pre_inc = True
+                                use_pre_dec = True
 
-                            if use_post_inc or use_pre_inc:
+                            if use_post_inc or use_pre_dec:
                                 free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 5)
                                 is_any_aN_free_after_use = True
                                 if free_addr_regs[0] is None:
@@ -7275,7 +7299,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                                 f'{matchA.group(1)}move.{s_D}{matchA.group(3)}{ea_D},({aN})+',
                                                 f'{matchA.group(1)}move.{s_E}{matchA.group(3)}{ea_E},({aN})'
                                             ]
-                                        else:  # use_pre_inc
+                                        else:  # use_pre_dec
                                             optimized_lines = [
                                                 f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
                                                 f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
@@ -7342,11 +7366,11 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             s_E_size = _SIZE.get(s_E, 1)
 
                             use_post_inc = False
-                            use_pre_inc = False
+                            use_pre_dec = False
                             if post_inc and (symbolName_1_op + s_B_size + s_C_size + s_D_size == symbolName_2_op):
                                 use_post_inc = True
                             elif pre_decr and (symbolName_1_op - s_C_size - s_D_size - s_E_size == symbolName_2_op):
-                                use_pre_inc = True
+                                use_pre_dec = True
 
                             if use_post_inc:
                                 optimized_lines = [
@@ -7357,7 +7381,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     f'{matchA.group(1)}move.{s_E}{matchA.group(2)}{ea_E},({aN})'
                                 ]
                                 return (optimized_lines, 5)
-                            elif use_pre_inc:
+                            elif use_pre_dec:
                                 optimized_lines = [
                                     line_A,
                                     line_B,
@@ -7663,8 +7687,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
         # lea        symbol_or_mem_2,aN         move.[wl]  (aN,dN.w),dP
         # move.[wl]  (aN,dN.[wl]),dP
         # Where:
-        #   symbol_or_mem_1[.wl][-+*N][.bwl]
-        #   symbol_or_mem_2[.wl][-+*N][.bwl]
+        #   symbol_or_mem_1[.wl][-+N][.bwl]
+        #   symbol_or_mem_2[.wl][-+N][.bwl]
         #   dP can be dN
         matchA = re_match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
@@ -7698,7 +7722,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
         # add/sub.l  #symbol_or_mem,aN        move.[wl]  (aN),dP
         # move.[wl]  (aN,dN.[wl]),dP
         # Where:
-        #   symbol_or_mem[.wl][-+*N][.bwl]
+        #   symbol_or_mem[.wl][-+N][.bwl]
         #   dP can be dN
         matchA = re_match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
@@ -7733,7 +7757,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
         # move.w     label(pc,dN.[wl]),dP        jmp     disp(pc,dP.w)
         # jmp        disp(pc,dP.w)
         # Where:
-        #   symbol_or_mem[.wl][-+*N][.bwl]
+        #   symbol_or_mem[.wl][-+N][.bwl]
         #   dP can be dN
         matchA = re_match(r'^(\s*)moveq(\.[wl])?(\s+)#0,\s*(%d[0-7])', line_A)
         if matchA:
@@ -7837,7 +7861,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         if s == s_tst:
                             optimized_lines = [line_A, line_B, line_D]
                             return (optimized_lines, 4)
-                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                        # Different instruction size. Check if we can use size s_tst in the first instruction.
                         # But avoid pre-decrement and post-increment.
                         elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                             ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -7850,10 +7874,11 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                     is_replacement_valid = True
                             # Ok for size replacement?
-                            if is_replacement_valid:
+                            # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                            if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                 line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                # label_or_disp[+-*N](aN/SP/PC)
+                                # label_or_disp[+-N](aN/SP/PC)
                                 if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                     label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                     label_or_disp_updated = label_or_disp
@@ -7864,7 +7889,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                     line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                # label_or_disp[+-N](aN/SP/PC,xN.s)
                                 elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                     label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                     label_or_disp_updated = label_or_disp
@@ -7931,7 +7956,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 # Re order lines
                                 optimized_lines = [line_B, line_A, line_D]
                                 return (optimized_lines, 4)
-                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                            # Different instruction size. Check if we can use size s_tst in the first instruction.
                             # But avoid pre-decrement and post-increment.
                             elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                 ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -7944,10 +7969,11 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                         is_replacement_valid = True
                                 # Ok for size replacement?
-                                if is_replacement_valid:
+                                # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                     line_A_opt = line_A.replace(s, s_tst, 1)
 
-                                    # label_or_disp[+-*N](aN/SP/PC)
+                                    # label_or_disp[+-N](aN/SP/PC)
                                     if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                         label_or_disp_updated = label_or_disp
@@ -7958,7 +7984,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                         ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                         line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                                    # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                                    # label_or_disp[+-N](aN/SP/PC,xN.s)
                                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                         label_or_disp_updated = label_or_disp
@@ -8006,7 +8032,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         if s == s_tst:
                             optimized_lines = [line_A, line_B, line_D]
                             return (optimized_lines, 4)
-                        # Different instruction size. Check if we can use s_tst in the first instruction.
+                        # Different instruction size. Check if we can use size s_tst in the first instruction.
                         # But avoid pre-decrement and post-increment.
                         elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                             is_replacement_valid = False
@@ -8017,7 +8043,8 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                     is_replacement_valid = True
                             # Ok for size replacement?
-                            if is_replacement_valid:
+                            # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                            if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                 line_A_opt = line_A.replace(s, s_tst, 1)
                                 optimized_lines = [line_A_opt, line_B ,line_D]
                                 return (optimized_lines, 4)
@@ -8063,7 +8090,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 # Re order lines
                                 optimized_lines = [line_B, line_A, line_D]
                                 return (optimized_lines, 4)
-                            # Different instruction size. Check if we can use s_tst in the first instruction.
+                            # Different instruction size. Check if we can use size s_tst in the first instruction.
                             # But avoid pre-decrement and post-increment.
                             elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                                 is_replacement_valid = False
@@ -8075,18 +8102,19 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 4, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                         is_replacement_valid = True
                                 # Ok for size replacement?
-                                if is_replacement_valid:
+                                # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                                if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                                     line_A_opt = line_A.replace(s, s_tst, 1)
                                     # Re order lines
                                     optimized_lines = [line_B, line_A_opt, line_D]
                                     return (optimized_lines, 4)
 
     # Null pointer or just comparison with 0 test improvement.
-    # move.w  #val,aN                 ->    moveq  #val,dN         ; Saves [4,8,12] cycles. Leaves aN/aM different.
+    # move.w  #val,aN                 ->    moveq   #val,dN         ; Saves [4,8,12] cycles. Leaves aN/aM different.
     # lea     (aN,dM.l),aM                  <move.l dN,aN>   <-- needed if aN is used before cleared/overwritten
-    # cmp.w #0,aM  or  move.l aM,dN         add.l  dM,dN
+    # cmp.w #0,aM  or  move.l aM,dN         add.l   dM,dN
     # bCC     label                         <move.l  dN,aM>  <-- needed if aM is used before cleared/overwritten
-    #                                       bCC    label
+    #                                       bCC     label
     # Where -128 <= val <= 127
     # If instruction cmp.w is a match then:
     #    It needs a free data register dN.
@@ -8095,7 +8123,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     # Some instructions are optional depending on aN/aM used before cleared/overwritten
     matchA = re_match(r'^(\s*)(move|movea)\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7])', line_A)
     if matchA:
-        val = parseConstantSigned(matchA.group(4), 16)
+        val = parseConstantSigned(matchA.group(4), 32)
         aN = matchA.group(5)
         if -128 <= val <= 127:
             matchB = re_match(r'^\s*lea\s+\((%a[0-7]),(%d[0-7])\.l\),\s*(%a[0-7])', line_B)
@@ -8171,6 +8199,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
+    # Where s is w/l
     matchA = copy_memory_by_consecutive_indirection_into_memory_aN_pattern.match(line_A)
     if matchA:
         s = matchA.group(2)
@@ -8811,19 +8840,19 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     if USE_COOL_OPTIMIZATIONS:
 
         # Pushing word memory values into stack with word adjustments for ABI long args compliance.
-        # move.w  symbol_or_mem,-(sp)    ->    move.w    symbol_or_mem,-(sp)     ; Saves 4 cycles
-        # sub*.s  #2,sp                        move.w    symbol_or_mem,-4(sp)
-        # move.w  symbol_or_mem,-(sp)          subq.s    #6,sp
-        # sub*.s  #2,sp
+        # move.w     symbol_or_mem,-(sp)    ->    move.w     symbol_or_mem,-(sp)     ; Saves 4 cycles
+        # sub*.[wl]  #2,sp                        move.w     symbol_or_mem,-4(sp)
+        # move.w     symbol_or_mem,-(sp)          subq.[wl]  #6,sp
+        # sub*.[wl]  #2,sp
         # Where:
-        #  symbol_or_mem[.wl][+-*N][.bwl]
+        #  symbol_or_mem[.wl][+-N][.bwl]
         matchA = re_match(r'^(\s*)move\.w(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_A)
         if matchA:
-            matchB = re_match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_B)
+            matchB = re_match(r'^\s*(sub|suba|subq)\.([wl])\s+#2,\s*%sp', line_B)
             if matchB:
                 matchC = re_match(r'^\s*move\.w\s+(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*-\(%sp\)', line_C)
                 if matchC:
-                    matchD = re_match(r'^\s*(sub|suba|subq)\.([bwl])\s+#2,\s*%sp', line_D)
+                    matchD = re_match(r'^\s*(sub|suba|subq)\.([wl])\s+#2,\s*%sp', line_D)
                     if matchD:
                         s_sub = matchB.group(2)
                         optimized_lines = [
@@ -8839,7 +8868,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # lea        symbol_or_mem,aN        move.[wl]  disp(sp),(aN,dN.w)
         # move.[wl]  disp(sp),(aN,dN.[wl])
         # Where:
-        #   symbol_or_mem[.wl][+-*N][.bwl]
+        #   symbol_or_mem[.wl][+-N][.bwl]
         #   Displacement in disp(sp) is optional
         matchA = re_match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_A)
         if matchA:
@@ -9066,7 +9095,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
 
                     if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3 and symbolName_3 == symbolName_4:
                         use_post_inc = False
-                        use_pre_inc = False
+                        use_pre_dec = False
                         _SIZE = {'w': 2, 'l': 4}
                         s_A_size = _SIZE.get(s_A, 1)
                         s_B_size = _SIZE.get(s_B, 1)
@@ -9076,9 +9105,9 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op) and (symbolName_3_op + s_C_size == symbolName_4_op):
                             use_post_inc = True
                         elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op) and (symbolName_3_op - s_D_size == symbolName_4_op):
-                            use_pre_inc = True
+                            use_pre_dec = True
 
-                        if use_post_inc or use_pre_inc:
+                        if use_post_inc or use_pre_dec:
                             free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
                             is_any_aN_free_after_use = True
                             if free_addr_regs[0] is None:
@@ -9104,7 +9133,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                             f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{ea_C},({aN})+',
                                             f'{matchA.group(1)}move.{s_D}{matchA.group(3)}{ea_D},({aN})'
                                         ]
-                                    else:  # use_pre_inc
+                                    else:  # use_pre_dec
                                         optimized_lines = [
                                             f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
                                             f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
@@ -9164,11 +9193,11 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         s_D_size = _SIZE.get(s_D, 1)
 
                         use_post_inc = False
-                        use_pre_inc = False
+                        use_pre_dec = False
                         if post_inc and (symbolName_1_op + s_B_size + s_C_size == symbolName_2_op):
                             use_post_inc = True
                         elif pre_decr and (symbolName_1_op - s_C_size - s_D_size == symbolName_2_op):
-                            use_pre_inc = True
+                            use_pre_dec = True
 
                         if use_post_inc:
                             optimized_lines = [
@@ -9178,7 +9207,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 f'{matchA.group(1)}move.{s_D}{matchA.group(2)}{ea_D},({aN})'
                             ]
                             return (optimized_lines, 4)
-                        elif use_pre_inc:
+                        elif use_pre_dec:
                             optimized_lines = [
                                 line_A,
                                 line_B,
@@ -9714,52 +9743,53 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         # Needs xN free register, or a reg already holding 0.
                         # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
                         elif size_strs.count('b') == 4:
-                            target_symbol = ''
-                            offset_str = ''
-                            # Ensure offset is even. Symbols are always at an even address.
-                            is_offset_even = False
+                            if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                                target_symbol = ''
+                                offset_str = ''
+                                # Ensure offset is even. Symbols are always at an even address.
+                                is_offset_even = False
 
-                            if symbolName_1_op + 1 == symbolName_2_op and symbolName_2_op + 1 == symbolName_3_op and symbolName_3_op + 1 == symbolName_4_op:
-                                target_symbol = symbolName_1
-                                offset_str = op_1_str
-                                is_offset_even = symbolName_1_op % 2
-                            elif symbolName_1_op - 1 == symbolName_2_op and symbolName_2_op - 1 == symbolName_3_op and symbolName_3_op - 1 == symbolName_4_op:
-                                target_symbol = symbolName_4
-                                offset_str = op_4_str
-                                is_offset_even = symbolName_4_op % 2
+                                if symbolName_1_op + 1 == symbolName_2_op and symbolName_2_op + 1 == symbolName_3_op and symbolName_3_op + 1 == symbolName_4_op:
+                                    target_symbol = symbolName_1
+                                    offset_str = op_1_str
+                                    is_offset_even = symbolName_1_op % 2
+                                elif symbolName_1_op - 1 == symbolName_2_op and symbolName_2_op - 1 == symbolName_3_op and symbolName_3_op - 1 == symbolName_4_op:
+                                    target_symbol = symbolName_4
+                                    offset_str = op_4_str
+                                    is_offset_even = symbolName_4_op % 2
 
-                            if target_symbol and is_offset_even and not in_a_SGDK_sound_related_routine(modified_lines):
-                                # Search for regs holding 0
-                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+                                if target_symbol and is_offset_even and not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                                    # Search for regs holding 0
+                                    regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
 
-                                # Found 1 reg holding 0
-                                if len(regs_holding_zero) >= 1:
-                                    xN = regs_holding_zero[0]
-                                    optimized_lines = [
-                                        f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
-                                    ]
-                                    return (optimized_lines, 4)
-
-                                # No regs holding 0
-                                else:
-                                    # Search 1 free reg: xN
-                                    xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)[0]
-                                    if xN is None:
-                                        xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
-
-                                    # Free reg found?
-                                    if xN is not None:
-                                        load_0_instr = ''
-                                        if xN.startswith('%d'):
-                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
-                                        else:
-                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
-
+                                    # Found 1 reg holding 0
+                                    if len(regs_holding_zero) >= 1:
+                                        xN = regs_holding_zero[0]
                                         optimized_lines = [
-                                            load_0_instr,
                                             f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
                                         ]
                                         return (optimized_lines, 4)
+
+                                    # No regs holding 0
+                                    else:
+                                        # Search 1 free reg: xN
+                                        xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)[0]
+                                        if xN is None:
+                                            xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
+
+                                        # Free reg found?
+                                        if xN is not None:
+                                            load_0_instr = ''
+                                            if xN.startswith('%d'):
+                                                load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                            else:
+                                                load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                            optimized_lines = [
+                                                load_0_instr,
+                                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
+                                            ]
+                                            return (optimized_lines, 4)
 
                         # Clear consecutive memory. All same size accesor.
                         # clr.[bwl]  symbolName+P    ->    moveq    #0,xN           ; Saves [42,46,50,54] cycles.
@@ -9774,79 +9804,80 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         # Needs xN/xM/xP/xQ free registers, or as much as possible regs already holding 0.
                         # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
                         elif (size_strs.count('w') == 3 or (size_strs.count('w') == 1 and size_strs.count('b') == 2)) and size_strs.count('l') == 1:
-                            target_symbol = ''
-                            offset_str = ''
+                            if size_strs.count('b') != 2 or not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                                target_symbol = ''
+                                offset_str = ''
 
-                            if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op and symbolName_3_op + sC_size == symbolName_4_op:
-                                target_symbol = symbolName_1
-                                offset_str = op_1_str
-                            elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op and symbolName_3_op - sD_size == symbolName_4_op:
-                                # Here we set symbolName_3 because symbolName_4 goes separatedly
-                                target_symbol = symbolName_3
-                                offset_str = op_3_str
+                                if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op and symbolName_3_op + sC_size == symbolName_4_op:
+                                    target_symbol = symbolName_1
+                                    offset_str = op_1_str
+                                elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op and symbolName_3_op - sD_size == symbolName_4_op:
+                                    # Here we set symbolName_3 because symbolName_4 goes separatedly
+                                    target_symbol = symbolName_3
+                                    offset_str = op_3_str
 
-                            # Accomodate last operation offset
-                            last_op_offset = symbolName_4_op + 2 if sD == 'l' else symbolName_4_op
-                            last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
+                                # Accomodate last operation offset
+                                last_op_offset = symbolName_4_op + 2 if sD == 'l' else symbolName_4_op
+                                last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
 
-                            if target_symbol and (size_strs.count('b') == 0 or not in_a_SGDK_sound_related_routine(modified_lines)):
-                                # Search for regs holding 0
-                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
+                                if target_symbol and (size_strs.count('b') == 0 or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
+                                    # Search for regs holding 0
+                                    regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
 
-                                # Found 2 regs holding 0
-                                if len(regs_holding_zero) >= 2:
-                                    xN, xM = regs_holding_zero[0:2]
-                                    optimized_lines = [
-                                        f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
-                                        f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
-                                    ]
-                                    return (optimized_lines, 4)
-
-                                # Found 1 reg holding 0
-                                elif len(regs_holding_zero) == 1:
-                                    xN = regs_holding_zero[0]
-                                    # Search 1 free reg: xM
-                                    xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)[0]
-                                    if xM is None:
-                                        xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)[0]
-
-                                    # Free reg found?
-                                    if xM is not None:
+                                    # Found 2 regs holding 0
+                                    if len(regs_holding_zero) >= 2:
+                                        xN, xM = regs_holding_zero[0:2]
                                         optimized_lines = [
-                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
                                             f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
                                             f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
                                         ]
                                         return (optimized_lines, 4)
 
-                                # No regs holding 0
-                                else:
-                                    # Search 2 free regs: xN,xM)
-                                    xN, xM = None, None
-                                    free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
-                                    free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
-                                    if free_data_regs[0] is None:
-                                        free_data_regs = []
-                                    if free_addr_regs[0] is None:
-                                        free_addr_regs = []
-                                    # Assign a reg or None to: xN,xM
-                                    xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+                                    # Found 1 reg holding 0
+                                    elif len(regs_holding_zero) == 1:
+                                        xN = regs_holding_zero[0]
+                                        # Search 1 free reg: xM
+                                        xM = find_free_after_use_DATA_regs([xN], i_line, lines, modified_lines, 4)[0]
+                                        if xM is None:
+                                            xM = find_free_after_use_ADDRESS_regs([xN], i_line, lines, modified_lines, 4)[0]
 
-                                    # Free regs found?
-                                    if xN is not None and xM is not None:
-                                        load_0_instr = ''
-                                        if xN.startswith('%d'):
-                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
-                                        else:
-                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+                                        # Free reg found?
+                                        if xM is not None:
+                                            optimized_lines = [
+                                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                                f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                                f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                            ]
+                                            return (optimized_lines, 4)
 
-                                        optimized_lines = [
-                                            load_0_instr,
-                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
-                                            f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
-                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
-                                        ]
-                                        return (optimized_lines, 4)
+                                    # No regs holding 0
+                                    else:
+                                        # Search 2 free regs: xN,xM)
+                                        xN, xM = None, None
+                                        free_data_regs = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 4)
+                                        free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)
+                                        if free_data_regs[0] is None:
+                                            free_data_regs = []
+                                        if free_addr_regs[0] is None:
+                                            free_addr_regs = []
+                                        # Assign a reg or None to: xN,xM
+                                        xN, xM = take_N_free_regs_from(free_data_regs, free_addr_regs, 2)[0:2]
+
+                                        # Free regs found?
+                                        if xN is not None and xM is not None:
+                                            load_0_instr = ''
+                                            if xN.startswith('%d'):
+                                                load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                            else:
+                                                load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                            optimized_lines = [
+                                                load_0_instr,
+                                                f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{xM}',
+                                                f'{matchA.group(1)}movem.l{matchA.group(3)}{xN}/{xM},{target_symbol}{offset_str}',
+                                                f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_4}{last_op_offset_str}'
+                                            ]
+                                            return (optimized_lines, 4)
 
                         # Clear consecutive memory. All same size accesor.
                         # clr.[wl]  symbolName+P    ->    moveq    #0,xN           ; Saves [44,48,52,56] cycles.
@@ -10115,7 +10146,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     if s == s_tst:
                         optimized_lines = [line_A, line_C]
                         return (optimized_lines, 3)
-                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                    # Different instruction size. Check if we can use size s_tst in the first instruction.
                     # But avoid pre-decrement and post-increment.
                     elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                         ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
@@ -10128,10 +10159,11 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                 is_replacement_valid = True
                         # Ok for size replacement?
-                        if is_replacement_valid:
+                        # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                        if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                             line_A_opt = line_A.replace(s, s_tst, 1)
 
-                            # label_or_disp[+-*N](aN/SP/PC)
+                            # label_or_disp[+-N](aN/SP/PC)
                             if match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                                 label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                 label_or_disp_updated = label_or_disp
@@ -10142,7 +10174,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                                 ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
                                 line_A_opt = line_A_opt.replace(ea, ea_adjusted, 1)
 
-                            # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                            # label_or_disp[+-N](aN/SP/PC,xN.s)
                             elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                                 label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                                 label_or_disp_updated = label_or_disp
@@ -10188,7 +10220,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     if s == s_tst:
                         optimized_lines = [line_A, line_C]
                         return (optimized_lines, 3)
-                    # Different instruction size. Check if we can use s_tst in the first instruction.
+                    # Different instruction size. Check if we can use size s_tst in the first instruction.
                     # But avoid pre-decrement and post-increment.
                     elif not size_deducted and "-(" not in line_A and ")+" not in line_A:
                         is_replacement_valid = False
@@ -10199,7 +10231,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                                 is_replacement_valid = True
                         # Ok for size replacement?
-                        if is_replacement_valid:
+                        # If s_tst == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                        if is_replacement_valid and (s_tst != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines)):
                             line_A_opt = line_A.replace(s, s_tst, 1)
                             optimized_lines = [line_A_opt, line_C]
                             return (optimized_lines, 3)
@@ -10231,18 +10264,18 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 3)
 
     # Calculation of addressing offset.
-    # neg.s      dN                    ->    suba.s     dN,aN               ; Saves [2,12] cycles
-    # add.s      #val,dN                     lea        val+disp(aN),aN
+    # neg.[wl]   dN                    ->    suba.[wl]  dN,aN               ; Saves [2,12] cycles
+    # add.[wl]   #val,dN                     lea        val+disp(aN),aN
     # move.[wl]  dM,disp(aN,dN.[wl])         move.[wl]  dM,(aN)
     # Displacement disp is optional.
     # Ensure aN is not used afterwards before being overwritten or cleared.
-    matchA = re_match(r'^(\s*)neg\.([bwl])(\s+)(%d[0-7]|)', line_A)
+    matchA = re_match(r'^(\s*)neg\.([wl])(\s+)(%d[0-7]|)', line_A)
     if matchA:
         dN = matchA.group(4)
-        matchB = re_match(r'^\s*(add|addi|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_B)
+        matchB = re_match(r'^\s*(add|addi|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_B)
         if matchB and dN == matchB.group(4):
             sB = matchB.group(2)
-            val = parseConstantSigned(matchB.group(3), 16)
+            val = parseConstantSigned(matchB.group(3), 32)
             matchC = re_match(r'^\s*move\.([wl])\s+(%d[0-7]),\s*(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7]),(%d[0-7])(\.[wl])?\)', line_C)
             if matchC and dN == matchC.group(5):
                 if not is_reg_used_before_overwritten_or_cleared_afterwards(aN, i_line, lines, modified_lines, 3):
@@ -10258,9 +10291,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 3)
 
     # Load address and offset from an address reg to another address reg
-    matchA = re_match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    matchA = re_match(r'^(\s*)(move|movea)\.([wl])(\s+)(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
-        matchC = re_match(r'^\s*(add|adda)\.([bwl])\s+(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_C)
+        matchC = re_match(r'^\s*(add|adda)\.([wl])\s+(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_C)
         if matchC:
             sA = matchA.group(3)
             sC = matchA.group(3)
@@ -10277,13 +10310,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 # add.s   #val,aP
                 # add.s   aM,aP
                 # Considers case when add.s #val,aP is replaced by a addq.s.
-                matchB = re_match(r'^\s*(add|adda|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
+                matchB = re_match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
                 if matchB and (matchB.group(1) == "addq" or sA == matchB.group(2)) and aP == matchB.group(4):
                     val = parseConstantSigned(matchB.group(3), 32)
-                    if sA == 'b':
-                        val = parseConstantSigned(matchB.group(3), 8)
-                    elif sA == 'w':
-                        val = parseConstantSigned(matchB.group(3), 16)
                     if -32768 <= val <= 32767:
                         optimized_lines = [
                             f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{aM}),{aP}'
@@ -10296,13 +10325,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                 # sub.s   #val,aP
                 # add.s   aM,aP
                 # Considers case when sub.s #val,aP is replaced by a subq.s.
-                matchB = re_match(r'^\s*(sub|suba|subq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
+                matchB = re_match(r'^\s*(sub|suba|subq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
                 if matchB and (matchB.group(1) == "subq" or sA == matchB.group(2)) and aP == matchB.group(4):
                     val = parseConstantSigned(matchB.group(3), 32)
-                    if sA == 'b':
-                        val = parseConstantSigned(matchB.group(3), 8)
-                    elif sA == 'w':
-                        val = parseConstantSigned(matchB.group(3), 16)
                     if -32768 <= val <= 32767:
                         optimized_lines = [
                             f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN},{aM}),{aP}'
@@ -10318,44 +10343,165 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         aN = matchA.group(4)
         matchB = re_match(r'^\s*(move|movea)\.[wl]\s+%sp,\s*(%a[0-7])', line_B)
         if matchB and aN == matchB.group(2):
-            matchC = re_match(r'^\s*(add|adda|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*%sp', line_C)
+            matchC = re_match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*%sp', line_C)
             if matchC:
-                val = parseConstantSigned(matchC.group(3), 16)
+                val = parseConstantSigned(matchC.group(3), 32)
                 if -32767 <= val <= 32767:
                     optimized_lines = [
                         f'{matchA.group(1)}link{matchA.group(3)}{aN},#{val}'
                     ]
                     return (optimized_lines, 3)
 
+    # Read-Modify-Write with late increment pointer.
+    # move.s     (aN),dN      ->    <instr>.s  dM,(aN)+             ; Saves [8,12] cycles. Leaves dN different.
+    # <instr>.s  dM,dN
+    # move.s     dN,(aN)+
+    # Where <instr> is one of: add|sub|and|or|eor
+    # Ensure dN is not used anymore or cleared/overwritten before use.
+    # If s == b then ensure we are not inside a SGDK Sound a Joy related routine.
+    matchA = re_match(r'^(\s*)move\.([bwl])(\s+)\((%a[0-7]|%sp)\),\s*(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(2)
+        aN = matchA.group(4)
+        dN = matchA.group(5)
+        matchB = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+        if matchB and s == matchB.group(2) and dN != matchB.group(3) and dN == matchB.group(4):
+            instr_B = matchB.group(1)
+            dM = matchB.group(3)
+            matchC = re_match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*\((%a[0-7]|%sp)\)\+', line_C)
+            if matchC and s == matchC.group(1) and dN == matchC.group(2) and aN == matchC.group(3):
+                # If s == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                if s != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3):
+                        optimized_lines = [
+                            f'{matchA.group(1)}{instr_B}.{s}{matchA.group(3)}{dM},({aN})+'
+                        ]
+                        return (optimized_lines, 3)
+
+    # Read-Modify-Write with early decrement pointer.
+    # move.s     -(aN),dN     ->    <instr>.s  dM,-(aN)             ; Saves [8,12] cycles. Leaves dN different.
+    # <instr>.s  dM,dN
+    # move.s     dN,(aN)
+    # Where <instr> is one of: add|sub|and|or|eor
+    # Ensure dN is not used anymore or cleared/overwritten before use.
+    # If s == b then ensure we are not inside a SGDK Sound a Joy related routine.
+    matchA = re_match(r'^(\s*)move\.([bwl])(\s+)\((%a[0-7]|%sp)\),\s*(%d[0-7])', line_A)
+    if matchA:
+        s = matchA.group(2)
+        aN = matchA.group(4)
+        dN = matchA.group(5)
+        matchB = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+        if matchB and s == matchB.group(2) and dN != matchB.group(3) and dN == matchB.group(4):
+            instr_B = matchB.group(1)
+            dM = matchB.group(3)
+            matchC = re_match(r'^\s*move\.([bwl])\s+(%d[0-7]),\s*-\((%a[0-7]|%sp)\)', line_C)
+            if matchC and s == matchC.group(1) and dN == matchC.group(2) and aN == matchC.group(3):
+                # If s == b then ensure we are not inside a SGDK Sound a Joy related routine.
+                if s != 'b' or not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                    if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3):
+                        optimized_lines = [
+                            f'{matchA.group(1)}{instr_B}.{s}{matchA.group(3)}{dM},-({aN})'
+                        ]
+                        return (optimized_lines, 3)
+
+    # Poping from SP into a data reg and consecutively modifying the same data reg with consecutive elements from SP.
+    # move.s1       disp1(sp),dN     ->    lea           disp1(sp),aN        ; Saves 4 cycles.
+    # <instr_2>.s2  disp2(sp),dN           move.s1       (aN)[+],dN
+    # <instr_3>.s3  disp3(sp),dN           <instr_2>.s2  [-](aN)[+],dN
+    #                                      <instr_2>.s3  [-](aN),dN
+    # Where disp1/disp2/disp3 are consecutive by adding or subtracting with s1/s2/s3.
+    # Where <instr_1>/<instr_2> are: add/sub/and/or/eor
+    # Needs a free address register aN.
+    matchA = re_match(r'^(\s*)move\.([bwl])(\s+)(-?\d+)?\(%sp\),\s*(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(5)
+        matchB = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(-?\d+)?\(%sp\),\s*(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(4):
+            matchC = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(-?\d+)?\(%sp\),\s*(%d[0-7])', line_C)
+            if matchC and dN == matchC.group(4):
+                sA = matchA.group(2)
+                sB = matchB.group(2)
+                sC = matchC.group(2)
+                _SIZE = {'w': 2, 'l': 4}
+                sA_val = _SIZE.get(sA, 1)
+                sB_val = _SIZE.get(sB, 1)
+                sC_val = _SIZE.get(sC, 1)
+
+                dispA = '' if not matchA.group(4) else matchA.group(4)
+                dispA_val = 0 if not dispA else parseConstantSigned(dispA, 16)
+                dispB = '' if not matchB.group(3) else matchB.group(3)
+                dispB_val = 0 if not dispB else parseConstantSigned(dispB, 16)
+                dispC = '' if not matchC.group(3) else matchC.group(3)
+                dispC_val = 0 if not dispC else parseConstantSigned(dispC, 16)
+
+                instr_B = matchB.group(1)
+                instr_C = matchC.group(1)
+
+                use_post_inc = False
+                use_pre_dec = False
+
+                if dispA_val + sA_val == dispB_val and dispB_val + sB_val == dispC_val:
+                    use_post_inc = True
+                elif dispA_val - sB_val == dispB_val and dispB_val + sC_val == dispC_val:
+                    use_pre_dec = True
+
+                if use_post_inc or use_pre_dec:
+                    aN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+                    is_aN_free_after_use = True
+                    if aN is None:
+                        is_aN_free_after_use = False
+                        aN = find_unused_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+                    if aN is not None:
+                        optimized_lines = []
+                        if use_post_inc:
+                            optimized_lines = [
+                                f'{matchA.group(1)}lea{matchA.group(3)}{dispA}(%sp),{aN}',
+                                f'{matchA.group(1)}move.{sA}{matchA.group(3)}({aN})+,{dN}',
+                                f'{matchA.group(1)}{instr_B}.{sB}{matchA.group(3)}({aN})+,{dN}',
+                                f'{matchA.group(1)}{instr_C}.{sC}{matchA.group(3)}({aN}),{dN}'
+                            ]
+                        else:  # use_pre_dec
+                            optimized_lines = [
+                                f'{matchA.group(1)}lea{matchA.group(3)}{dispA}(%sp),{aN}',
+                                f'{matchA.group(1)}move.{sA}{matchA.group(3)}({aN}),{dN}',
+                                f'{matchA.group(1)}{instr_B}.{sB}{matchA.group(3)}-({aN}),{dN}',
+                                f'{matchA.group(1)}{instr_C}.{sC}{matchA.group(3)}-({aN}),{dN}'
+                            ]
+
+                        if is_aN_free_after_use:
+                            return (optimized_lines, 3)
+                        elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
+                            return (optimized_lines, 3)
+
     # Testing for null (or 0).
     # move.l  aN,-(sp)   ->    move.l  aN,dM           ; Saves 16 cycles
     # addq    #4,sp            beq     label
     # beq     label
     # Needs a free data register dM.
-    matchA = re_match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
-    if matchA:
-        matchB = re_match(r'^\s*(add|adda|addq)(\.[wl])?\s+#4,\s*%sp', line_B)
-        if matchB:
-            matchC = re_match(r'^\s*(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_C)
-            if matchC:
-                aN = matchA.group(4)
-                label = matchC.group(3)
-                s_branch = '' if not matchC.group(3) else matchC.group(3)
-                dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
-                is_dM_free_after_use = True
-                if dM is None:
-                    is_dM_free_after_use = False
-                    dM = find_unused_DATA_regs([], i_line, lines, modified_lines, 3)[0]
-                if dM is not None:
-                    # TODO: Check if it needs to follow the label and adjust use of SP
-                    optimized_lines = [
-                        f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{dM}',
-                        f'{matchA.group(1)}beq{s_branch}{matchA.group(3)}{label}'
-                    ]
-                    if is_dM_free_after_use:
-                        return (optimized_lines, 3)
-                    elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
-                        return (optimized_lines, 3)
+    #matchA = re_match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
+    #if matchA:
+    #    matchB = re_match(r'^\s*(add|adda|addq)(\.[wl])?\s+#4,\s*%sp', line_B)
+    #    if matchB:
+    #        matchC = re_match(r'^\s*(jeq|beq)(\.[bsw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_C)
+    #        if matchC:
+    #            aN = matchA.group(4)
+    #            label = matchC.group(3)
+    #            s_branch = '' if not matchC.group(3) else matchC.group(3)
+    #            dM = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+    #            is_dM_free_after_use = True
+    #            if dM is None:
+    #                is_dM_free_after_use = False
+    #                dM = find_unused_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+    #            if dM is not None:
+    #                # TODO: Check if it needs to follow the label and adjust use of SP
+    #                optimized_lines = [
+    #                    f'{matchA.group(1)}move.l{matchA.group(3)}{aN},{dM}',
+    #                    f'{matchA.group(1)}beq{s_branch}{matchA.group(3)}{label}'
+    #                ]
+    #                if is_dM_free_after_use:
+    #                    return (optimized_lines, 3)
+    #                elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
+    #                    return (optimized_lines, 3)
 
     # Writing multiple values from random memory or regs to sequential memory.
     # Where symbolName+P = symbolName+Q +/- 1/2/4
@@ -10387,7 +10533,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
 
                 if symbolName_1 == symbolName_2 and symbolName_2 == symbolName_3:
                     use_post_inc = False
-                    use_pre_inc = False
+                    use_pre_dec = False
                     _SIZE = {'w': 2, 'l': 4}
                     s_A_size = _SIZE.get(s_A, 1)
                     s_B_size = _SIZE.get(s_B, 1)
@@ -10396,9 +10542,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     if (symbolName_1_op + s_A_size == symbolName_2_op) and (symbolName_2_op + s_B_size == symbolName_3_op):
                         use_post_inc = True
                     elif (symbolName_1_op - s_B_size == symbolName_2_op) and (symbolName_2_op - s_C_size == symbolName_3_op):
-                        use_pre_inc = True
+                        use_pre_dec = True
 
-                    if use_post_inc or use_pre_inc:
+                    if use_post_inc or use_pre_dec:
                         free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)
                         is_any_aN_free_after_use = True
                         if free_addr_regs[0] is None:
@@ -10422,7 +10568,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                                         f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},({aN})+',
                                         f'{matchA.group(1)}move.{s_C}{matchA.group(3)}{ea_C},({aN})'
                                     ]
-                                else:  # use_pre_inc
+                                else:  # use_pre_dec
                                     optimized_lines = [
                                         f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
                                         f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
@@ -10468,14 +10614,14 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # move.[wl]  xN2,-(aN)
         # move.[wl]  xN1,-(aN)
         # IMPORTANT: movem.l regs,-(An) starts reading reg r7 and goes down to r0.
-        push_xn_into_stack_pattern = r'^(\s*)move\.([wl])(\s+)(%[ad][0-7]),\s*-\((%a[0-7]|%sp)\)'
-        matchA = re_match(push_xn_into_stack_pattern, line_A)
+        push_xn_into_memory_pattern = r'^(\s*)move\.([wl])(\s+)(%[ad][0-7]),\s*-\((%a[0-7]|%sp)\)'
+        matchA = re_match(push_xn_into_memory_pattern, line_A)
         if matchA:
             s = matchA.group(2)
             aN = matchA.group(5)
-            matchB = re_match(push_xn_into_stack_pattern, line_B)
+            matchB = re_match(push_xn_into_memory_pattern, line_B)
             if matchB and s == matchB.group(2) and aN == matchB.group(5):
-                matchC = re_match(push_xn_into_stack_pattern, line_C)
+                matchC = re_match(push_xn_into_memory_pattern, line_C)
                 if matchC and s == matchC.group(2) and aN == matchC.group(5):
                     xN3 = matchA.group(4)
                     xN2 = matchB.group(4)
@@ -10582,7 +10728,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # lea        symbol_or_mem,aN           lea        symbol_or_mem,aN
         # move.[wl]  dP,(aN,dN.[wl])            move.[wl]  dP,(aN,dN.w)
         # Where:
-        #   symbol_or_mem[.wl][+-*N][.bwl]
+        #   symbol_or_mem[.wl][+-N][.bwl]
         #   dM can be dN
         matchA = re_match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
         if matchA:
@@ -10609,7 +10755,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # lea        symbol_or_mem,aN           lea        symbol_or_mem,aN
         # move.[wl]  d(sp),(aN,dN.[wl])         move.[wl]  d(sp),(aN,dN.w)
         # Where:
-        # symbol_or_mem[.wl][-+*N][.bwl]
+        # symbol_or_mem[.wl][-+N][.bwl]
         #   dM can be dN
         #   Displacement d in d(sp) is optional
         matchA = re_match(r'^(\s*)(add|sub)\.l(\s+)(%d[0-7]),\s*(%d[0-7])', line_A)
@@ -10633,11 +10779,10 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 3)
 
         # Unnecessary redundant use of address register.
-        # move.s     dM,aN        ->    add/sub.s   dM,dN         ; Saves [4,8] cycles. Leaves aN as a potential free register.
-        # add/sub.s  aN,dN              move.s      dN,-(sp)
-        # move.s     dN,-(sp)
-        # s: w,l
-        # Only valid if aN is not used afterwards as source or in any indirection, before it's clear or overwritten.
+        # move.[wl]     dM,aN        ->    add/sub.[wl]  dM,dN         ; Saves [4,8] cycles. Leaves aN as a potential free register.
+        # add/sub.[wl]  aN,dN              move.[wl]     dN,-(sp)
+        # move.[wl]     dN,-(sp)
+        # Ensure aN is not used anymore or cleared/overwritten before use.
         # Leaves aN as a potential free register.
         matchA = re_match(r'^(\s*)(move|movea)\.([wl])(\s+)(%d[0-7]),\s*(%a[0-7])', line_A)
         if matchA:
@@ -10660,7 +10805,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Unnecessary copy.
         # move.l  dN,aN     ->   move.l  dN,aN             ; Saves 4 cycles
-        # move.w  aN,dN          instr other than jcc/bcc
+        # move.w  aN,dN          <any_instr> other than jcc/bcc
         # <any_instr> other than jcc/bcc
         matchA = re_match(r'^(\s*)move\.l(\s+)(%d[0-7]),\s*(%a[0-7])', line_A)
         if matchA:
@@ -10677,10 +10822,10 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 3)
 
         # Unnecessary redundant use of data register.
-        # move.b    (aN),dM    ->    instr.b   (aN),dN     ; Saves 4 cycles. Leaves dM free.
-        # and.w     #255,dM          and.w     #255,dN
-        # instr.b   dM,dN
-        # Where instr is one of next for .b accessor: or|eor|add|sub
+        # move.b     (aN),dM    ->    <instr>.b  (aN),dN     ; Saves 4 cycles. Leaves dM free.
+        # and.w      #255,dM          andi.w     #255,dN
+        # <instr>.b  dM,dN
+        # Where <instr> is one of next for .b accessor: or|eor|add|sub
         # Leaves dM free. 
         # Ensure dM is not used before is cleared or overwritten.
         matchA = re_match(r'^(\s*)move\.b(\s+)\((%a[0-7]|%sp)\),\s*(%d[0-7])', line_A)
@@ -10690,8 +10835,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             matchB = re_match(r'^\s*(and|andi)\.w\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(3):
                 mask = parseConstantUnsigned(matchB.group(2))
-                if mask == 0xFF:
-                    instr_and = matchB.group(1)
+                if mask == 255:
                     matchC = re_match(r'^\s*(or|eor|add|sub)\.b\s+(%d[0-7]),\s*(%d[0-7])', line_C)
                     if matchC and dM == matchC.group(2):
                         instr_C = matchC.group(1)
@@ -10699,15 +10843,15 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                         if not is_reg_used_before_overwritten_or_cleared_afterwards(dM, i_line, lines, modified_lines, 3):
                             optimized_lines = [
                                 f'{matchA.group(1)}{instr_C}.b{matchA.group(2)}({aN}),{dN}',
-                                f'{matchA.group(1)}{instr_and}.w{matchA.group(2)}#255,{dN}'
+                                f'{matchA.group(1)}andi.w{matchA.group(2)}#255,{dN}'
                             ]
                             return (optimized_lines, 3)
 
         # Clean word before copying a byte.
-        # move.b    (aN),dN    ->    moveq     #0,dN       ; Saves 4 cycles. Leaves dN different.
-        # and.w     #255,dN          move.b    (aN),dN
-        # instr.w   dM,dN            instr.w   dM,dN
-        # Where instr is one of next for .w accessor: or|eor|add|sub|muls|mulu|divs|divu.
+        # move.b       (aN),dN    ->    moveq        #0,dN       ; Saves 4 cycles. Leaves dN different.
+        # and.w        #255,dN          move.b       (aN),dN
+        # <instr>[.w]  dM,dN            <instr>[.w]  dM,dN
+        # Where <instr> is one of next for .w accessor: or|eor|add|sub|muls|mulu|divs|divu.
         # Leaves dN different.
         # Ensure dN is not used before is cleared or overwritten, or is used as word or byte before is cleared or overwritten.
         matchA = re_match(r'^(\s*)move\.b(\s+)\((%a[0-7]|%sp)\),\s*(%d[0-7])', line_A)
@@ -10718,8 +10862,8 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             if matchB and dN == matchB.group(3):
                 mask = parseConstantUnsigned(matchB.group(2))
                 if mask == 0xFF:                
-                    matchC = re_match(r'^\s*(or|eor|add|sub|muls|mulu|divs|divu)\.w\s+(%d[0-7]),\s*(%d[0-7])', line_C)
-                    if matchC and dN == matchC.group(3):
+                    matchC = re_match(r'^\s*(or|eor|add|sub|muls|mulu|divs|divu)(\.w)?\s+(%d[0-7]),\s*(%d[0-7])', line_C)
+                    if matchC and dN == matchC.group(4) and (not matchC.group(2) or matchC.group(2) == '.w'):
                         can_continue = False
                         if is_reg_used_as_word_or_byte_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
                             can_continue = True
@@ -10727,7 +10871,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             can_continue = True
                         if can_continue:
                             instr_C = matchC.group(1)
-                            dM = matchC.group(2)
+                            dM = matchC.group(3)
                             optimized_lines = [
                                 f'{matchA.group(1)}moveq{matchA.group(2)}#0,{dN}',
                                 f'{matchA.group(1)}move.b{matchA.group(2)}({aN}),{dN}',
@@ -10791,7 +10935,6 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                             elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                                 return (optimized_lines, 3)
 
-        # TODO: uncomment when if_reg_not_used_anymore_then_remove_from_push_pop() is fixed.
         # Case for a potentially new free register.
         # Clear higher word of data register
         # moveq[.l]   #0,dN     ->    swap    dM           ; Saves 0 cycles. leaves dN free.
@@ -10799,24 +10942,24 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # move.l      dN,dM           swap    dM
         # Leaves dN free.
         # Only valid if dN is not used afterwards before it's cleared or overwritten.
-        #matchA = re_match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
-        #if matchA:
-        #    dN = matchA.group(4)
-        #    matchB = re_match(r'^\s*move\.w\s+(%d[0-7]),\s*(%d[0-7])', line_B)
-        #    if matchB and dN == matchB.group(2):
-        #        dM = matchB.group(1)
-        #        matchC = re_match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
-        #        if matchC and dN == matchC.group(1) and dM == matchC.group(2):
-        #            # Only if at pass > 1, so we avoid miss optimization opportunities that uses original pattern
-        #            if current_pass > 1:
-        #                if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
-        #                    if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
-        #                    optimized_lines = [
-        #                        f'{matchA.group(1)}swap{matchA.group(3)}{dM}',
-        #                        f'{matchA.group(1)}clr.w{matchA.group(3)}{dM}',
-        #                        f'{matchA.group(1)}swap{matchA.group(3)}{dM}'
-        #                    ]
-        #                    return (optimized_lines, 3)
+        # Only if at last pass, so we avoid missing optimization opportunities using moveq #0,dN.
+        if current_pass == NUM_PASSES:
+            matchA = re_match(r'^(\s*)moveq(\.l)?(\s+)#0,\s*(%d[0-7])', line_A)
+            if matchA:
+                dN = matchA.group(4)
+                matchB = re_match(r'^\s*move\.w\s+(%d[0-7]),\s*(%d[0-7])', line_B)
+                if matchB and dN == matchB.group(2):
+                    dM = matchB.group(1)
+                    matchC = re_match(r'^\s*move\.l\s+(%d[0-7]),\s*(%d[0-7])', line_C)
+                    if matchC and dN == matchC.group(1) and dM == matchC.group(2):
+                        if not is_reg_used_before_overwritten_or_cleared_afterwards(dN, i_line, lines, modified_lines, 3, RegisterUsageOccurrenceMode.ALL_OCCURRENCES):
+                            if_reg_not_used_anymore_then_remove_from_push_pop(dN, i_line, lines, modified_lines, 3)
+                            optimized_lines = [
+                                f'{matchA.group(1)}swap{matchA.group(3)}{dM}',
+                                f'{matchA.group(1)}clr.w{matchA.group(3)}{dM}',
+                                f'{matchA.group(1)}swap{matchA.group(3)}{dM}'
+                            ]
+                            return (optimized_lines, 3)
 
     # Clear mask: using dN as a clearing mask over dM
     # not.s  dN       ->    or.s   dN,dM           ; Saves 4 cycles.
@@ -11227,48 +11370,49 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     # Needs xN free register, or a reg already holding 0.
                     # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
                     elif size_strs.count('b') == 2 and size_strs.count('w') == 1:
-                        target_symbol = ''
-                        offset_str = ''
+                        if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                            target_symbol = ''
+                            offset_str = ''
 
-                        if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
-                            target_symbol = symbolName_1
-                            offset_str = op_1_str
-                        elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
-                            target_symbol = symbolName_3
-                            offset_str = op_3_str
-                        
-                        if target_symbol:
-                            # Search for regs holding 0
-                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+                            if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                            elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
+                                target_symbol = symbolName_3
+                                offset_str = op_3_str
+                            
+                            if target_symbol:
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
 
-                            # Found 1 reg holding 0
-                            if len(regs_holding_zero) >= 1:
-                                xN = regs_holding_zero[0]
-                                optimized_lines = [
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
-                                ]
-                                return (optimized_lines, 3)
-
-                            # No regs holding 0
-                            else:
-                                # Search 1 free reg: xN
-                                xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
-                                if xN is None:
-                                    xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
-
-                                # Free reg found?
-                                if xN is not None:
-                                    load_0_instr = ''
-                                    if xN.startswith('%d'):
-                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
-                                    else:
-                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
-
+                                # Found 1 reg holding 0
+                                if len(regs_holding_zero) >= 1:
+                                    xN = regs_holding_zero[0]
                                     optimized_lines = [
-                                        load_0_instr,
                                         f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
                                     ]
                                     return (optimized_lines, 3)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 1 free reg: xN
+                                    xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+                                    if xN is None:
+                                        xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+
+                                    # Free reg found?
+                                    if xN is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}'
+                                        ]
+                                        return (optimized_lines, 3)
 
                     # Clear consecutive memory. Different size accesor.
                     # clr.[bl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [30,34] cycles.
@@ -11280,55 +11424,56 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     # Needs xN free register, or a reg already holding 0.
                     # There is a penalty of 4 cycles if first free reg is an address reg due to: suba.l xN,xN
                     elif size_strs.count('b') == 2 and size_strs.count('l') == 1:
-                        target_symbol = ''
-                        offset_str = ''
+                        if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                            target_symbol = ''
+                            offset_str = ''
 
-                        if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
-                            target_symbol = symbolName_1
-                            offset_str = op_1_str
-                        elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
-                            # Here we set symbolName_2 because symbolName_3 goes separatedly
-                            target_symbol = symbolName_2
-                            offset_str = op_2_str
+                            if symbolName_1_op + sA_size == symbolName_2_op and symbolName_2_op + sB_size == symbolName_3_op:
+                                target_symbol = symbolName_1
+                                offset_str = op_1_str
+                            elif symbolName_1_op - sB_size == symbolName_2_op and symbolName_2_op - sC_size == symbolName_3_op:
+                                # Here we set symbolName_2 because symbolName_3 goes separatedly
+                                target_symbol = symbolName_2
+                                offset_str = op_2_str
 
-                        # Accomodate last operation offset
-                        last_op_offset = symbolName_3_op + 2 if sC == 'l' else symbolName_3_op
-                        last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
+                            # Accomodate last operation offset
+                            last_op_offset = symbolName_3_op + 2 if sC == 'l' else symbolName_3_op
+                            last_op_offset_str = '' if last_op_offset == 0 else str(last_op_offset)
 
-                        if target_symbol:
-                            # Search for regs holding 0
-                            regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
+                            if target_symbol:
+                                # Search for regs holding 0
+                                regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 3)
 
-                            # Found 1 reg holding 0
-                            if len(regs_holding_zero) >= 1:
-                                xN = regs_holding_zero[0]
-                                optimized_lines = [
-                                    f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}',
-                                    f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
-                                ]
-                                return (optimized_lines, 3)
-
-                            # No regs holding 0
-                            else:
-                                # Search 1 free reg: xN
-                                xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
-                                if xN is None:
-                                    xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
-
-                                # Free reg found?
-                                if xN is not None:
-                                    load_0_instr = ''
-                                    if xN.startswith('%d'):
-                                        load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
-                                    else:
-                                        load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
-
+                                # Found 1 reg holding 0
+                                if len(regs_holding_zero) >= 1:
+                                    xN = regs_holding_zero[0]
                                     optimized_lines = [
-                                        load_0_instr,
                                         f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}',
                                         f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
                                     ]
                                     return (optimized_lines, 3)
+
+                                # No regs holding 0
+                                else:
+                                    # Search 1 free reg: xN
+                                    xN = find_free_after_use_DATA_regs([], i_line, lines, modified_lines, 3)[0]
+                                    if xN is None:
+                                        xN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 3)[0]
+
+                                    # Free reg found?
+                                    if xN is not None:
+                                        load_0_instr = ''
+                                        if xN.startswith('%d'):
+                                            load_0_instr = f'{matchA.group(1)}moveq{matchA.group(3)}#0,{xN}'
+                                        else:
+                                            load_0_instr = f'{matchA.group(1)}suba.l{matchA.group(3)}{xN},{xN}'
+
+                                        optimized_lines = [
+                                            load_0_instr,
+                                            f'{matchA.group(1)}move.l{matchA.group(3)}{xN},{target_symbol}{offset_str}',
+                                            f'{matchA.group(1)}move.w{matchA.group(3)}{xN},{symbolName_3}{last_op_offset_str}'
+                                        ]
+                                        return (optimized_lines, 3)
 
                     # Clear consecutive memory. Different size accesor.
                     # clr.[wl]  symbol_or_mem+P    ->    moveq    #0,xN        ; Saves [36,40,44] cycles.
@@ -11670,7 +11815,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if USE_TAS_ON_MAPPED_IO_MEMORY_OPTIMIZATION:
 
         # bset[.bl]  #7,symbol_or_mem
-        # gcc might add [+-*N][.bwl]. Ie: ammoInventory+2.
+        # gcc might add [+-N][.bwl]. Ie: ammoInventory+2.
         matchA = re_match(r'^(\s*)bset(\.[bl])?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_A)
         if matchA:
 
@@ -11695,7 +11840,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 # bset[.bl]  #7,symbol_or_mem   ->   tas  symbol_or_mem      ; Saves 4 cycles. Status flags wrong.
                 # bne        label                   bmi  label
                 # symbol_or_mem must be address allowing read-modify-write transfer.
-                # gcc might add +-*N. Ie: ammoInventory+2.
+                # gcc might add +-N. Ie: ammoInventory+2.
                 matchB = re_match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
                 if matchB:
                     s_branch = '' if not matchB.group(1) else matchB.group(1)
@@ -11749,11 +11894,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # So the logic is inverted as from the bcc we want to optimize.
     if USE_REPLACE_TST_BCC_BY_DBCC_OPTIMIZATION:
 
-        matchA = re_match(r'^(\s*)tst\.w(\s+)(%d[0-7])', line_A)
+        matchA = re_match(r'^(\s*)tst\.[bw](\s+)(%d[0-7])', line_A)
         if matchA:
             dN = matchA.group(3)
 
-            # tst.w  dN        ->    dbf    dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbf    dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bne    label
             matchB = re_match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11762,7 +11907,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbf{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # beq    label
             matchB = re_match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11771,7 +11916,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbne{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bpl    label
             matchB = re_match(r'^\s*[jb]pl(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11780,7 +11925,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bmi    label
             matchB = re_match(r'^\s*[jb]mi(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11789,7 +11934,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbmi   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bge    label
             matchB = re_match(r'^\s*[jb]ge(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11798,7 +11943,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbmi{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbpl   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # blt    label
             matchB = re_match(r'^\s*[jb]lt(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11807,7 +11952,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbpl{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbeq   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbeq   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bhi    label
             matchB = re_match(r'^\s*[jb]hi(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11816,7 +11961,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     optimized_line = f'{matchA.group(1)}dbeq{matchA.group(2)}{dN},{label}'
                     return ([optimized_line], 2)
 
-            # tst.w  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
+            # tst.s  dN        ->    dbne   dN,label    ; Saves [2,4] cycles. Leaves dN with different value than expected. Wrong flags.
             # bls    label
             matchB = re_match(r'^\s*[jb]ls(\.[sbw])?\s+([0-9a-zA-Z_\.]+)\s*(?:;.*)?$', line_B)
             if matchB:
@@ -11973,7 +12118,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             ea = next((matchA.group(i) for i in range(4, 10) if matchA.group(i)), None)
             # aN and SP are not valid sources for 'and' instruction
             if not ea.startswith(("%a","%sp")):
-                mask = parseConstantSigned(matchB.group(3), 8)
+                mask = parseConstantSigned(matchB.group(3), 32)
                 if -128 <= mask <= 127 and not ea.startswith(('%a','%sp')):
                     # if ea is #symbolName then remove the '#'
                     #if re_match(r'^#[a-zA-Z_\.][0-9a-zA-Z_\.]+$', ea):
@@ -12029,7 +12174,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # add*.[wl]  #val,(sp)            
         matchB = re_match(r'^\s*(add|adda|addq|addi)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*\(%sp\)', line_B)
         if matchB and sA == matchB.group(2):
-            val = parseConstantSigned(matchB.group(3), 16)
+            val = parseConstantSigned(matchB.group(3), 32)
             optimized_lines = [
                 f'{matchA.group(1)}pea{matchA.group(3)}{val}({aN})'
             ]
@@ -12039,7 +12184,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # sub*.[wl]  #val,(sp)            
         matchB = re_match(r'^\s*(sub|suba|subq|subi)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*\(%sp\)', line_B)
         if matchB and sA == matchB.group(2):
-            val = parseConstantSigned(matchB.group(3), 16)
+            val = parseConstantSigned(matchB.group(3), 32)
             optimized_lines = [
                 f'{matchA.group(1)}pea{matchA.group(3)}{-val}({aN})'
             ]
@@ -12254,7 +12399,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         sA, xN, dM = matchA.group(2, 4, 5)
         matchB = re_match(r'^\s*(add|addq|addi|sub|subq|subi)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line_B)
         if matchB and dM == matchB.group(4):
-            val = parseConstantSigned(matchB.group(3), 8)
+            val = parseConstantSigned(matchB.group(3), 32)
             if -128 <= val <= 127:
                 alu = matchB.group(1)[:3]  # First 3 chars is 'add' or 'sub'
                 if alu == 'sub':
@@ -12266,21 +12411,16 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
     # Calculating effective address between address registers and a constant
-    matchA = re_match(r'^(\s*)(move|movea)\.([bwl])(\s+)(%a[0-7]),\s*(%a[0-7])', line_A)
+    matchA = re_match(r'^(\s*)(move|movea)\.([wl])(\s+)(%a[0-7]),\s*(%a[0-7])', line_A)
     if matchA:
         s, aN, aM = matchA.group(3, 5, 6)
 
         # If -32767 <= val <= 32767
-        # move.s  aN,aM      ->    lea   val(aN),aM        ; Saves [8,12] cycles.
-        # add.s   #val,aM
-        # s: b,w,l.
-        matchB = re_match(r'^\s*(add|adda|addq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
+        # move.[wl]  aN,aM      ->    lea   val(aN),aM        ; Saves [8,12] cycles.
+        # add.[wl]   #val,aM
+        matchB = re_match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
         if matchB and s == matchB.group(2) and aM == matchB.group(4):
             val = parseConstantSigned(matchB.group(3), 32)
-            if s == 'b':
-                val = parseConstantSigned(matchB.group(3), 8)
-            elif s == 'w':
-                val = parseConstantSigned(matchB.group(3), 16)
             if -32767 <= val <= 32767:
                 optimized_lines = [
                     f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN}),{aM}'
@@ -12288,16 +12428,11 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
         # If -32768 <= val <= 32767
-        # move.s  aN,aM      ->    lea   -val(aN),aM       ; Saves [8,12] cycles.
-        # sub.s   #val,aM
-        # s: b,w,l.
-        matchB = re_match(r'^\s*(sub|suba|subq)\.([bwl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
+        # move.[wl]  aN,aM      ->    lea   -val(aN),aM       ; Saves [8,12] cycles.
+        # sub.[wl]   #val,aM
+        matchB = re_match(r'^\s*(sub|suba|subq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
         if matchB and s == matchB.group(2) and aM == matchB.group(4):
             val = parseConstantSigned(matchB.group(3), 32)
-            if s == 'b':
-                val = parseConstantSigned(matchB.group(3), 8)
-            elif s == 'w':
-                val = parseConstantSigned(matchB.group(3), 16)
             if -32768 <= val <= 32767:
                 optimized_lines = [
                     f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN}),{aM}'
@@ -12327,7 +12462,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # add.[wl]   xN,aN           lea        val(aN),aN
     matchA = re_match(r'^(\s*)(move|movea)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
     if matchA:
-        val = parseConstantSigned(matchA.group(5), 16)
+        val = parseConstantSigned(matchA.group(5), 32)
         aN = matchA.group(6)
         matchB = re_match(r'^\s*(add|adda)\.([wl])\s+(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_B)
         if matchB and aN == matchB.group(4):
@@ -12356,13 +12491,12 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # Calculating effective address involving a value and registers xN and aN.
     # If -128 <= val <= 127
     # add.[wl]  #val,aN    ->    lea  val(aN,xN.s),aN    ; Saves 8 cycles.
-    # add.s     xN,aN
-    # s: b,w,l.
+    # add.[wl]  xN,aN
     matchA = re_match(r'^(\s*)(add|adda|addq)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
     if matchA:
-        val = parseConstantSigned(matchA.group(5), 8)
+        val = parseConstantSigned(matchA.group(5), 32)
         aN = matchA.group(6)
-        matchB = re_match(r'^\s*(add|adda)\.([bwl])\s+(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_B)
+        matchB = re_match(r'^\s*(add|adda)\.([wl])\s+(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_B)
         if matchB and aN == matchB.group(4):
             sB = matchB.group(2)
             xN = matchB.group(3)
@@ -12377,15 +12511,14 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Calculating effective address involving a value and registers xN and aN.
     # If -128 <= val <= 127
-    # add.s     xN,aN      ->    lea  val(aN,xN.s),aN    ; Saves 8 cycles.
+    # add.[wl]  xN,aN      ->    lea  val(aN,xN.s),aN    ; Saves 8 cycles.
     # add.[wl]  #val,aN
-    # s: b,w,l.
-    matchA = re_match(r'^(\s*)(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    matchA = re_match(r'^(\s*)(add|adda)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         sA, xN, aN = matchA.group(3, 5, 6)
         matchB = re_match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
         if matchB and aN == matchB.group(4):
-            val = parseConstantSigned(matchB.group(3), 8)
+            val = parseConstantSigned(matchB.group(3), 32)
             # If xN == aN means the original instructions are a multiplication by 2, so modify accordingly.
             if xN == aN:
                 val *= 2
@@ -12398,11 +12531,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # Calculating effective address involving a value and registers xN and aN.
     # If -127 <= val <= 128
     # sub.[wl]  #val,aN    ->    lea  -val(aN,xN.s),aN   ; Saves 8 cycles
-    # add.s     xN,aN
-    # s: b,w,l
+    # add.[wl]  xN,aN
     matchA = re_match(r'^(\s*)(sub|suba|subq)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
     if matchA:
-        val = parseConstantSigned(matchA.group(5), 8)
+        val = parseConstantSigned(matchA.group(5), 32)
         aN = matchA.group(6)
         matchB = re_match(r'^\s*(add|adda|addq)\.([bwl])\s+(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_B)
         if matchB and aN == matchB.group(4):
@@ -12419,15 +12551,14 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Calculating effective address involving a value and registers xN and aN.
     # If -128 <= val <= 127
-    # add.s     xN,aN      ->    lea  -val(aN,xN.s),aN   ; Saves 8 cycles.
+    # add.[wl]  xN,aN      ->    lea  -val(aN,xN.s),aN   ; Saves 8 cycles.
     # sub.[wl]  #val,aN
-    # s: b,w,l.
-    matchA = re_match(r'^(\s*)(add|adda)\.([bwl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
+    matchA = re_match(r'^(\s*)(add|adda)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         sA, xN, aN = matchA.group(3, 5, 6)
         matchB = re_match(r'^\s*(sub|suba|subq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
         if matchB and aN == matchB.group(4):
-            val = parseConstantSigned(matchB.group(3), 8)
+            val = parseConstantSigned(matchB.group(3), 32)
             # If xN == aN means the original instructions are a multiplication by 2, so modify accordingly
             if xN == aN:
                 val *= 2
@@ -12551,11 +12682,12 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Addition into address regs using indexing modes.
     # add.s   disp(aN),aM   ->   move.s  disp(aN),aQ      ; Saves 4 cycles.
-    # add.s   disp(aN),aP        add.s   aQ,aM
-    #                            add.s   aQ,aP
+    # add.s   disp(aN),aP        adda.s  aQ,aM
+    #                            adda.s  aQ,aP
+    # Where s: w|l
     # Needs a free address register aQ.
     # aQ can be aN.
-    add_disp_aN_into_aM_pattern = r'^(\s*)adda?\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])'
+    add_disp_aN_into_aM_pattern = r'^(\s*)adda?\.([wl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])'
     matchA = re_match(add_disp_aN_into_aM_pattern, line_A)
     if matchA:
         s = matchA.group(2)
@@ -12577,8 +12709,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if aQ is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{aQ}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{aQ},{aM}',
-                        f'{matchA.group(1)}add.{s}{matchA.group(3)}{aQ},{aP}'
+                        f'{matchA.group(1)}adda.{s}{matchA.group(3)}{aQ},{aM}',
+                        f'{matchA.group(1)}adda.{s}{matchA.group(3)}{aQ},{aP}'
                     ]
                     if is_aQ_free_after_use:
                         return (optimized_lines, 2)
@@ -12587,11 +12719,12 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Subtraction into address regs using indexing modes.
     # sub.s   disp(aN),aM   ->   move.s  disp(aN),aQ      ; Saves 4 cycles.
-    # sub.s   disp(aN),aP        sub.s   aQ,aM
-    #                            sub.s   aQ,aP
+    # sub.s   disp(aN),aP        suba.s  aQ,aM
+    #                            suba.s  aQ,aP
+    # Where s: w|l
     # Needs a free address register aQ.
     # aQ can be aN.
-    sub_disp_aN_into_aM_pattern = r'^(\s*)suba?\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])'
+    sub_disp_aN_into_aM_pattern = r'^(\s*)suba?\.([wl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%a[0-7])'
     matchA = re_match(sub_disp_aN_into_aM_pattern, line_A)
     if matchA:
         s = matchA.group(2)
@@ -12613,8 +12746,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if aQ is not None:
                     optimized_lines = [
                         f'{matchA.group(1)}move.{s}{matchA.group(3)}{disp_str}({aN}),{aQ}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}{aQ},{aM}',
-                        f'{matchA.group(1)}sub.{s}{matchA.group(3)}{aQ},{aP}'
+                        f'{matchA.group(1)}suba.{s}{matchA.group(3)}{aQ},{aM}',
+                        f'{matchA.group(1)}suba.{s}{matchA.group(3)}{aQ},{aP}'
                     ]
                     if is_aQ_free_after_use:
                         return (optimized_lines, 2)
@@ -12657,7 +12790,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if (mem1 % 2 == 0) and mem1+1 == mem2:
                 # This optimization won't work if inside a sound related function
                 # since we can only send bytes to the Z80 ports
-                if not in_a_SGDK_sound_related_routine(modified_lines):
+                if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                     s_mem = '' if not matchA.group(5) else matchA.group(5)
                     xy = ((x << 8) | (y & 0xff)) & 0xffff
                     optimized_lines = [
@@ -12673,7 +12806,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if (mem2 % 2 == 0) and mem1-1 == mem2:
                 # This optimization won't work if inside a sound related function
                 # since we can only send bytes to the Z80 ports
-                if not in_a_SGDK_sound_related_routine(modified_lines):
+                if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                     s_mem = '' if not matchA.group(5) else matchA.group(5)
                     yx = ((y << 8) | (x & 0xff)) & 0xffff
                     optimized_lines = [
@@ -12724,8 +12857,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB:
             x = parseConstantUnsigned(matchA.group(3))
             y = parseConstantUnsigned(matchB.group(3))
-            disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 32)
-            disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 32)
+            disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
+            disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
             aN = matchA.group(5)
 
             # If disp1+1 == disp2
@@ -12736,7 +12869,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if (disp1 % 2 == 0) and disp1+1 == disp2 and aN == matchB.group(5):
                 # This optimization won't work if inside a sound related function
                 # since we can only send bytes to the Z80 ports
-                if not in_a_SGDK_sound_related_routine(modified_lines):
+                if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                     xy = ((x << 8) | (y & 0xff)) & 0xffff
                     disp1_str = '' if disp1 == 0 else str(disp1)
                     optimized_lines = [
@@ -12752,7 +12885,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             if (disp2 % 2 == 0) and disp1-1 == disp2 and aN == matchB.group(5):
                 # This optimization won't work if inside a sound related function
                 # since we can only send bytes to the Z80 ports
-                if not in_a_SGDK_sound_related_routine(modified_lines):
+                if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                     yx = ((y << 8) | (x & 0xff)) & 0xffff
                     disp2_str = '' if disp2 == 0 else str(disp2)
                     optimized_lines = [
@@ -12785,7 +12918,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if symbolName_1_op + 1 == symbolName_2_op and symbolName_1_op % 2 == 0:
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                    if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                         xy = ((x << 8) | (y & 0xff)) & 0xffff
                         optimized_lines = [
                             f'{matchA.group(1)}move.w{matchA.group(2)}#{xy},{symbolName_1}{op_1_str}'
@@ -12800,7 +12933,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if symbolName_1_op - 1 == symbolName_2_op and symbolName_1_op % 2 == 0:
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                    if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                         yx = ((y << 8) | (x & 0xff)) & 0xffff
                         optimized_lines = [
                             f'{matchA.group(1)}move.w{matchA.group(2)}#{yx},{symbolName_2}{op_2_str}'
@@ -12815,8 +12948,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         if matchB:
             x = parseConstantUnsigned(matchA.group(3))
             y = parseConstantUnsigned(matchB.group(3))
-            disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 32)
-            disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 32)
+            disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
+            disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
             aN = matchA.group(5)
 
             # If disp1+2 == disp2
@@ -12905,7 +13038,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             if symbolName_1 == symbolName_2:
                 use_post_inc = False
-                use_pre_inc = False
+                use_pre_dec = False
                 _SIZE = {'w': 2, 'l': 4}
                 s_A_size = _SIZE.get(s_A, 1)
                 s_B_size = _SIZE.get(s_B, 1)
@@ -12913,9 +13046,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if (symbolName_1_op + s_A_size == symbolName_2_op):
                     use_post_inc = True
                 elif (symbolName_1_op - s_B_size == symbolName_2_op):
-                    use_pre_inc = True
+                    use_pre_dec = True
 
-                if use_post_inc or use_pre_inc:
+                if use_post_inc or use_pre_dec:
                     free_addr_regs = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 2)
                     is_any_aN_free_after_use = True
                     if free_addr_regs[0] is None:
@@ -12937,7 +13070,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                                     f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})+',
                                     f'{matchA.group(1)}move.{s_B}{matchA.group(3)}{ea_B},({aN})'
                                 ]
-                            else:  # use_pre_inc
+                            else:  # use_pre_dec
                                 optimized_lines = [
                                     f'{matchA.group(1)}lea{matchA.group(3)}{symbolName_1}{op_1_str},{aN}',
                                     f'{matchA.group(1)}move.{s_A}{matchA.group(3)}{ea_A},({aN})',
@@ -12954,7 +13087,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # add/sub.s   symbol_or_mem,dM          add/sub.s  dP,dN
     #                                       add/sub.s  dP,dM
     # Needs free data register dP.
-    add_mem_value_to_dn_pattern = r'^(\s*)(add|sub)\.([wl])(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%d[0-7])'
+    add_mem_value_to_dn_pattern = r'^(\s*)(add|sub)\.([bwl])(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%d[0-7])'
     matchA = re_match(add_mem_value_to_dn_pattern, line_A)
     if matchA:
         alu_1, s_A, dN = matchA.group(2, 3, 9)
@@ -13143,7 +13276,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if symbolName_1_op + 1 == symbolName_2_op and symbolName_1_op % 2 == 0:
                         # This optimization won't work if inside a sound related function
                         # since we can only send bytes to the Z80 ports
-                        if not in_a_SGDK_sound_related_routine(modified_lines):
+                        if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                             optimized_lines = [
                                 f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_1}{op_1_str}'
                             ]
@@ -13157,7 +13290,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if symbolName_1_op - 1 == symbolName_2_op and symbolName_2_op % 2 == 0:
                         # This optimization won't work if inside a sound related function
                         # since we can only send bytes to the Z80 ports
-                        if not in_a_SGDK_sound_related_routine(modified_lines):
+                        if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                             optimized_lines = [
                                 f'{matchA.group(1)}clr.w{matchA.group(3)}{symbolName_2}{op_2_str}'
                             ]
@@ -13377,7 +13510,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if mem1+1 == mem2 and mem1 % 2 == 0:
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                    if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                         s_mem = '' if not matchA.group(5) else matchA.group(5)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{mem1}{s_mem}'
@@ -13392,7 +13525,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if mem1-1 == mem2 and mem2 % 2 == 0:
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                    if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                         s_mem = '' if not matchB.group(5) else matchB.group(5)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{mem2}{s_mem}'
@@ -13613,7 +13746,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if disp1+1 == disp2 and disp1 % 2 == 0 and aN == matchB.group(5):
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                    if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                         disp1_str = '' if disp1 == 0 else str(disp1)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{disp1_str}({aN})'
@@ -13631,7 +13764,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 if disp1-1 == disp2 and disp2 % 2 == 0 and aN == matchB.group(5):
                     # This optimization won't work if inside a sound related function
                     # since we can only send bytes to the Z80 ports
-                    if not in_a_SGDK_sound_related_routine(modified_lines):
+                    if not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
                         disp2_str = '' if disp2 == 0 else str(disp2)
                         optimized_lines = [
                             f'{matchA.group(1)}clr.w{matchA.group(3)}{disp2_str}({aN})'
@@ -13642,8 +13775,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.w   disp1(aN)      ->    clr.l   disp1(aN)       ; Saves 8 cycles.
             # clr.w   disp2(aN)
             if matchA.group(2) == 'w' and matchB.group(2) == 'w':
-                disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 32)
-                disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 32)
+                disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
+                disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 aN = matchA.group(5)
                 if disp1+2 == disp2 and aN == matchB.group(5):
                     disp1_str = '' if disp1 == 0 else str(disp1)
@@ -13656,8 +13789,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             # clr.w   disp1(aN)      ->    clr.l   disp2(aN)       ; Saves 8 cycles.
             # clr.w   disp2(aN)
             if matchA.group(2) == 'w' and matchB.group(2) == 'w':
-                disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 32)
-                disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 32)
+                disp1 = 0 if not matchA.group(4) else parseConstantSigned(matchA.group(4), 16)
+                disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
                 aN = matchA.group(5)
                 if disp1-2 == disp2 and aN == matchB.group(5):
                     disp2_str = '' if disp2 == 0 else str(disp2)
@@ -13696,7 +13829,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     # (aN/SP/PC,xN.s)
                     elif matchA.group(7):
                         ea_adjusted = "1" + ea
-                    # label_or_disp[+-*N](aN/SP/PC)
+                    # label_or_disp[+-N](aN/SP/PC)
                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                         label_or_disp_updated = label_or_disp
@@ -13706,7 +13839,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         else:
                             label_or_disp_updated += "1"
                         ea_adjusted = label_or_disp_updated + "(" + match_ea.group(3) + ")"
-                    # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                    # label_or_disp[+-N](aN/SP/PC,xN.s)
                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                         label_or_disp = ''.join(match_ea.group(i) for i in range(1, 3) if match_ea.group(i))
                         label_or_disp_updated = label_or_disp
@@ -14329,10 +14462,10 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     # (aN/SP/PC,xN.s)
                     elif matchA.group(7):
                         is_ea_ok = True
-                    # label_or_disp[+-*N](aN/SP/PC)
+                    # label_or_disp[+-N](aN/SP/PC)
                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc)\)$', ea):
                         is_ea_ok = True
-                    # label_or_disp[+-*N](aN/SP/PC,xN.s)
+                    # label_or_disp[+-N](aN/SP/PC,xN.s)
                     elif match_ea := re_match(r'^(-?[0-9a-zA-Z_\.]+)([\-\+]\d+)?\((%a[0-7]|%sp|%pc),(%[ad][0-7](?:\.[bwl])?|%sp)\)$', ea):
                         is_ea_ok = True
 
@@ -15022,7 +15155,7 @@ indirection_0_pattern = re.compile(
     r'\b0\((%a[0-7]|%sp|%pc)\)'
 )
 
-def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modified_lines: list[str]) -> tuple[list[str], bool]:
+def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str], bool]:
     """
     Optimize a single line of assembly code.
     Returns a tuple of (optimized_lines, was_optimized) where:
@@ -15103,7 +15236,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         instr = match.group(2)
         if instr.endswith('i'):
             instr = instr[:-1]  # removes trailing 'i'
-        val = parseConstantSigned(match.group(4), 8)
+        val = parseConstantSigned(match.group(4), 16)
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
@@ -15148,7 +15281,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 # acá: this breaks sprites in Metal Slug project. Likely there is a multiline pattern that is buggy.
     match = re_match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
-        val = parseConstantSigned(match.group(5), 8)
+        val = parseConstantSigned(match.group(5), 32)
         if 1 <= abs(val) <= 8:
             s = match.group(3)
             dN = match.group(6)
@@ -15180,7 +15313,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Needs a free data register dM.
     match = re_match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
-        val = parseConstantSigned(match.group(4), 8)
+        val = parseConstantSigned(match.group(4), 32)
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
@@ -15205,7 +15338,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Only if aN is not used anymore until is overwritten or cleared.
     match = re_match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
-        val = parseConstantSigned(match.group(5), 8)
+        val = parseConstantSigned(match.group(5), 32)
         if 1 <= abs(val) <= 8:
             s = match.group(3)
             aN = match.group(6)
@@ -15221,7 +15354,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Move a constant into a data register
     match = re_match(r'^(\s*)move\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
-        val = parseConstantSigned(match.group(3), 8)
+        val = parseConstantSigned(match.group(3), 32)
         dN = match.group(4)
 
         # Move 0 to dN.
@@ -15236,8 +15369,6 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             dN = match.group(4)
             optimized_line = f'{match.group(1)}moveq{match.group(2)}#{val},{dN}'
             return ([optimized_line], True)
-
-        val = parseConstantSigned(match.group(3), 16)
 
         # Move -136 ... -129 values.
         # move.l  #val,dN  ->   moveq    #-128,dN      ; Saves 0 cycles, but it's 2 bytes smaller.
@@ -15268,8 +15399,6 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 f'{match.group(1)}add.b{match.group(2)}{dN},{dN}'
             ]
             return (optimized_lines, True)
-
-        val = parseConstantSigned(match.group(3), 32)
 
         # Move 65534 <= val <= 65408 or -65409 <= val <= -65536 values.
         # move.l  #val,dN  ->   moveq    #65535-abs(val),dN      ; Saves 4 cycles.
@@ -15395,7 +15524,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
     # Push memory address into sp.
     # move.l   #symbol_or_mem,-(sp)   ->   pea   symbol_or_mem   ; Saves 8 cycles.
-    # Examples for symbol_or_mem: #-520158600[.bwl][+-*N], #0xE0FF8002[.bwl][+-*N], #symbolName[.bwl][+-*N]
+    # Examples for symbol_or_mem: #-520158600[.bwl][+-N], #0xE0FF8002[.bwl][+-N], #symbolName[.bwl][+-N]
     match = re_match(r'^(\s*)move\.l(\s+)#(-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?,\s*-\(%sp\)', line)
     if match:
         symbol_or_mem = ''.join(match.group(i) for i in range(3, 7) if match.group(i))
@@ -15406,15 +15535,18 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # move.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles.
     #                           move.l   dM,<ea>
     # Needs a free data register dM.
+    # Only if NOT in the last pass: if val == 0 and <ea> is a register then skip it so we can leave the moveq #0,dM for other patterns.
     match = re_match(r'^(\s*)(move|movea)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
         instr = match.group(2)
-        val = parseConstantSigned(match.group(4), 8)
+        val = parseConstantSigned(match.group(4), 32)
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
-            # if val == 0 and ea is a register then we skip the optimization and let fall into better optimizations waiting ahead.
-            if len(regs_from_ea) < 0 and val == 0:
+            on_last_pass = current_pass == NUM_PASSES
+            # Only if NOT in the last pass:
+            # if val == 0 and <ea> is a register then skip it so we can leave the move.l #0,xN for other patterns.
+            if not on_last_pass and len(regs_from_ea) > 0 and val == 0:
                 pass
             else:
                 dM = find_free_after_use_DATA_regs(regs_from_ea, i_line, lines, modified_lines)[0]
@@ -15565,7 +15697,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Needs a free data register dM.
     match = re_match(r'^(\s*)(and|andi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
     if match:
-        val = parseConstantSigned(match.group(4), 8)
+        val = parseConstantSigned(match.group(4), 32)
         if -128 <= val <= 127:
             ea = match.group(5)
             regs_from_ea = extract_all_regs_from_ea(ea)
@@ -15610,7 +15742,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
         # bset[.bl]  #7,symbol_or_mem     ->    tas   symbol_or_mem         ; Saves 4 cycles. Status flags wrong.
         # symbol_or_mem must be address allowing read-modify-write transfer.
-        # Gcc might add [+-*N][.bwl]. Ie: ammoInventory+2
+        # Gcc might add [+-N][.bwl]. Ie: ammoInventory+2
         match = re_match(r'^(\s*)bset(\.[bl])?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?', line)
         if match:
             val = parseConstantUnsigned(match.group(4))
@@ -15815,7 +15947,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     match = re_match(r'^(\s*)(add|addi)\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
-        val = parseConstantSigned(match.group(4), 8)
+        val = parseConstantSigned(match.group(4), 16)
         if 1 <= val <= 8:
             optimized_line = f'{match.group(1)}addq.w{match.group(3)}#{val},{dN}'
             return ([optimized_line], True)
@@ -15891,7 +16023,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     match = re_match(r'^(\s*)(sub|subi)\.w(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%d[0-7])', line)
     if match:
         dN = match.group(5)
-        val = parseConstantSigned(match.group(4), 8)
+        val = parseConstantSigned(match.group(4), 16)
         if 1 <= val <= 8:
             optimized_line = f'{match.group(1)}subq.w{match.group(3)}#{val},{dN}'
             return ([optimized_line], True)
@@ -16086,7 +16218,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     if match:
         aN = match.group(4)
         if aN == match.group(5):
-            val = parseConstantSigned(match.group(3), 8)
+            val = parseConstantSigned(match.group(3), 16)
             if 1 <= val <= 8:
                 optimized_line = f'{match.group(1)}addq.w{match.group(2)}#{val},{aN}'
                 return ([optimized_line], True)
@@ -16552,7 +16684,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # No optimization was applied
     return ([], False)
 
-def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: list[str], modified_lines: list[str]) -> tuple[list[str], bool]:
+def optimizeSingleLine_MovemWithSingleRegister(line: str, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str], bool]:
 
     if OPTIMIZE_INLINE_ASM_BLOCKS:
         # If line contains the flag that mandates to skip it from be optimized -> do nothing and return
@@ -16618,7 +16750,7 @@ shorten_branches_pattern = re.compile(
     r'(\s+)([0-9a-zA-Z_\.]+)(?![^;#\n]*[-+])'
 )
 
-def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str], modified_lines: list[str]) -> tuple[list[str], bool]:
+def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str], bool]:
     """
     Optimize branch instructions by using short branch suffix ".s" if the target label is in the range of [-126,128] bytes.
     Returns a tuple of (optimized_lines, was_optimized) where:
@@ -16652,7 +16784,7 @@ def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str],
     # No optimization was applied
     return ([], False)
 
-def process_single_lines_helper(input_lines: list[str], optimization_func, line_number_map: dict[int, int], step_name: str) -> tuple[list[str], int]:
+def process_single_lines_helper(input_lines: list[str], optimization_func, line_number_map: dict[int, int], current_pass: int, step_name: str) -> tuple[list[str], int]:
     
     # Keep track of inline assembly blocks: #APP and #NO_APP
     inside_inline_asm_block = False
@@ -16708,7 +16840,7 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
 
         # Find single line optimizations
         prev_rem_end = rem_end
-        optimized_lines, was_optimized = optimization_func(line, i_line-1, input_lines, modified_lines)
+        optimized_lines, was_optimized = optimization_func(line, i_line-1, input_lines, modified_lines, current_pass)
         diff_lines = len(input_lines) - prev_rem_end
         rem_end += diff_lines  # Adjust new limit
         i_line += diff_lines  # Adjust next i_line value
@@ -16732,6 +16864,8 @@ def process_single_lines_helper(input_lines: list[str], optimization_func, line_
         else:
             # Not optimized -> add the original line
             modified_lines.append(line)
+
+        del optimized_lines
 
     # Copy the reamining content
     if skip_optimization_and_just_copy_from_line != -1:
@@ -16919,6 +17053,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
         modified_multi_lines, 
         optimizeSingleLine_Peepholes, 
         line_number_map, 
+        current_pass, 
         "Single line patterns (common peepholes)"
     )
     num_updated_lines_found += num_updates_2
@@ -16929,6 +17064,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
         modified_multi_lines, 
         optimizeSingleLine_MovemWithSingleRegister, 
         line_number_map, 
+        current_pass, 
         "Single line patterns (avoid movem on one single register)"
     )
     num_updated_lines_found += num_updates_3
@@ -16941,6 +17077,7 @@ def optimize_asm(input_lines: list[str], symbols_filename: str | None, current_p
             modified_multi_lines, 
             optimizeSingleLine_ShortenBranches, 
             line_number_map, 
+            current_pass, 
             "Single line patterns (shorten branch instructions)"
         )
         num_updated_lines_found += num_updates_4
@@ -16969,19 +17106,19 @@ def convert_from_gcc_indirection_style(line: str) -> str:
 
 # Allows spaces
 gcc_inner_displacement_style_pattern = re.compile(
-    r'(?:\(\s*(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)\s*,\s*(%a[0-7]|%sp|%pc)\s*\))'  # (label_or_disp[.bwl][+-*N],aN/sp/pc)
+    r'(?:\(\s*(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)\s*,\s*(%a[0-7]|%sp|%pc)\s*\))'  # (label_or_disp[.bwl][+-N],aN/sp/pc)
     r'|'
-    r'(?:\(\s*(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)\s*,\s*(%a[0-7]|%sp|%pc)\s*,\s*(%[ad][0-7])(\.[wl])?\s*\))'  # (label_or_disp[.bwl][+-*N],aN/sp/pc,%xN[.s])
+    r'(?:\(\s*(-?[0-9a-zA-Z_\.]+(?:\.[bwl])?(?:[\-\+]\d+)?)\s*,\s*(%a[0-7]|%sp|%pc)\s*,\s*(%[ad][0-7])(\.[wl])?\s*\))'  # (label_or_disp[.bwl][+-N],aN/sp/pc,%xN[.s])
 )
 
 def convert_from_gcc_inner_displacement_style(line: str) -> str:
     """
     Gets gcc's displacement inside parenthesis:
-        (label_or_disp[+-*N],aN/sp/pc)
-        (label_or_disp[+-*N],aN/sp/pc,xN.s)
+        (label_or_disp[+-N],aN/sp/pc)
+        (label_or_disp[+-N],aN/sp/pc,xN.s)
     and place it outside:
-        label_or_disp[+-*N](aN/sp/pc)
-        label_or_disp[+-*N](aN/sp/pc,xN.s)
+        label_or_disp[+-N](aN/sp/pc)
+        label_or_disp[+-N](aN/sp/pc,xN.s)
     """
     def replace_match(match):
         if match.group(1) and match.group(2):
@@ -16998,7 +17135,7 @@ gcc_indirection_with_long_dn_access_pattern = re.compile(
     r'(?:'
     r'(?:\((%a[0-7]|%sp|%pc),(%d[0-7])\.l\))'  # (aN/sp/pc,%dN.l)
     r'|'
-    r'(?:(-?[0-9a-zA-Z_\.]+(?:[\-\+]\d+)?)\((%a[0-7]|%sp|%pc),(%d[0-7])\.l\))'  # label_or_disp[+-*N](aN/sp/pc,%dN.l)
+    r'(?:(-?[0-9a-zA-Z_\.]+(?:[\-\+]\d+)?)\((%a[0-7]|%sp|%pc),(%d[0-7])\.l\))'  # label_or_disp[+-N](aN/sp/pc,%dN.l)
     r')'
 )
 
@@ -17419,7 +17556,7 @@ move_into_disp_sp_pattern = re.compile(
     r'|'
     r'(-?\(%a[0-7]\)\+?)'               # (aN) or -(aN) or (aN)+
     r'|'
-    r'(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?'  # [#]symbol_or_mem[.bwl][+-*N][.bwl]
+    r'(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?'  # [#]symbol_or_mem[.bwl][+-N][.bwl]
     r')'                                # End non-capturing group
     r',\s*(-?\d+)?\(%sp\)\s*(?:;.*)?$'  # disp(sp) or (sp)
 )
@@ -17493,7 +17630,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
                                 total_sp_adjustment += 4
                             arg = push_match.group(3)
                             args.append(f'{arg}.{arg_size}')
-                    # Consider pea <value|symbolName>[.wl][+-*N][.bwl]
+                    # Consider pea <value|symbolName>[.wl][+-N][.bwl]
                     elif pea_match := PEA_REGEX.match(prev_line):
                         arg_size = 'l' if not pea_match.group(2) else pea_match.group(2)[1:]  # remove initial '.'
                         if arg_size == 'w':
@@ -17590,7 +17727,7 @@ def remove_simple_abi(lines: list[str]) -> list[str]:
                             elif arg_size == 'l':
                                 accum_sp_adjustment += 4
                             modified_lines_no_abi[k] = ''  # This way we keep the original line numbering for following analysis
-                    # Consider pea <value|symbolName>[.wl][+-*N][.bwl]
+                    # Consider pea <value|symbolName>[.wl][+-N][.bwl]
                     elif pea_match := PEA_REGEX.match(next_line):
                         arg_size = 'l' if not pea_match.group(2) else pea_match.group(2)[1:]  # remove initial '.'
                         if arg_size == 'w':
@@ -18115,7 +18252,7 @@ def accomodate_canonical_address(lines: list[str], line_indexes_updated: list[in
     Given that previous phase reduces load of canonical memory address into aN using .w and causes the instruction 
     to reduce its size, it makes gcc to rellocate symbols stored in .text section, we have to re accomodate the new 
     final address of every memory address we have used in the reduction.
-    Only applies to memory addresses that were originally an alphabetical symbolName [+-*N].
+    Only applies to memory addresses that were originally an alphabetical symbolName [+-N].
     """
 
     if len(line_indexes_updated) == 0:
@@ -18428,6 +18565,7 @@ def optimize_file(input_filename: str, output_filename: str, symbols_opt_filenam
                 modified_lines, 
                 optimizeSingleLine_ShortenBranches, 
                 line_number_map, 
+                NUM_PASSES, 
                 "Single line patterns (shorten branch instructions)"
             )
             del modified_lines
