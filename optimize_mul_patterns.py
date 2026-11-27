@@ -1190,7 +1190,7 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
 
     match multiplier:
 
-        # muls.w  #0,dN   ->    moveq  #0,dN     ; Saves 38 cycles
+        # muls.w  #0,dN   ->   moveq  #0,dN      ; Saves 38 cycles
         case 0:
             optimized_line = f'{m.group(1)}moveq{m.group(2)}#0,{dN}'
             return ([optimized_line], True)
@@ -1932,21 +1932,21 @@ def muls_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)  # no free register -> not available optimization
 
-        # muls.w  #64,dN   ->    asl.w  #6,dN    ; Saves 28 cycles
+        # muls.w  #64,dN  ->   asl.w  #6,dN      ; Saves 28 cycles
         case 64:
             optimized_line = f'{m.group(1)}asl.w{m.group(2)}#6,{dN}'
             return ([optimized_line], True)
 
-        # muls.w  #128,dN  ->    asl.w  #7,dN    ; Saves 26 cycles
+        # muls.w  #128,dN   ->   asl.w  #7,dN    ; Saves 26 cycles
         case 128:
             optimized_line = f'{m.group(1)}asl.w{m.group(2)}#7,{dN}'
             return ([optimized_line], True)
 
-        # muls.w  #256,dN  ->    asl.w  #8,dN    ; Saves 24+2 cycles
+        # muls.w  #256,dN   ->   asl.w  #8,dN    ; Saves 24+2 cycles
         #                                        ; It can be optimized like lsl.w #8, there 2 more saved cycles
         case 256:
             optimized_lines = [
-                #f'{m.group(1)}asl.w{m.group(2)}#8,{dN}' replaced by next:
+                #f'{m.group(1)}asl.w{m.group(2)}#8,{dN}', replaced by next:
                 f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                 f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                 f'{m.group(1)}clr.b{m.group(2)}{dN}'
@@ -1968,7 +1968,7 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
 
     match multiplier:
 
-        # mulu.w  #0,dN   ->    moveq  #0,dN     ; Saves 38 cycles
+        # mulu.w  #0,dN   ->   moveq  #0,dN      ; Saves 38 cycles
         case 0:
             optimized_line = f'{m.group(1)}moveq{m.group(2)}#0,{dN}'
             return ([optimized_line], True)
@@ -2710,7 +2710,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)  # no free register -> not available optimization
 
-        # *44
+        # mulu.w  #44,dN  ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      add.w   dM,dM
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
+        #                      add.w   dM,dM
+        #                      sub.w   dM,dN
         case 44:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2727,7 +2732,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *45
+        # mulu.w  #45,dN  ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dM
+        #                      move.w  dM,dN
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
         case 45:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2744,7 +2754,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *46
+        # mulu.w  #46,dN  ->   move.w  dN,dM     ; Saves 20 cycles
+        #                      add.w   dM,dM
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
         case 46:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2760,7 +2774,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *48
+        # mulu.w  #48,dN  ->   move.w  dN,dM     ; Saves 20 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 48:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2775,7 +2792,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *49
+        # mulu.w  #49,dN  ->   move.w  dN,dM     ; Saves 18 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
+        #                      add.w   dM,dN
         case 49:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2791,7 +2812,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *56
+        # mulu.w  #56,dN  ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #3,dN
         case 56:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2806,7 +2830,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *60
+        # mulu.w  #60,dN  ->   move.w  dN,dM     ; Saves 20 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 60:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2822,7 +2850,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *62
+        # mulu.w  #62,dN  ->   move.w  dN,dM     ; Saves 24 cycles
+        #                      lsl.w   #5,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
         case 62:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2837,7 +2868,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *63
+        # mulu.w  #63,dN  ->   move.w  dN,dM     ; Saves 28 cycles
+        #                      lsl.w   #6,dN
+        #                      sub.w   dM,dN
         case 63:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2856,7 +2889,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             optimized_line = f'{m.group(1)}lsl.w{m.group(2)}#6,{dN}'
             return ([optimized_line], True)
 
-        # *65
+        # mulu.w  #65,dN  ->   move.w  dN,dM     ; Saves 20 cycles
+        #                      lsl.w   #6,dN
+        #                      add.w   dM,dN
         case 65:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2870,7 +2905,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *66
+        # mulu.w  #66,dN  ->   move.w  dN,dM     ; Saves 18 cycles
+        #                      lsl.w   #5,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
         case 66:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2885,7 +2923,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *68
+        # mulu.w  #68,dN  ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      lsl.w   #4,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 68:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2901,7 +2943,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *72
+        # mulu.w  #72,dN  ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
         case 72:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2916,7 +2961,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *80
+        # mulu.w  #80,dN  ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 80:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2932,7 +2981,15 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *84
+        # mulu.w  #84,dN  ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 84:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2952,7 +3009,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *92
+        # mulu.w  #92,dN  ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 92:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2970,7 +3033,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *96
+        # mulu.w  #96,dN  ->   move.w  dN,dM     ; Saves 18 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #5,dN
         case 96:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -2985,7 +3051,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *112
+        # mulu.w  #112,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #4,dN
         case 112:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3000,7 +3069,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *120
+        # mulu.w  #120,dN ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #3,dN
         case 120:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3015,7 +3087,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *124
+        # mulu.w  #124,dN ->   move.w  dN,dM     ; Saves 20 cycles
+        #                      lsl.w   #5,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 124:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3031,7 +3107,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *126
+        # mulu.w  #126,dN ->   move.w  dN,dM     ; Saves 24 cycles
+        #                      lsl.w   #6,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
         case 126:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3046,7 +3125,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *127
+        # mulu.w  #127,dN ->   move.w  dN,dM     ; Saves 28 cycles
+        #                      lsl.w   #7,dN
+        #                      sub.w   dM,dN
         case 127:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3065,7 +3146,9 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             optimized_line = f'{m.group(1)}lsl.w{m.group(2)}#7,{dN}'
             return ([optimized_line], True)
 
-        # *129
+        # mulu.w  #129,dN ->   move.w  dN,dM     ; Saves 18 cycles
+        #                      lsl.w   #7,dN
+        #                      add.w   dM,dN
         case 129:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3079,7 +3162,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *130
+        # mulu.w  #130,dN ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      lsl.w   #6,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
         case 130:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3094,7 +3180,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *132
+        # mulu.w  #132,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      lsl.w   #5,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 132:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3110,7 +3200,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *136
+        # mulu.w  #136,dN ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      lsl.w   #4,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
         case 136:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3125,7 +3218,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *144
+        # mulu.w  #144,dN ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 144:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3140,7 +3236,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *156
+        # mulu.w  #156,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      add.w   dM,dM
+        #                      add.w   dM,dM
+        #                      add.w   dM,dN
+        #                      lsl.w   #5,dN
+        #                      sub.w   dM,dN
         case 156:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3157,7 +3258,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *160
+        # mulu.w  #160,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #5,dN
         case 160:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3173,7 +3278,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *184
+        # mulu.w  #184,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #3,dN
         case 184:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3190,7 +3300,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *192
+        # mulu.w  #192,dN ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #6,dN
         case 192:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3205,7 +3318,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *196
+        # mulu.w  #196,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 196:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3223,7 +3342,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *200
+        # mulu.w  #200,dN ->   move.w  dN,dM     ; Saves 8 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
         case 200:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3240,7 +3364,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *208
+        # mulu.w  #208,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 208:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3258,7 +3388,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *224
+        # mulu.w  #224,dN ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #5,dN
         case 224:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3273,7 +3406,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *240
+        # mulu.w  #240,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #4,dN
         case 240:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3288,7 +3424,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *248
+        # mulu.w  #248,dN ->   move.w  dN,dM     ; Saves 16 cycles
+        #                      lsl.w   #5,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #3,dN
         case 248:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3303,7 +3442,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *252
+        # mulu.w  #252,dN ->   move.w  dN,dM     ; Saves 20 cycles
+        #                      lsl.w   #6,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 252:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3319,7 +3462,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *254
+        # mulu.w  #254,dN ->   move.w  dN,dM     ; Saves 24 cycles
+        #                      lsl.w   #7,dN
+        #                      sub.w   dM,dN
+        #                      add.w   dN,dN
         case 254:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3334,7 +3480,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *255
+        # mulu.w  #255,dN ->   move.w  dN,dM        ; Saves 30 cycles
+        #                      move.b  dN,-(%sp)    ; lsl.w #8,dN replaced by these 3 (20 cycles instead of 22)
+        #                      move.w  (%sp)+,dN
+        #                      clr.b   dN
+        #                      sub.w   dM,dN
         case 255:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3342,7 +3492,7 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{m.group(1)}move.w{m.group(2)}{dN},{dM}',
-                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}',
+                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                     f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                     f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                     f'{m.group(1)}clr.b{m.group(2)}{dN}',
@@ -3352,17 +3502,21 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             return ([], False)
 
         # mulu.w  #256,dN  ->    lsl.w  #8,dN    ; Saves 22+2 cycles
-        #                                        ; lsl.w #8 is optimized, there 2 more saved cycles
+        #                                        ; lsl.w #8 is optimized by the replacement, there 2 more saved cycles.
         case 256:
             optimized_lines = [
-                #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}'
+                #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                 f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                 f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                 f'{m.group(1)}clr.b{m.group(2)}{dN}'
             ]
             return (optimized_lines, True)
 
-        # *257
+        # mulu.w  #257,dN ->   move.w  dN,dM        ; Saves 18 cycles
+        #                      move.b  dN,-(%sp)    ; lsl.w #8,dN replaced by these 3 (20 cycles instead of 22)
+        #                      move.w  (%sp)+,dN
+        #                      clr.b   dN
+        #                      add.w   dM,dN
         case 257:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3370,7 +3524,7 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             if dM is not None and add_regs_into_push_pop_if_not_scratch_or_in_interrupt([dM], i_line, lines, modified_lines):
                 optimized_lines = [
                     f'{m.group(1)}move.w{m.group(2)}{dN},{dM}',
-                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}',
+                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                     f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                     f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                     f'{m.group(1)}clr.b{m.group(2)}{dN}',
@@ -3379,7 +3533,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *258
+        # mulu.w  #258,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      lsl.w   #7,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
         case 258:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3394,7 +3551,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *260
+        # mulu.w  #260,dN ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      lsl.w   #6,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 260:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3410,7 +3571,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *264
+        # mulu.w  #264,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      lsl.w   #5,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
         case 264:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3425,7 +3589,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *272
+        # mulu.w  #272,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      lsl.w   #4,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 272:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3440,7 +3607,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *288
+        # mulu.w  #288,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #5,dN
         case 288:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3455,7 +3625,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *304
+        # mulu.w  #304,dN ->   move.w  dN,dM     ; Saves 6 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 304:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3472,7 +3647,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *320
+        # mulu.w  #320,dN ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #6,dN
         case 320:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3488,7 +3667,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *384
+        # mulu.w  #384,dN ->   move.w  dN,dM     ; Saves 14 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #7,dN
         case 384:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3503,7 +3685,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *400
+        # mulu.w  #400,dN ->   move.w  dN,dM     ; Saves 6 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dN,dM
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #4,dN
         case 400:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3520,7 +3707,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *416
+        # mulu.w  #416,dN ->   move.w  dN,dM     ; Saves 8 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dM
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #5,dN
         case 416:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3538,7 +3731,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *480
+        # mulu.w  #480,dN ->   move.w  dN,dM     ; Saves 12 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #5,dN
         case 480:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3553,10 +3749,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *512
+        # mulu.w  #512,dN ->   move.b  dN,-(%sp)    ; Saves 20 cycles
+        #                      move.w  (%sp)+,dN    ; (lsl.w #8,dN replaced by the first 3 instructions)
+        #                      clr.b   dN
+        #                      add.w   dN,dN
         case 512:
             optimized_lines = [
-                #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}',
+                #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                 f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                 f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                 f'{m.group(1)}clr.b{m.group(2)}{dN}',
@@ -3564,7 +3763,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             ]
             return (optimized_lines, True)
 
-        # *576
+        # mulu.w  #576,dN ->   move.w  dN,dM     ; Saves 8 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #6,dN
         case 576:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3579,7 +3781,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *608
+        # mulu.w  #608,dN ->   move.w  dN,dM     ; Saves 4 cycles
+        #                      lsl.w   #3,dN
+        #                      add.w   dM,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #5,dN
         case 608:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3596,7 +3803,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *624
+        # mulu.w  #624,dN ->   move.w  dN,dM     ; Saves 4 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #4,dN
         case 624:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3614,7 +3827,14 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *625
+        # mulu.w  #625,dN ->   move.w  dN,dM     ; Saves 2 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dN,dM
+        #                      lsl.w   #3,dN
+        #                      add.w   dN,dM
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
         case 625:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3633,7 +3853,11 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *640
+        # mulu.w  #640,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      lsl.w   #7,dN
         case 640:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3649,7 +3873,12 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *768
+        # mulu.w  #768,dN ->   move.w  dN,dM        ; Saves 14 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      move.b  dN,-(%sp)    ; lsl.w #8,dN replaced by these 3 (20 cycles instead of 22)
+        #                      move.w  (%sp)+,dN
+        #                      clr.b   dN
         case 768:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3659,7 +3888,7 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                     f'{m.group(1)}move.w{m.group(2)}{dN},{dM}',
                     f'{m.group(1)}add.w{m.group(2)}{dN},{dN}',
                     f'{m.group(1)}add.w{m.group(2)}{dM},{dN}',
-                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}'
+                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                     f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                     f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                     f'{m.group(1)}clr.b{m.group(2)}{dN}'
@@ -3667,7 +3896,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *896
+        # mulu.w  #896,dN ->   move.w  dN,dM     ; Saves 8 cycles
+        #                      lsl.w   #3,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #7,dN
         case 896:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3682,7 +3914,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *960
+        # mulu.w  #960,dN ->   move.w  dN,dM     ; Saves 10 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #6,dN
         case 960:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3697,10 +3932,14 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *1024
+        # mulu.w  #1024,dN ->  move.b  dN,-(%sp)     ; Saves 16 cycles
+        #                      move.w  (%sp)+,dN     ; (lsl.w #8,dN replaced by the first 3 instructions)
+        #                      clr.b   dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 1024:
             optimized_lines = [
-                #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}',
+                #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                 f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                 f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                 f'{m.group(1)}clr.b{m.group(2)}{dN}',
@@ -3709,7 +3948,13 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             ]
             return (optimized_lines, True)
 
-        # *1280
+        # mulu.w  #1280,dN ->  move.w  dN,dM        ; Saves 10 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      move.b  dN,-(%sp)    ; lsl.w #8,dN replaced by these 3 (20 cycles instead of 22)
+        #                      move.w  (%sp)+,dN
+        #                      clr.b   dN
         case 1280:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3720,7 +3965,7 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                     f'{m.group(1)}add.w{m.group(2)}{dN},{dN}',
                     f'{m.group(1)}add.w{m.group(2)}{dN},{dN}',
                     f'{m.group(1)}add.w{m.group(2)}{dM},{dN}',
-                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}' replaced by next:
+                    #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
                     f'{m.group(1)}move.b{m.group(2)}{dN},-(%sp)',
                     f'{m.group(1)}move.w{m.group(2)}(%sp)+,{dN}',
                     f'{m.group(1)}clr.b{m.group(2)}{dN}'
@@ -3728,7 +3973,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *1920    ; Saves 8 cycles
+        # mulu.w  #1920,dN ->  move.w  dN,dM     ; Saves 8 cycles
+        #                      lsl.w   #4,dN
+        #                      sub.w   dM,dN
+        #                      lsl.w   #7,dN
         case 1920:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3743,7 +3991,10 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *2048    ; Saves 12 cycles
+        # mulu.w  #2048,dN ->  move.b  dN,-(%sp)     ; Saves 12 cycles
+        #                      move.w  (%sp)+,dN     ; (lsl.w #8,dN replaced by the first 3 instructions)
+        #                      clr.b   dN
+        #                      lsl.w   #3,dN
         case 2048:
             optimized_lines = [
                 #f'{m.group(1)}lsl.w{m.group(2)}#8,{dN}', replaced by next:
@@ -3754,7 +4005,14 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
             ]
             return (optimized_lines, True)
 
-        # *2560
+        # mulu.w  #2560,dN ->  move.w  dN,dM        ; Saves 6 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      move.b  dN,-(%sp)    ; lsl.w #8,dN replaced by these 3 (20 cycles instead of 22)
+        #                      move.w  (%sp)+,dN
+        #                      clr.b   dN
+        #                      add.w   dN,dN
         case 2560:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:
@@ -3774,7 +4032,14 @@ def mulu_high_word_not_important(line, i_line, lines, modified_lines) -> tuple[l
                 return (optimized_lines, True)
             return ([], False)
 
-        # *3072
+        # mulu.w  #3072,dN ->  move.w  dN,dM        ; Saves 6 cycles
+        #                      add.w   dN,dN
+        #                      add.w   dM,dN
+        #                      move.b  dN,-(%sp)    ; lsl.w #8,dN replaced by these 3 (20 cycles instead of 22)
+        #                      move.w  (%sp)+,dN
+        #                      clr.b   dN
+        #                      add.w   dN,dN
+        #                      add.w   dN,dN
         case 3072:
             dM = find_free_after_use_DATA_regs([dN], i_line, lines, modified_lines)[0]
             if dM is None:

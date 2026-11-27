@@ -9057,6 +9057,85 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 ]
                                 return (optimized_lines, 4)
 
+    # Poping from SP into a data reg and consecutively modifying the same data reg with consecutive elements from SP.
+    # move.s1       disp1(sp),dN     ->    lea           disp1(sp),aN        ; Saves 4 cycles.
+    # <instr_2>.s2  disp2(sp),dN           move.s1       (aN)[+],dN
+    # <instr_3>.s3  disp3(sp),dN           <instr_2>.s2  [-](aN)[+],dN
+    # <instr_4>.s4  disp4(sp),dN           <instr_3>.s3  [-](aN)[+],dN
+    #                                      <instr_4>.s4  [-](aN),dN
+    # Where disp1/disp2/disp3/disp4 are consecutive by adding or subtracting with s1/s2/s3/s4.
+    # Where <instr_1>/<instr_2>/<instr_3> are: add/sub/and/or/eor
+    # Needs a free address register aN.
+    matchA = re_match(r'^(\s*)move\.([bwl])(\s+)(-?\d+)?\(%sp\),\s*(%d[0-7])', line_A)
+    if matchA:
+        dN = matchA.group(5)
+        matchB = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(-?\d+)?\(%sp\),\s*(%d[0-7])', line_B)
+        if matchB and dN == matchB.group(4):
+            matchC = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(-?\d+)?\(%sp\),\s*(%d[0-7])', line_C)
+            if matchC and dN == matchC.group(4):
+                matchD = re_match(r'^\s*(add|sub|and|or|eor)\.([bwl])\s+(-?\d+)?\(%sp\),\s*(%d[0-7])', line_D)
+                if matchD and dN == matchD.group(4):
+                    sA = matchA.group(2)
+                    sB = matchB.group(2)
+                    sC = matchC.group(2)
+                    sC = matchD.group(2)
+                    _SIZE = {'w': 2, 'l': 4}
+                    sA_val = _SIZE.get(sA, 1)
+                    sB_val = _SIZE.get(sB, 1)
+                    sC_val = _SIZE.get(sC, 1)
+                    DC_val = _SIZE.get(sC, 1)
+
+                    dispA = '' if not matchA.group(4) else matchA.group(4)
+                    dispA_val = 0 if not dispA else parseConstantSigned(dispA, 16)
+                    dispB = '' if not matchB.group(3) else matchB.group(3)
+                    dispB_val = 0 if not dispB else parseConstantSigned(dispB, 16)
+                    dispC = '' if not matchC.group(3) else matchC.group(3)
+                    dispC_val = 0 if not dispC else parseConstantSigned(dispC, 16)
+                    dispD = '' if not matchD.group(3) else matchD.group(3)
+                    dispD_val = 0 if not dispD else parseConstantSigned(dispD, 16)
+
+                    instr_B = matchB.group(1)
+                    instr_C = matchC.group(1)
+                    instr_D = matchD.group(1)
+
+                    use_post_inc = False
+                    use_pre_dec = False
+
+                    if dispA_val + sA_val == dispB_val and dispB_val + sB_val == dispC_val and dispC_val + sC_val == dispD_val:
+                        use_post_inc = True
+                    elif dispA_val - sB_val == dispB_val and dispB_val - sC_val == dispC_val and dispC_val - sD_val == dispD_val:
+                        use_pre_dec = True
+
+                    if use_post_inc or use_pre_dec:
+                        aN = find_free_after_use_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
+                        is_aN_free_after_use = True
+                        if aN is None:
+                            is_aN_free_after_use = False
+                            aN = find_unused_ADDRESS_regs([], i_line, lines, modified_lines, 4)[0]
+                        if aN is not None:
+                            optimized_lines = []
+                            if use_post_inc:
+                                optimized_lines = [
+                                    f'{matchA.group(1)}lea{matchA.group(3)}{dispA}(%sp),{aN}',
+                                    f'{matchA.group(1)}move.{sA}{matchA.group(3)}({aN})+,{dN}',
+                                    f'{matchA.group(1)}{instr_B}.{sB}{matchA.group(3)}({aN})+,{dN}',
+                                    f'{matchA.group(1)}{instr_C}.{sC}{matchA.group(3)}({aN})+,{dN}',
+                                    f'{matchA.group(1)}{instr_D}.{sD}{matchA.group(3)}({aN}),{dN}'
+                                ]
+                            else:  # use_pre_dec
+                                optimized_lines = [
+                                    f'{matchA.group(1)}lea{matchA.group(3)}{dispA}(%sp),{aN}',
+                                    f'{matchA.group(1)}move.{sA}{matchA.group(3)}({aN}),{dN}',
+                                    f'{matchA.group(1)}{instr_B}.{sB}{matchA.group(3)}-({aN}),{dN}',
+                                    f'{matchA.group(1)}{instr_C}.{sC}{matchA.group(3)}-({aN}),{dN}',
+                                    f'{matchA.group(1)}{instr_D}.{sD}{matchA.group(3)}-({aN}),{dN}'
+                                ]
+
+                            if is_aN_free_after_use:
+                                return (optimized_lines, 4)
+                            elif add_regs_into_push_pop_if_not_scratch_or_in_interrupt([aN], i_line, lines, modified_lines):
+                                return (optimized_lines, 4)
+
     # Writing multiple values from random memory or regs to sequential memory.
     # Where symbolName+P = symbolName+Q +/- 1/2/4
     # Where symbolName+Q = symbolName+R +/- 1/2/4
@@ -10442,7 +10521,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
 
                 if dispA_val + sA_val == dispB_val and dispB_val + sB_val == dispC_val:
                     use_post_inc = True
-                elif dispA_val - sB_val == dispB_val and dispB_val + sC_val == dispC_val:
+                elif dispA_val - sB_val == dispB_val and dispB_val - sC_val == dispC_val:
                     use_pre_dec = True
 
                 if use_post_inc or use_pre_dec:
@@ -14921,7 +15000,7 @@ lea_move_symbol_or_mem_into_an_pattern = re.compile(
 
 def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolName_dict: dict[str, str], line_number_map: dict[int, int]) -> int:
     """
-    Iterate over different amounts of multiple lines and try to exploit the offset between symbols loaded into aN.
+    Iterates over increasing batches of multiple lines and try to exploit the offset between symbols loaded into aN.
     """
 
     if len(mem_addr_by_symbolName_dict) == 0:
@@ -14981,7 +15060,7 @@ def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolN
             window_span = 2
             continue
 
-        # Loading a symbol or mem by an offset of previous loaded symbol or mem
+        # Loading a symbol or mem by an offset of a previous loaded symbol or mem
         # lea  symbol_or_mem_1,aN    ->    lea  symbol_or_mem_1,aN             ; Saves [4,8] cycles
         # ... N instructions ...           ... N instructions ...
         # lea  symbol_or_mem_2,aM          lea  symbol_or_mem_2-symbol_or_mem_1(aN),aM
@@ -14991,8 +15070,7 @@ def optimizeMultiLines_SymbolOrMemByOffset(lines: list[str], mem_addr_by_symbolN
         # Only if N inner instructions do not branch, nor function exit, nor overriding aN.
         aN = ''
 
-        # match_top only depends on window_start_idx; compute it once.
-        # match_top only depends on window_start_idx; compute it once.
+        # match_top only depends on window_start_idx, so compute it once.
         match_top = lea_move_symbol_or_mem_into_an_pattern.match(line)
         mem_value_1_eval_ops = None
         if match_top:
@@ -15266,7 +15344,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
     # Comparison using constants
     ############################################################################
 
-    # cmp.s  #0,dN     ->    tst.s    dN           ; Saves [4,10] cycles.
+    # cmp.s  #0,dN     ->    tst.s    dN         ; Saves [4,10] cycles.
     match = re_match(r'^(\s*)(cmp|cmpi)\.([bwl])(\s+)#0,\s*(%d[0-7])', line)
     if match:
         s = match.group(3)
@@ -15308,7 +15386,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If -128 <= val <= 127
-    # cmp.l  #val,<ea>   ->    moveq    #val,dM    ; Saves 4 cycles.
+    # cmp.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles.
     #                          cmp.l    dM,<ea>
     # Needs a free data register dM.
     match = re_match(r'^(\s*)(cmp|cmpi)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(.+?)\s*(?:;.*)?$', line)
@@ -15532,7 +15610,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
         return ([optimized_line], True)
 
     # If -128 <= val <= 127
-    # move.l  #val,<ea>   ->    moveq    #val,dM      ; Saves 4 cycles.
+    # move.l  #val,<ea>   ->    moveq    #val,dM       ; Saves 4 cycles.
     #                           move.l   dM,<ea>
     # Needs a free data register dM.
     # Only if NOT in the last pass: if val == 0 and <ea> is a register then skip it so we can leave the moveq #0,dM for other patterns.
@@ -15819,8 +15897,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
     if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION:
 
-        # clr.w   -(sp)     ->    subq.l  #2,sp     ; Saves [4,6] cycles.
+        # clr.w   -(sp)     ->    subq.l  #2,sp    ; Saves [4,6] cycles.
         # Also considers: move.w #0,-(sp)
+        # Only if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         match_clr = clr_w_stack_by_pushing_pattern.match(line)
         match_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line)
         match = match_clr or match_move_0
@@ -15829,8 +15908,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization may introduce unexpected behavior. Test thoroughly")
             return ([optimized_line], True)
 
-        # clr.l   -(sp)     ->    subq.l  #4,sp     ; Saves [8,14] cycles.
+        # clr.l   -(sp)     ->    subq.l  #4,sp    ; Saves [8,14] cycles.
         # Also considers: pea  0[.wl]
+        # Only if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         match_clr = clr_l_stack_by_pushing_pattern.match(line)
         match_pea_0 = pea_0wl_pattern.match(line)
         match = match_clr or match_pea_0
@@ -15840,19 +15920,19 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             return ([optimized_line], True)
     else:
 
-        # clr.w   -(sp)     ->    move.w  #0,-(sp)  ; Saves 2 cycles. But now time is multiple of 4. Status flags wrong.
+        # clr.w   -(sp)     ->    move.w  #0,-(sp)    ; Saves 2 cycles. But now time is multiple of 4. Status flags wrong.
         match = clr_w_stack_by_pushing_pattern.match(line)
         if match:
             optimized_line = f'{match.group(1)}move.w{match.group(2)}#0,-(%sp)'
             return ([optimized_line], True)
 
-        # clr.l   -(sp)     ->    pea  0.w          ; Saves 6 cycles. Status flags wrong.
+        # clr.l   -(sp)     ->    pea  0.w            ; Saves 6 cycles. Status flags wrong.
         match =clr_l_stack_by_pushing_pattern.match(line)
         if match:
             optimized_line = f'{match.group(1)}pea{match.group(2)}0.w'
             return ([optimized_line], True)
 
-    # clr.l  dN      ->    moveq  #0,dN      ; Saves 2 cycles. But now time is multiple of 4.
+    # clr.l  dN      ->    moveq  #0,dN        ; Saves 2 cycles. But now time is multiple of 4.
     match = re_match(r'^(\s*)clr\.l(\s+)(%d[0-7])', line)
     if match:
         dN = match.group(3)
@@ -16040,6 +16120,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
         # addq.l  #val,aN     ->   addq.w   #val,aN    ; Saves 4 cycles.
         # Only if you know before hand the upper word won't be affected, which is true for loops.
+        # Only if USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION is on.
         match = re_match(r'^(\s*)addq\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
         if match:
             optimized_line = f'{match.group(1)}addq.w{match.group(2)}#{match.group(3)},{match.group(4)}'
@@ -16047,13 +16128,14 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
 
         # subq.l  #val,aN     ->   subq.w   #val,aN    ; Saves 4 cycles.
         # Only if you know before hand the upper word won't be affected, which is true for loops.
+        # Only if USE_REPLACE_ADDQL_SUBQL_BY_ADDQW_SUBQW_OPTIMIZATION is on.
         match = re_match(r'^(\s*)subq\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
         if match:
             optimized_line = f'{match.group(1)}subq.w{match.group(2)}#{match.group(3)},{match.group(4)}'
             return ([optimized_line], True)
 
     # If -32768 <= val <= 32767.
-    # adda.l  #val,An     ->   adda.w   #val,An    ; Saves [4,8] cycles.
+    # adda.l  #val,An     ->   adda.w   #val,An       ; Saves [4,8] cycles.
     # Take advantage of sign extension of the source. The final operation over An is always long.
     match = re_match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
@@ -16070,7 +16152,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             return ([optimized_line], True)
 
     # If -128 <= val <= 127.
-    # adda.l   #val,aN    ->   moveq     #val,dM    ; Saves 4 cycles.
+    # adda.l   #val,aN    ->   moveq     #val,dM      ; Saves 4 cycles.
     #                          adda.l    dM,aN
     # Needs a free data register dM.
     match = re_match(r'^(\s*)(adda|add)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
@@ -16115,7 +16197,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             return ([optimized_line], True)
 
     # If -32768 <= val <= 32767.
-    # suba.l  #val,An     ->   suba.w   #val,An    ; Saves [4,8] cycles.
+    # suba.l  #val,An     ->   suba.w   #val,An       ; Saves [4,8] cycles.
     # Take advantage of sign extension of the source. The final operation over An is always long.
     match = re_match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
     if match:
@@ -16132,7 +16214,7 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
             return ([optimized_line], True)
 
     # If -128 <= val <= 127.
-    # suba.l   #val,aN    ->   moveq     #val,dM    ; Saves 4 cycles.
+    # suba.l   #val,aN    ->   moveq     #val,dM      ; Saves 4 cycles.
     #                          suba.l    dM,aN
     # Needs a free data register dM.
     match = re_match(r'^(\s*)(suba|sub)\.l(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line)
@@ -16211,9 +16293,9 @@ def optimizeSingleLine_Peepholes(line: str, i_line: int, lines: list[str], modif
                 return ([optimized_line], True)
 
     # If 1 <= val <= 8
-    # lea     val(aN),aN     ->   addq.w #val,aN       ; Saves 0 cycles? But instruction is 2 bytes smaller and CCR flags changed.
+    # lea     val(aN),aN     ->   addq.w #val,aN       ; Saves 0 cycles. Instruction is 2 bytes smaller.
     # If -8 <= val <= -1
-    # lea     val(aN),aN     ->   subq.w #-val,aN      ; Saves 0 cycles? But instruction is 2 bytes smaller and CCR flags changed.
+    # lea     val(aN),aN     ->   subq.w #-val,aN      ; Saves 0 cycles. Instruction is 2 bytes smaller.
     match = re_match(r'^(\s*)lea(\s+)(-?\d+|0[xX][0-9a-fA-F]+)\((%a[0-7]|%sp)\),\s*(%a[0-7]|%sp)', line)
     if match:
         aN = match.group(4)
@@ -16752,7 +16834,7 @@ shorten_branches_pattern = re.compile(
 
 def optimizeSingleLine_ShortenBranches(line: str, i_line: int, lines: list[str], modified_lines: list[str], current_pass: int) -> tuple[list[str], bool]:
     """
-    Optimize branch instructions by using short branch suffix ".s" if the target label is in the range of [-126,128] bytes.
+    Optimize branch instructions by using short branch suffix ".s" if the target label is in the range of [-127,128] bytes.
     Returns a tuple of (optimized_lines, was_optimized) where:
     - optimized_lines is a list of new lines optimized lines (empty list if not).
     - was_optimized is a boolean indicating if optimization occurred.
@@ -17843,7 +17925,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
     - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOW_ROM_END) -> 
         we can use .w and let the sign extension fills higher word with 0s.
     - If higher word is 0xE0FF (SGDK's RAM start) and lower word >= 0x8000 (high half RAM) ->
-        we can use .w and let the sign extension fills higher word with 1s.
+        we can use .w and let the sign extension fills higher word with 1s, given that the m68k cpu only cares the first 24 bits.
     """
 
     # Collect the symbols that has the form: symbolName +-* N
@@ -17918,9 +18000,8 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
 
         optimized_line = ''
 
-        # move.s  #symbolName,aN   ->   move.s  #symbol_or_mem.w,aN       ; Saves 4 cycles
-        # clr.s   symbolName   ->   clr.s   symbol_or_mem.w      ; Saves 4 cycles
-        # clr: Only if symbolName >= SGDK_HIGH_RAM_START, since the clr instruction operates on writable RAM
+        # move.s  #symbolName,aN   ->   move.s  #symbol_or_mem.w,aN        ; Saves 4 cycles
+        # clr.s   symbolName       ->   clr.s   symbol_or_mem.w            ; Saves 4 cycles
         if match := (move_canonical_symbol_pattern.match(line) or clr_canonical_symbol_pattern.match(line)):
             instr = match.group(2)
             s = match.group(3)
@@ -17940,7 +18021,6 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    aN = '' if instr == 'clr' else match.group(9)
                     mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if mem_addr.startswith(('0x','0X','$')):
                         mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
@@ -17950,24 +18030,22 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     # NOTE: gcc doesn't allow movea.s/clr.s symbolName.w +/-/* N
                     # NOTE: gcc doesn't allow movea.s/clr.s symbolName.w if symbolName is at higher RAM. It fails with: relocation truncated to fit: R_68K_16 against `.bss'
                     if instr == 'clr':
-                        # clr instruction operates on writable RAM
-                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                            if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w'
-                            else:
-                                optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w'
+                        if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w'
+                        else:
+                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w'
                     else:  # move
                         # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                         if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             continue
+                        aN = match.group(9)
                         if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w,{aN}'
                         else:
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w,{aN}'
 
-        # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN       ; Saves 4 cycles
-        # clr.s   mem_address   ->   clr.s   mem_address.w        ; Saves 4 cycles
-        # clr: Only if mem_address >= SGDK_HIGH_RAM_START, since the clr instruction operates on writable RAM
+        # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN         ; Saves 4 cycles
+        # clr.s   mem_address       ->   clr.s   mem_address.w             ; Saves 4 cycles
         elif match := (move_canonical_mem_address_pattern.match(line) or clr_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
             s = match.group(3)
@@ -17982,20 +18060,18 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    aN = '' if instr == 'clr' else match.group(9)
                     mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if mem_addr.startswith(('0x','0X','$')):
                         mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
 
                     # NOTE: gcc doesn't allow movea.s/clr.s mem_address.w +/-/* N
                     if instr == 'clr':
-                        # clr instruction operates on writable RAM
-                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                            optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w'
+                        optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w'
                     else:  # move
                         # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                         if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             continue
+                        aN = match.group(9)
                         if s == 'l':
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w,{aN}'
 
@@ -18019,7 +18095,6 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + symbol_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    aN = '' if instr == 'pea' else match.group(8)
                     mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if symbol_ops:
                         symbol_with_additional_ops_by_mem_address[mem_value_eval_ops] = (symbolName, symbol_ops)
@@ -18030,15 +18105,17 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                         if instr == 'pea':
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{symbolName}.w'
                         else:  # lea
+                            aN = match.group(8)
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{symbolName}.w,{aN}'
                     else:
                         if instr == 'pea':
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w'
                         else:  # lea
+                            aN = match.group(8)
                             optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w,{aN}'
 
-        # lea     mem_address,aN    ->   lea     mem_address.w,aN        ; Saves 4 cycles
-        # pea     mem_address       ->   pea     mem_address.w           ; Saves 4 cycles
+        # lea     mem_address,aN    ->   lea     mem_address.w,aN          ; Saves 4 cycles
+        # pea     mem_address       ->   pea     mem_address.w             ; Saves 4 cycles
         elif match := (lea_canonical_mem_address_pattern.match(line) or pea_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
             mem_addr = match.group(4)
@@ -18055,7 +18132,6 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
-                    aN = '' if instr == 'pea' else match.group(8)
                     mem_value_eval_ops_str = str(mem_value_eval_ops)
                     if mem_addr.startswith(('0x','0X','$')):
                         mem_value_eval_ops_str = f'0x{mem_value_eval_ops&0xFFFF:0>4x}'  # Convert to hex string 0x with 4 places
@@ -18064,11 +18140,12 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     if instr == 'pea':
                         optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w'
                     else:  # lea
+                        aN = match.group(8)
                         optimized_line = f'{match.group(1)}{instr}{match.group(3)}{mem_value_eval_ops_str}.w,{aN}'
 
         # add*/sub*.s   symbolName,aN   ->   add*/sub*.s   symbol_or_mem.w,aN      ; Saves 4 cycles
         # Only for add/adda/addq and sub/suba/subq
-        # cmp*.s   symbolName,<ea>   ->   cmp*.s   symbol_or_mem.w,<ea>      ; Saves 4 cycles
+        # cmp*.s   symbolName,<ea>      ->   cmp*.s   symbol_or_mem.w,<ea>         ; Saves 4 cycles
         # Only for cmp/cmpa
         elif match := (add_sub_canonical_symbol_pattern.match(line) or cmp_canonical_symbol_pattern.match(line)):
             instr = match.group(2)
@@ -18101,9 +18178,9 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     else:
                         optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w,{aN_or_ea}'
 
-        # add*/sub*.s   mem_address,aN   ->   add*/sub*.s   mem_address.w,aN      ; Saves 4 cycles
+        # add*/sub*.s   mem_address,aN   ->   add*/sub*.s   mem_address.w,aN       ; Saves 4 cycles
         # Only for add/adda/addq and sub/suba/subq
-        # cmp*.s   mem_address,<ea>   ->   cmp*.s   symbol_or_mem.w,<ea>      ; Saves 4 cycles
+        # cmp*.s   mem_address,<ea>      ->   cmp*.s   symbol_or_mem.w,<ea>        ; Saves 4 cycles
         # Only for cmp/cmpa
         elif match := (add_sub_canonical_mem_address_pattern.match(line) or cmp_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
@@ -18163,8 +18240,8 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     else:
                         optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{imm},{mem_value_eval_ops_str}.w'
 
-        # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN      ; Saves 4 cycles
-        # andi.s   #value,mem_address   ->   andi.s   mem_address.w,aN      ; Saves 4 cycles
+        # cmpi.s   #value,mem_address   ->   cmpi.s   mem_address.w,aN       ; Saves 4 cycles
+        # andi.s   #value,mem_address   ->   andi.s   mem_address.w,aN       ; Saves 4 cycles
         elif match := (cmpi_canonical_mem_address_pattern.match(line) or andi_canonical_mem_address_pattern.match(line)):
             instr = match.group(2)
             s = match.group(3)
