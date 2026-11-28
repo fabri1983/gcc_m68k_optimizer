@@ -13,6 +13,7 @@ Features:
 - Local backward search for registers holding 0 to be used for rapidly clear of memory.
 - Multiple lines span optimizations: up to 8 lines for pattern matching optimizations.
 - Many more optimizations.
+- See the full list of patterns in [patterns.md](patterns.md "patterns.md").
 
 Only useful for the [SGDK](https://github.com/Stephane-D/SGDK) framework, which builds a m68k elf artifact prior 
 to the final binary rom artifact.

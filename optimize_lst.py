@@ -83,7 +83,7 @@ SYMBOLS_OPT_FILENAME = "symbol_opt.txt"
 SYMBOLS_CANONICAL_FILENAME = "symbol_canonical.txt"
 
 # These memory boundaries are used to exploit the sign extension that some instructions apply to address registers.
-SGDK_LOW_ROM_END = 0x00007FFF
+SGDK_LOW_ROM_END    = 0x00007FFF
 SGDK_HIGH_RAM_START = 0xE0FF8000  # E0FF0000 + 32KB
 
 # How many bytes the short branch does span.
@@ -4469,7 +4469,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
+        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN       ; Saves 4 cycles
         # ... instructions not modifying dN         ...
         # ... and not modifying CCR: N,Z,V,C        ...
         # ... and none of bra/jmp/bsr/jsr           ...
@@ -4560,7 +4560,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM            ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_D.s [<ea>,]dQ
         # any_instr_D.s [<ea>,]dQ          any_instr_E.s [<ea>,]dR
@@ -4741,13 +4741,13 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
-        # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
-        # any_instr_C.s  [<ea>,]dP        any_instr_D.s  [<ea>,]dQ
-        # any_instr_D.s  [<ea>,]dQ        any_instr_E.s  [<ea>,]dR
-        # any_instr_D.s  [<ea>,]dR        any_instr_F.s  [<ea>,]dS
-        # any_instr_E.s  [<ea>,]dS        any_instr_A.s  dN
-        # tst.s  dN                       bCC    label
+        # any_instr_A.s  dN          ->    any_instr_B.s  [<ea>,]dM           ; Saves 4 cycles
+        # any_instr_B.s  [<ea>,]dM         any_instr_C.s  [<ea>,]dP
+        # any_instr_C.s  [<ea>,]dP         any_instr_D.s  [<ea>,]dQ
+        # any_instr_D.s  [<ea>,]dQ         any_instr_E.s  [<ea>,]dR
+        # any_instr_D.s  [<ea>,]dR         any_instr_F.s  [<ea>,]dS
+        # any_instr_E.s  [<ea>,]dS         any_instr_A.s  dN
+        # tst.s  dN                        bCC    label
         # bCC    label
         # Ensure dN is not used in the other instruction, and dM/dP/dQ/dR/dS are not used in the first instruction.
         matchA = instr_single_op_modify_dN_for_ccr_pattern.match(line_A)
@@ -4831,7 +4831,7 @@ def optimizeMultiLines_8 (i_line: int, lines: list[str], modified_lines: list[st
                                                     return (optimized_lines, 8)
 
     # Consecutive copy of memory into a single invariant memory target.
-    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [20,24] cycles
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)                   ; Saves [20,24] cycles
     # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
@@ -4941,7 +4941,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
+        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN       ; Saves 4 cycles
         # ... instructions not modifying dN         ...
         # ... and not modifying CCR: N,Z,V,C        ...
         # ... and none of bra/jmp/bsr/jsr           ...
@@ -5031,7 +5031,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM            ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_D.s [<ea>,]dQ
         # any_instr_D.s [<ea>,]dQ          any_instr_E.s [<ea>,]dR
@@ -5203,12 +5203,12 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
-        # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
-        # any_instr_C.s  [<ea>,]dP        any_instr_D.s  [<ea>,]dQ
-        # any_instr_D.s  [<ea>,]dQ        any_instr_E.s  [<ea>,]dR
-        # any_instr_E.s  [<ea>,]dR        any_instr_A.s  dN
-        # tst.s  dN                       bCC    label
+        # any_instr_A.s  dN           ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_B.s  [<ea>,]dM          any_instr_C.s  [<ea>,]dP
+        # any_instr_C.s  [<ea>,]dP          any_instr_D.s  [<ea>,]dQ
+        # any_instr_D.s  [<ea>,]dQ          any_instr_E.s  [<ea>,]dR
+        # any_instr_E.s  [<ea>,]dR          any_instr_A.s  dN
+        # tst.s  dN                         bCC    label
         # bCC    label
         # Ensure dN is not used in the other instruction, and dM/dP/dQ/dR are not used in the first instruction.
         matchA = instr_single_op_modify_dN_for_ccr_pattern.match(line_A)
@@ -5285,7 +5285,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                                 return (optimized_lines, 7)
 
     # Consecutive copy of memory into a single invariant memory target.
-    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [16,20] cycles
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)               ; Saves [16,20] cycles
     # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
@@ -5419,7 +5419,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                         return (optimized_lines, 7)
 
         # Consecutively pop from stack into a sequence of registers.
-        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4/xN5/xN6/xN7    ; Saves 16 cycles
+        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4/xN5/xN6/xN7      ; Saves 16 cycles
         # move.[wl]  (aN)+,xN2
         # move.[wl]  (aN)+,xN3
         # move.[wl]  (aN)+,xN4
@@ -5461,7 +5461,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                         return (optimized_lines, 7)
 
         # Move consecutive words or longs with fixed stride.
-        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ/xR/xS/xT      ; Saves 20 cycles
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ/xR/xS/xT    ; Saves 20 cycles
         # move.[wl]  disp2(aN),xM         (6th line here if it didn't satisfy the criteria)
         # move.[wl]  disp3(aN),xP
         # move.[wl]  disp4(aN),xQ
@@ -5536,7 +5536,7 @@ def optimizeMultiLines_7 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 7)
 
         # Move consecutive words or longs with fixed stride but unordered target regs.
-        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>      ; Saves [10,16,26,32,38] cycles.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>          ; Saves [10,16,26,32,38] cycles.
         # move.[wl]  disp2(aN),xM         exg         xA,xB
         # move.[wl]  disp3(aN),xP         exg         xC,xD  <-- optional, depending on regs list
         # move.[wl]  disp4(aN),xQ         exg         xE,xF  <-- optional, depending on regs list
@@ -5623,7 +5623,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
+        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN      ; Saves 4 cycles
         # ... instructions not modifying dN         ...
         # ... and not modifying CCR: N,Z,V,C        ...
         # ... and none of bra/jmp/bsr/jsr           ...
@@ -5712,7 +5712,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM           ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_C.s [<ea>,]dP
         # any_instr_C.s [<ea>,]dP          any_instr_D.s [<ea>,]dQ
         # any_instr_D.s [<ea>,]dQ          any_instr_A.s <ea>,dN
@@ -5823,7 +5823,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s  dN                      ->    any_instr.s  dN          ; Saves 4 cycles
+        # any_instr.s  dN                      ->    any_instr.s  dN         ; Saves 4 cycles
         # ... instructions not modifying dN          ...
         # ... and not modifying CCR: N,Z,V,C         ...
         # ... and none of bra/jmp/bsr/jsr            ...
@@ -5875,7 +5875,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM           ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_C.s  [<ea>,]dP
         # any_instr_C.s  [<ea>,]dP        any_instr_D.s  [<ea>,]dQ
         # any_instr_D.s  [<ea>,]dQ        any_instr_A.s  dN
@@ -6479,7 +6479,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
 
         # This pattern comes up after applying optimization for lsr.w #8,dN.
         # But may apply for other similar situation.
-        # clr.w     dN         ->   moveq   #0,dN          ; Saves 12 cycles. Leaves dN with different value than expected.
+        # clr.w     dN         ->   moveq   #0,dN              ; Saves 12 cycles. Leaves dN with different value than expected.
         # move.b    *,dN            move.b  *,dN    
         # move.w    dN,aN           move.w  dN,aN
         # moveq[.l] #0,dN
@@ -6578,7 +6578,7 @@ def optimizeMultiLines_6 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 6)
 
         # Calculate a long value from a word value.
-        # moveq[.wl]   #0,dN         ->    moveq      #0,dN            ; Saves 4 cycles
+        # moveq[.wl]   #0,dN         ->    moveq      #0,dN                ; Saves 4 cycles
         # move.w       aN,dN               move.w     aN,dN
         # move.l       dN,aN               add/sub.l  #val,dN
         # add*/sub*.l  #val,aN             add/sub.l  dN,dM
@@ -6825,7 +6825,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s  dN                      ->    any_instr.s  dN          ; Saves 4 cycles
+        # any_instr.s  dN                      ->    any_instr.s  dN        ; Saves 4 cycles
         # ... instructions not modifying dN          ...
         # ... and not modifying CCR: N,Z,V,C         ...
         # ... and none of bra/jmp/bsr/jsr            ...
@@ -6942,7 +6942,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                         return (optimized_lines, 5)
 
     # Consecutive copy of memory into a single invariant memory target.
-    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [8,12] cycles
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)             ; Saves [8,12] cycles
     # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp4(aN),(aM)              move.s -(aN)+,(aM)
@@ -7069,16 +7069,19 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                     ]
                                     return (optimized_lines, 5)
 
+    # Explicitelly sign extend multiple data regs after loading from memory.
     matchA = lea_label_or_disp_aN_or_pc_into_aM_pattern.match(line_A)
     if matchA:
         aN_or_pc = matchA.group(4)
         aM = matchA.group(5)
 
-        # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm
+        # Explicitelly sign extend multiple data regs after loading from memory.
+        # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm       ; Saves 16 cycles
         # move.w  disp1(Am),Dn                  (movem does sign extension)
         # move.w  disp2(Am),Dm
         # ext.l   Dn
         # ext.l   Dm
+        # Note: Ensure Am is not used afterwards unless is overwritten/cleared before any usage.
         matchB = move_disp_aN_into_xN_pattern.match(line_B)
         matchC = move_disp_aN_into_xN_pattern.match(line_C)
         if matchB and matchC:
@@ -7101,25 +7104,27 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                 if aregB and aregB == aM and aregC and aregC == aM and dispB is not None and dispC is not None and dispC == dispB + stride:
                     matchD = re_match(r'^\s*ext\.l\s+(%d[0-7])', line_D)
                     matchE = re_match(r'^\s*ext\.l\s+(%d[0-7])', line_E)
-
                     # Do both match with dN and dM?
                     if matchD and matchE and dN == matchD.group(1) and dM == matchE.group(1):
-                        label_or_val = '' if not matchA.group(3) else matchA.group(3)
-                        # Ensure dN is smaller than dM
-                        d_reg_1 = int(dN[2])  # reg index
-                        d_reg_2 = int(dM[2])  # reg index
-                        if d_reg_1 < d_reg_2:
-                            if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
-                            optimized_lines = [
-                                f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
-                            ]
-                            return (optimized_lines, 5)
+                        if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 5):
+                            label_or_val = '' if not matchA.group(3) else matchA.group(3)
+                            # Ensure dN is smaller than dM
+                            d_reg_1 = int(dN[2])  # reg index
+                            d_reg_2 = int(dM[2])  # reg index
+                            if d_reg_1 < d_reg_2:
+                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
+                                ]
+                                return (optimized_lines, 5)
 
-        # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm
+        # Explicitelly sign extend multiple data regs after loading from memory.
+        # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm       ; Saves 16 cycles
         # move.w  disp1(Am),Dn                  (movem does sign extension)
         # ext.l   Dn
         # move.w  disp2(Am),Dm
         # ext.l   Dm
+        # Note: Ensure Am is not used afterwards unless is overwritten/cleared before any usage.
         matchB = move_disp_aN_into_xN_pattern.match(line_B)
         matchD = move_disp_aN_into_xN_pattern.match(line_D)
         if matchB and matchD:
@@ -7142,20 +7147,21 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                 if aregB and aregB == aM and aregD and aregD == aM and dispB is not None and dispD is not None and dispD == dispB + stride:
                     matchC = re_match(r'^\s*ext\.l\s+(%d[0-7])', line_C)
                     matchE = re_match(r'^\s*ext\.l\s+(%d[0-7])', line_E)
-
                     # Do both match with dN and dM?
                     if matchC and matchE and dN == matchC.group(1) and dM == matchE.group(1):
-                        label_or_val = '' if not matchA.group(3) else matchA.group(3)
-                        # Ensure dN is smaller than dM
-                        d_reg_1 = int(dN[2])  # reg index
-                        d_reg_2 = int(dM[2])  # reg index
-                        if d_reg_1 < d_reg_2:
-                            if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
-                            optimized_lines = [
-                                f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
-                            ]
-                            return (optimized_lines, 5)
+                        if not is_reg_used_before_overwritten_or_cleared_afterwards(aM, i_line, lines, modified_lines, 5):
+                            label_or_val = '' if not matchA.group(3) else matchA.group(3)
+                            # Ensure dN is smaller than dM
+                            d_reg_1 = int(dN[2])  # reg index
+                            d_reg_2 = int(dM[2])  # reg index
+                            if d_reg_1 < d_reg_2:
+                                if_reg_not_used_anymore_then_remove_from_push_pop(aM, i_line, lines, modified_lines, 5)
+                                optimized_lines = [
+                                    f'{matchA.group(1)}movem.w{matchA.group(2)}{label_or_val}({aN_or_pc}),{dN}/{dM}'
+                                ]
+                                return (optimized_lines, 5)
 
+        # Explicitelly sign extend multiple data regs after loading from memory.
         # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm       ; Saves 16 cycles
         # move.w  (Am)+,Dn                      (movem does sign extension)
         # move.w  (Am)[+],Dm
@@ -7184,7 +7190,8 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 5)
 
-        # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm     ; Saves 16 cycles
+        # Explicitelly sign extend multiple data regs after loading from memory.
+        # lea     label_or_val(An/pc),Am   ->   movem.w  label_or_val(An/pc),Dn/Dm       ; Saves 16 cycles
         # move.w  (Am)+,Dn                      (movem does sign extension)
         # ext.l   Dn
         # move.w  (Am)[+],Dm
@@ -7394,7 +7401,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
     if USE_MOVEM_OPTIMIZATIONS:
 
         # Consecutively push into stack a sequence of registers.
-        # move.[wl]  xN5,-(aN)   ->   movem.[wl]  xN5/xN4/xN3/xN2/xN1,-(aN)    ; Saves 12 cycles
+        # move.[wl]  xN5,-(aN)   ->   movem.[wl]  xN5/xN4/xN3/xN2/xN1,-(aN)       ; Saves 12 cycles
         # move.[wl]  xN4,-(aN)
         # move.[wl]  xN3,-(aN)
         # move.[wl]  xN2,-(aN)
@@ -7430,7 +7437,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 5)
 
         # Consecutively pop from stack into a sequence of registers.
-        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4/xN5    ; Saves 8 cycles
+        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4/xN5       ; Saves 8 cycles
         # move.[wl]  (aN)+,xN2
         # move.[wl]  (aN)+,xN3
         # move.[wl]  (aN)+,xN4
@@ -7464,7 +7471,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 5)
 
         # Move consecutive words or longs with fixed stride.
-        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ/xR      ; Saves 12 cycles
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ/xR     ; Saves 12 cycles
         # move.[wl]  disp2(aN),xM         (5th line here if it didn't satisfy the criteria)
         # move.[wl]  disp3(aN),xP
         # move.[wl]  disp4(aN),xQ
@@ -7531,7 +7538,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 5)
 
         # Move consecutive words or longs with fixed stride but unordered target regs.
-        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>      ; Saves [6,12,18] cycles.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>     ; Saves [6,12,18] cycles.
         # move.[wl]  disp2(aN),xM         exg         xA,xB
         # move.[wl]  disp3(aN),xP         exg         xC,xD  <-- optional, depending on regs list
         # move.[wl]  disp4(aN),xQ         exg         xE,xF  <-- optional, depending on regs list
@@ -7716,7 +7723,7 @@ def optimizeMultiLines_5 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 5)
 
         # Calculates offset indexes for accessing arrays. The offset at dN has already the correct stride.
-        # moveq[.l]  #0,dN               ->   move.w     disp1(sp),dN            ; Saves 16 cycles
+        # moveq[.l]  #0,dN               ->   move.w     disp1(sp),dN           ; Saves 16 cycles
         # move.w     disp1(sp),dN             move.l     disp2(sp),aN
         # move.l     disp2(sp),aN             lea        symbol_or_mem(aN,dN.w),aN
         # add/sub.l  #symbol_or_mem,aN        move.[wl]  (aN),dP
@@ -7907,7 +7914,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_A.s <ea>,dN      ->    any_instr_B.s [<ea>,]dM           ; Saves 4 cycles
         # any_instr_B.s [<ea>,]dM          any_instr_A.s <ea>,dN
         # tst.s  dN                        bCC    label
         # bCC    label
@@ -8002,7 +8009,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s  dN                      ->    any_instr.s  dN          ; Saves 4 cycles
+        # any_instr.s  dN                      ->    any_instr.s  dN         ; Saves 4 cycles
         # ... instructions not modifying dN          ...
         # ... and not modifying CCR: N,Z,V,C         ...
         # ... and none of bra/jmp/bsr/jsr            ...
@@ -8052,7 +8059,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # Redundant tst instruction with instruction re order.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
         # In this particular case we can re order the first instruction so the optimization may apply.
-        # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM          ; Saves 4 cycles
+        # any_instr_A.s  dN         ->    any_instr_B.s  [<ea>,]dM           ; Saves 4 cycles
         # any_instr_B.s  [<ea>,]dM        any_instr_A.s  dN
         # tst.s  dN                       bCC    label
         # bCC    label
@@ -8112,7 +8119,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     # Null pointer or just comparison with 0 test improvement.
     # move.w  #val,aN                 ->    moveq   #val,dN         ; Saves [4,8,12] cycles. Leaves aN/aM different.
     # lea     (aN,dM.l),aM                  <move.l dN,aN>   <-- needed if aN is used before cleared/overwritten
-    # cmp.w #0,aM  or  move.l aM,dN         add.l   dM,dN
+    # cmp.w   #0,aM  or  move.l aM,dN       add.l   dM,dN
     # bCC     label                         <move.l  dN,aM>  <-- needed if aM is used before cleared/overwritten
     #                                       bCC     label
     # Where -128 <= val <= 127
@@ -8166,7 +8173,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 4)
 
     # Word packing.
-    # swap[.w] dN           ->    swap    dN                 ; Saves [24,32] cycles. Leaves dM different.
+    # swap[.w] dN           ->    swap    dN               Saves [24,32] cycles. Leaves dM different.
     # clr.w    dN                 move.w  dM,dN
     # and.l    #0xFFFF,dM
     # or.l     dM,dN
@@ -8195,7 +8202,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 4)
 
     # Consecutive copy of memory into a single invariant memory target.
-    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)           ; Saves [4,8] cycles
+    # move.s disp1(aN),(aM)      ->      move.s  (aN)+,(aM)          ; Saves [4,8] cycles
     # move.s disp2(aN),(aM)              move.s -(aN)+,(aM)
     # move.s disp3(aN),(aM)              move.s -(aN)+,(aM)
     # lea    val(aN),aN                  lea    val-N*s(aN),aN
@@ -8259,6 +8266,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     ]
                                 return (optimized_lines, 4)
 
+    # Explicitelly sign extend multiple data regs.
     # move.w  disp1(Am),Dn    ->    movem.w  disp1(Am),Dn/Dm         ; Saves 8 cycles
     # move.w  disp2(Am),Dm          (movem does sign extension)
     # ext.l   Dn
@@ -8300,6 +8308,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 4)
 
+    # Explicitelly sign extend multiple data regs.
     # move.w  disp1(Am),Dn    ->    movem.w  disp1(Am),Dn/Dm         ; Saves 8 cycles
     # ext.l   Dn                    (movem does sign extension)
     # move.w  disp2(Am),Dm
@@ -8341,6 +8350,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 4)
 
+    # Explicitelly sign extend multiple data regs.
     # move.w  (Am)+,Dn      ->   movem.w  (Am)+,Dn/Dm                ; Saves 8 cycles
     # move.w  (Am)+,Dm           (movem does sign extension)
     # ext.l   Dn
@@ -8365,6 +8375,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 4)
 
+    # Explicitelly sign extend multiple data regs.
     # move.w  (Am)+,Dn      ->   movem.w  (Am)+,Dn/Dm                ; Saves 8 cycles
     # ext.l   Dn                 (movem does sign extension)
     # move.w  (Am)+,Dm
@@ -8390,7 +8401,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 4)
 
     # Test if aN is in range 0xFFFF8000 <= aN <= 0x00007FFF (-32768 <= aN <= 32767).
-    # cmp.w/l   #0x8000,aN     ->   cmpa.w   aN,aN
+    # cmp.w/l   #0x8000,aN     ->   cmpa.w   aN,aN                   ; Saves [32,24] cycles.
     # blt       OutOfRange          bne      OutOfRange
     # cmp.w/l   #0x7FFF,aN
     # bgt       OutOfRange
@@ -8419,7 +8430,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
     # Test if dN is in range 0xFFFF8000 <= dN <= 0x00007FFF (-32768 <= dN <= 32767).
-    # cmp.l     #0xFFFF8000,dN     ->   move.w   dN,aN
+    # cmp.l     #0xFFFF8000,dN     ->   move.w   dN,aN               ; Saves [28,20] cycles.
     # blt       OutOfRange              cmpa.w   aN,aN
     # cmp.l     #0x00007FFF,dN          bne      OutOfRange
     # bgt       OutOfRange
@@ -8461,7 +8472,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     if USE_MOVEM_OPTIMIZATIONS:
 
         # Consecutively push into stack a sequence of registers.
-        # move.[wl]  xN4,-(aN)   ->   movem.[wl]  xN4/xN3/xN2/xN1,-(aN)      ; Saves 8 cycles
+        # move.[wl]  xN4,-(aN)   ->   movem.[wl]  xN4/xN3/xN2/xN1,-(aN)          ; Saves 8 cycles
         # move.[wl]  xN3,-(aN)
         # move.[wl]  xN2,-(aN)
         # move.[wl]  xN1,-(aN)
@@ -8493,7 +8504,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Consecutively pop from stack into a sequence of registers.
-        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4      ; Saves 4 cycles
+        # move.[wl]  (aN)+,xN1   ->   movem.[wl]  (aN)+,xN1/xN2/xN3/xN4          ; Saves 4 cycles
         # move.[wl]  (aN)+,xN2
         # move.[wl]  (aN)+,xN3
         # move.[wl]  (aN)+,xN4
@@ -8523,7 +8534,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Move consecutive words or longs with fixed stride.
-        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ      ; Saves 8 cycles
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl] disp1(aN),xN/xM/xP/xQ       ; Saves 8 cycles
         # move.[wl]  disp2(aN),xM         (4th line here if it didn't satisfy the criteria)
         # move.[wl]  disp3(aN),xP
         # move.[wl]  disp4(aN),xQ    <- this could be whatever line
@@ -8586,7 +8597,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 4)
 
         # Move consecutive words or longs with fixed stride but unordered target regs.
-        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>      ; Saves [4,10] cycles.
+        # move.[wl]  disp1(aN),xN    ->   movem.[wl]  disp1(sp),<sorted_regs>         ; Saves [4,10] cycles.
         # move.[wl]  disp2(aN),xM         exg         xA,xB
         # move.[wl]  disp3(aN),xP         exg         xC,xD  <-- optional, depending on regs list
         # move.[wl]  disp4(aN),xQ
@@ -8840,7 +8851,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     if USE_COOL_OPTIMIZATIONS:
 
         # Pushing word memory values into stack with word adjustments for ABI long args compliance.
-        # move.w     symbol_or_mem,-(sp)    ->    move.w     symbol_or_mem,-(sp)     ; Saves 4 cycles
+        # move.w     symbol_or_mem,-(sp)    ->    move.w     symbol_or_mem,-(sp)      ; Saves 4 cycles
         # sub*.[wl]  #2,sp                        move.w     symbol_or_mem,-4(sp)
         # move.w     symbol_or_mem,-(sp)          subq.[wl]  #6,sp
         # sub*.[wl]  #2,sp
@@ -8863,7 +8874,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 4)
 
         # Calculates offset indexes for accessing arrays.
-        # and.l      #65535,dN         ->    add.w      dN,dN              ; Saves 20 cycles (16 cycles saved from removed and.l)
+        # and.l      #65535,dN         ->    add.w      dN,dN                ; Saves 20 cycles (16 cycles saved from removed and.l)
         # add.l      dN,dN                   lea        symbol_or_mem,aN
         # lea        symbol_or_mem,aN        move.[wl]  disp(sp),(aN,dN.w)
         # move.[wl]  disp(sp),(aN,dN.[wl])
@@ -8967,7 +8978,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Unnecessary clear of data register to multiply an address register by 2 and add/sub a constant.
-        # move.w     aN,dN     ->   add.l      aN,aN           ; Saves 4 cycles. Leaves dN different.
+        # move.w     aN,dN     ->   add.l      aN,aN       ; Saves 4 cycles. Leaves dN different.
         # lsl.l      #2,dN          add.l      aN,aN
         # move.l     dN,aN          add/sub.l  #val,aN
         # add/sub.l  #val,aN
@@ -8994,7 +9005,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Clean upper word of data register to later copy it into other data register.
-        # swap[.w] dN        ->    moveq   #0,dM             ; Saves 8 cycles. Leaves dN different.
+        # swap[.w] dN        ->    moveq   #0,dM           ; Saves 8 cycles. Leaves dN different.
         # clr.w    dN              move.w  dN,dM
         # swap[.w] dN
         # move.l   dN,dM
@@ -9023,7 +9034,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 4)
 
         # Clean upper word of data register to later be used as address.
-        # swap[.w] dN        ->    moveq   #0,dM             ; Saves 4 cycles. Leaves dN different.
+        # swap[.w] dN        ->    moveq   #0,dM           ; Saves 4 cycles. Leaves dN different.
         # clr.w    dN              move.w  dN,dM
         # swap[.w] dN              move.l  dM,aN
         # move.l   dN,aN
@@ -9058,7 +9069,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                 return (optimized_lines, 4)
 
     # Poping from SP into a data reg and consecutively modifying the same data reg with consecutive elements from SP.
-    # move.s1       disp1(sp),dN     ->    lea           disp1(sp),aN        ; Saves 4 cycles.
+    # move.s1       disp1(sp),dN     ->    lea           disp1(sp),aN         ; Saves 4 cycles.
     # <instr_2>.s2  disp2(sp),dN           move.s1       (aN)[+],dN
     # <instr_3>.s3  disp3(sp),dN           <instr_2>.s2  [-](aN)[+],dN
     # <instr_4>.s4  disp4(sp),dN           <instr_3>.s3  [-](aN)[+],dN
@@ -9301,7 +9312,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
 
         # Tail recursion. Replace many BSR/JSR+RTS by many PEA+BRA/JMP.
-        # bsr/jsr subr1     ->    pea subr3          ; Saves 16 cycles. Different stack depth
+        # bsr/jsr subr1     ->    pea subr3            ; Saves 16 cycles. Different stack depth
         # bsr/jsr subr2           pea subr2
         # bsr/jsr subr3           bra/jmp subr1
         # rts
@@ -9334,6 +9345,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.w  -(sp)
         # clr.w  -(sp)
         # Also considers: move.w #0,-(sp)
+        # This pattern applied only if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
         matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
         matchA = matchA_clr or matchA_move_0
@@ -9358,6 +9370,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.l  -(sp)
         # clr.l  -(sp)
         # Also considers:  pea  0[.wl]
+        # This pattern applied only if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
         matchA_pea_0 = pea_0wl_pattern.match(line_A)
         matchA = matchA_clr or matchA_pea_0
@@ -9837,7 +9850,7 @@ def optimizeMultiLines_4 (i_line: int, lines: list[str], modified_lines: list[st
                                     offset_str = op_4_str
                                     is_offset_even = symbolName_4_op % 2
 
-                                if target_symbol and is_offset_even and not in_a_SGDK_sound_or_joy_related_routine(modified_lines):
+                                if target_symbol and is_offset_even:
                                     # Search for regs holding 0
                                     regs_holding_zero = find_regs_holding_zero(i_line, lines, modified_lines, 4)
 
@@ -10185,7 +10198,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
 
         # Redundant tst instruction.
         # Some m68k instructions set condition codes, but GCC often generates redundant tst instructions before branches.
-        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN          ; Saves 4 cycles
+        # any_instr.s <ea>,dN                 ->    any_instr.s <ea>,dN       ; Saves 4 cycles
         # ... instructions not modifying dN         ...
         # ... and not modifying CCR: N,Z,V,C        ...
         # ... and none of bra/jmp/bsr/jsr           ...
@@ -10319,7 +10332,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     # Memory dereference test. 
     # By moving the dereference memory value into a data reg intead of an address reg, we can set CC flags.
     # The registers can be inverted and the move instruction is moved after the bCC.
-    # move.l     symbol_or_mem,aN    ->    move.l  symbol_or_mem,dN     ; Saves 4 cycles if bCC does actually branch.
+    # move.l     symbol_or_mem,aN    ->    move.l  symbol_or_mem,dN       ; Saves 4 cycles if bCC does actually branch.
     # move.[wl]  aN,dN                     bCC     label
     # bCC        label                     move.l  dN,aN
     # Ensure aN is not used after the label definition, or overwritten/cleared after the label definition.
@@ -10343,7 +10356,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 3)
 
     # Calculation of addressing offset.
-    # neg.[wl]   dN                    ->    suba.[wl]  dN,aN               ; Saves [2,12] cycles
+    # neg.[wl]   dN                    ->    suba.[wl]  dN,aN             ; Saves [2,12] cycles
     # add.[wl]   #val,dN                     lea        val+disp(aN),aN
     # move.[wl]  dM,disp(aN,dN.[wl])         move.[wl]  dM,(aN)
     # Displacement disp is optional.
@@ -10369,7 +10382,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 3)
 
-    # Load address and offset from an address reg to another address reg
+    # Load address and offset from an address reg to another address reg.
     matchA = re_match(r'^(\s*)(move|movea)\.([wl])(\s+)(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
         matchC = re_match(r'^\s*(add|adda)\.([wl])\s+(%a[0-7]|%sp),\s*(%a[0-7]|%sp)', line_C)
@@ -10383,9 +10396,9 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
             # Same size and same aP regs? And different regs?
             if sA == sC and aP == matchC.group(4) and aN != aP and aP != aM and aN != aM:
 
-                # Load address and offset from an address reg to another address reg
+                # Load address and offset from an address reg to another address reg.
                 # If -32768 <= val <= 32767
-                # move.s  aN,aP      ->    lea     val(aN,aM),aP
+                # move.s  aN,aP      ->    lea     val(aN,aM.l),aP         ; Saves 12 cycles.
                 # add.s   #val,aP
                 # add.s   aM,aP
                 # Considers case when add.s #val,aP is replaced by a addq.s.
@@ -10394,13 +10407,13 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     val = parseConstantSigned(matchB.group(3), 32)
                     if -32768 <= val <= 32767:
                         optimized_lines = [
-                            f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{aM}),{aP}'
+                            f'{matchA.group(1)}lea{matchA.group(4)}{val}({aN},{aM}.l),{aP}'
                         ]
                         return (optimized_lines, 3)
 
-                # Load address and offset from an address reg to another address reg
+                # Load address and offset from an address reg to another address reg.
                 # If -32768 <= val <= 32767
-                # move.s  aN,aP      ->    lea     -val(aN,aM),aP
+                # move.s  aN,aP      ->    lea     -val(aN,aM.l),aP        ; Saves 12 cycles.
                 # sub.s   #val,aP
                 # add.s   aM,aP
                 # Considers case when sub.s #val,aP is replaced by a subq.s.
@@ -10409,7 +10422,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
                     val = parseConstantSigned(matchB.group(3), 32)
                     if -32768 <= val <= 32767:
                         optimized_lines = [
-                            f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN},{aM}),{aP}'
+                            f'{matchA.group(1)}lea{matchA.group(4)}{-val}({aN},{aM}.l),{aP}'
                         ]
                         return (optimized_lines, 3)
 
@@ -10557,6 +10570,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
     # addq    #4,sp            beq     label
     # beq     label
     # Needs a free data register dM.
+    # TODO: review this pattern.
     #matchA = re_match(r'^(\s*)(move|movea)\.l(\s+)(%a[0-7]),\s*-\(%sp\)', line_A)
     #if matchA:
     #    matchB = re_match(r'^\s*(add|adda|addq)(\.[wl])?\s+#4,\s*%sp', line_B)
@@ -11066,6 +11080,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.w  -(sp)
         # clr.w  -(sp)
         # Also considers: move.w #0,-(sp)
+        # This pattern is applied only if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
         matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
         matchA = matchA_clr or matchA_move_0
@@ -11086,6 +11101,7 @@ def optimizeMultiLines_3 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.l  -(sp)
         # clr.l  -(sp)
         # Also considers:  pea  0[.wl]
+        # This pattern is applied only if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
         matchA_pea_0 = pea_0wl_pattern.match(line_A)
         matchA = matchA_clr or matchA_pea_0
@@ -11745,8 +11761,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Unnecessary sign extension if dN is then used as word or byte.
     # Particularly added by FF32_toInt() which does >> 16, but gcc also adds an extra ext.l.
-    # swap[.w] dN     ->    swap   dN          ; Saves 4 cycles
-    # ext.l    dN
+    # swap[.w]  dN     ->    swap   dN            ; Saves 4 cycles
+    # ext.l     dN
     # Ensure dN is used as word or byte afterwards before is overwritten or cleared.
     matchA = re_match(r'^(\s*)swap(\.w)?(\s+)(%d[0-7])', line_A)
     if matchA:
@@ -11814,6 +11830,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     if matchA:
         ea = matchA.group(4)
 
+        # Test bit #7 (8th position) on byte size.
         # btst[.bl]  #7,<ea>    ->    tst.b   <ea>        ; Saves 4 cycles. Status flags wrong.
         # beq        label            bpl     label
         # Not valid for: dN, d16(PC), d8(PC,Xn.s) dest address modes.
@@ -11831,6 +11848,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             ]
             return (optimized_lines, 2)
 
+        # Test bit #7 (8th position) on byte size.
         # btst[.bl]  #7,<ea>    ->    tst.b   <ea>        ; Saves 4 cycles. Status flags wrong.
         # bne        label            bmi     label
         # Not valid for: dN, d16(PC), d8(PC,Xn.s) dest address modes.
@@ -11848,7 +11866,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             ]
             return (optimized_lines, 2)
 
-    # Test bit #7,15,31 (8th, 16th, 31th position) on long size
+    # Test bit #7,15,31 (8th, 16th, 31th position) on long size.
     matchA = btst_val_dN_pattern.match(line_A)
     if matchA:
         dN = matchA.group(5)
@@ -11860,6 +11878,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             elif val == 15:
                 s_for_tst = 'w'
 
+            # Test bit #7,15,31 (8th, 16th, 31th position) on long size.
             # If val in [7, 15, 31]
             # btst[.bl]  #val,dN    ->    tst.s   dN          ; Saves 4 cycles. Status flags wrong.
             # beq        label            bpl     label
@@ -11874,6 +11893,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
+            # Test bit #7,15,31 (8th, 16th, 31th position) on long size.
             # If val in [7, 15, 31]
             # btst[.bl]  #val,dN    ->    tst.s   dN          ; Saves 4 cycles. Status flags wrong.
             # bne        label            bmi     label
@@ -11893,8 +11913,6 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # pointing to RAM (not memory-mapped I/O).
     if USE_TAS_ON_MAPPED_IO_MEMORY_OPTIMIZATION:
 
-        # bset[.bl]  #7,symbol_or_mem
-        # gcc might add [+-N][.bwl]. Ie: ammoInventory+2.
         matchA = re_match(r'^(\s*)bset(\.[bl])?(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(#?-?[0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?\s*(?:;.*)?$', line_A)
         if matchA:
 
@@ -11938,6 +11956,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         val = parseConstantUnsigned(matchA.group(4))
         if val == 7:
 
+            # Use tas instruction to set bit 7th.
             # bset[.bl]  #7,dN     ->    tas   dN          ; Saves 4 cycles. Status flags wrong.
             # beq        label           bpl   label
             matchB = re_match(r'^\s*[jb]eq(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
@@ -11950,6 +11969,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
+            # Use tas instruction to set bit 7th.
             # bset[.bl]  #7,dN     ->    tas   dN          ; Saves 4 cycles. Status flags wrong.
             # bne        label           bmi   label
             matchB = re_match(r'^\s*[jb]ne(\.[sbw])?\s+([0-9A-Za-z_\.]+)\s*(?:;.*)?$', line_B)
@@ -12078,7 +12098,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     if USE_REPLACE_LOAD_SUBROUTINE_INTO_AN_BY_CALLING_SUBROUTINE_DIRECTLY:
 
-        # lea     subr,aN    ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused.
+        # lea     subr,aN    ->   jsr  subr            ; Saves 8 cycles. Leaves aN unused.
         # jsr     (aN)
         # Optimization pays off only up to 3 replacements. More than 3 is better to keep using jsr (aN).
         matchA = re_match(r'^(\s*)lea(\s+)([0-9a-zA-Z_][0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
@@ -12097,7 +12117,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     if_reg_not_used_anymore_then_remove_from_push_pop(aN, i_line, lines, modified_lines, 2)
                     return (optimized_lines, 2)
 
-        # move.l  #subr,aN   ->   jsr  subr          ; Saves 8 cycles. Leaves aN unused.
+        # move.l  #subr,aN   ->   jsr  subr            ; Saves 8 cycles. Leaves aN unused.
         # jsr     (aN)
         # Optimization pays off only up to 3 replacements. More than 3 is better to keep using jsr (aN).
         matchA = re_match(r'^(\s*)(move|movea)\.l(\s+)#([0-9a-zA-Z_][0-9a-zA-Z_\.]+)(\.[bwl])?([\-\+]\d+)?(\.[bwl])?,\s*(%a[0-7])', line_A)
@@ -12182,7 +12202,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             return (optimized_lines, 2)
 
     # Apply a mask where -128 <= mask <= 127
-    # move.s   <ea>,dN    ->    moveq   #mask,dN      ; Saves 4 cycles. Top bits of dN different.
+    # move.s   <ea>,dN    ->    moveq   #mask,dN           ; Saves 4 cycles. Top bits of dN different.
     # and.s    #mask,dN         and.s   <ea>,dN
     # <ea>: effective address valid for AND instruction:
     #   dN   (aN)   (aN)+   -(aN)   d(aN)   d(aN,xN.s)   ABS.w   ABS.l   d(PC)   d(PC,xN.s)   imm
@@ -12211,7 +12231,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
     # Word packing. Setting upper word only.
     # If val = m*65536. Ie val is multiple of 65536.
     # Where -8323073 <= val <= -65537 or 65536 <= val <= 8323072.
-    # and.l  #0xFFFF,dN       ->    swap    dN                   ; Saves 16 cycles.
+    # and.l  #0xFFFF,dN       ->    swap    dN             ; Saves 16 cycles.
     # or.l   #0xNNNN0000,dN         move.w  #m,dN
     #                               swap    dN
     matchA = re_match(r'^(\s*)(and|andi)\.l(\s+)#(-1|0[xX][fF]{4})(?:\.[bwl])?,\s*(%d[0-7])', line_A)
@@ -12249,7 +12269,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         sA = matchA.group(2)
         aN = matchA.group(4)
 
-        # move.[wl]  aN,-(sp)   ->    pea   val(aN)
+        # Push aN into sp and then add/sub constant into sp.
+        # move.[wl]  aN,-(sp)   ->    pea   val(aN)            ; Saves [4,8] cycles.
         # add*.[wl]  #val,(sp)            
         matchB = re_match(r'^\s*(add|adda|addq|addi)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*\(%sp\)', line_B)
         if matchB and sA == matchB.group(2):
@@ -12259,7 +12280,8 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             ]
             return (optimized_lines, 2)
 
-        # move.[wl]  aN,-(sp)   ->    pea   -val(aN)
+        # Push aN into sp and then add/sub constant into sp.
+        # move.[wl]  aN,-(sp)   ->    pea   -val(aN)           ; Saves [4,8] cycles.
         # sub*.[wl]  #val,(sp)            
         matchB = re_match(r'^\s*(sub|suba|subq|subi)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*\(%sp\)', line_B)
         if matchB and sA == matchB.group(2):
@@ -12358,7 +12380,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
         # Calculates offset indexes for accessing arrays.
-        # lea     symbol_or_mem,aN    ->   move.l  *,aN                    ; Saves [6,8] cycles.
+        # lea     symbol_or_mem,aN    ->   move.l  *,aN                      ; Saves [6,8] cycles.
         # add.l   *,aN                     lea     symbol_or_mem(aN),aN
         matchA = re_match(r'^(\s*)lea(\s+)(-?[0-9a-zA-Z_\.]+)(\.[wl])?([\-\+]\d+)?(\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
         if matchA:
@@ -12435,7 +12457,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             return (optimized_lines, 2)
 
         # This pattern comes up after applying optimization for lsl.w #8,dN.
-        # clr.b   dN            ->   move.b  dM,dN             ; Saves 4 cycles.
+        # clr.b   dN       ->   move.b  dM,dN             ; Saves 4 cycles.
         # move.b  dM,dN
         matchA = re_match(r'^(\s*)clr\.b(\s+)(%d[0-7])', line_A)
         if matchA:
@@ -12449,7 +12471,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
     # Redundant load of immediate word value into an address register that is not used anymore.
-    # move.w     #imm,aN        ->    add/sub.l   #imm,dN        ; Saves 4 cycles. Leaves aN different.
+    # move.w     #imm,aN        ->    add/sub.l   #imm,dN      ; Saves 4 cycles. Leaves aN different.
     # add/sub.l  aN,dN
     # Leaves aN different.
     # Ensure aN is not used anymore or cleared/overwritten before use.
@@ -12489,13 +12511,14 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
-    # Calculating effective address between address registers and a constant
+    # Calculating effective address between address registers and a constant.
     matchA = re_match(r'^(\s*)(move|movea)\.([wl])(\s+)(%a[0-7]),\s*(%a[0-7])', line_A)
     if matchA:
         s, aN, aM = matchA.group(3, 5, 6)
 
+        # Calculating effective address between address registers and a constant.
         # If -32767 <= val <= 32767
-        # move.[wl]  aN,aM      ->    lea   val(aN),aM        ; Saves [8,12] cycles.
+        # move.[wl]  aN,aM      ->    lea   val(aN),aM         ; Saves [8,12] cycles.
         # add.[wl]   #val,aM
         matchB = re_match(r'^\s*(add|adda|addq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
         if matchB and s == matchB.group(2) and aM == matchB.group(4):
@@ -12506,8 +12529,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
+        # Calculating effective address between address registers and a constant.
         # If -32768 <= val <= 32767
-        # move.[wl]  aN,aM      ->    lea   -val(aN),aM       ; Saves [8,12] cycles.
+        # move.[wl]  aN,aM      ->    lea   -val(aN),aM        ; Saves [8,12] cycles.
         # sub.[wl]   #val,aM
         matchB = re_match(r'^\s*(sub|suba|subq)\.([wl])\s+#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_B)
         if matchB and s == matchB.group(2) and aM == matchB.group(4):
@@ -12569,7 +12593,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Calculating effective address involving a value and registers xN and aN.
     # If -128 <= val <= 127
-    # add.[wl]  #val,aN    ->    lea  val(aN,xN.s),aN    ; Saves 8 cycles.
+    # add.[wl]  #val,aN    ->    lea  val(aN,xN.s),aN      ; Saves 8 cycles.
     # add.[wl]  xN,aN
     matchA = re_match(r'^(\s*)(add|adda|addq)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
     if matchA:
@@ -12590,7 +12614,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Calculating effective address involving a value and registers xN and aN.
     # If -128 <= val <= 127
-    # add.[wl]  xN,aN      ->    lea  val(aN,xN.s),aN    ; Saves 8 cycles.
+    # add.[wl]  xN,aN      ->    lea  val(aN,xN.s),aN      ; Saves 8 cycles.
     # add.[wl]  #val,aN
     matchA = re_match(r'^(\s*)(add|adda)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
@@ -12609,7 +12633,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Calculating effective address involving a value and registers xN and aN.
     # If -127 <= val <= 128
-    # sub.[wl]  #val,aN    ->    lea  -val(aN,xN.s),aN   ; Saves 8 cycles
+    # sub.[wl]  #val,aN    ->    lea  -val(aN,xN.s),aN     ; Saves 8 cycles
     # add.[wl]  xN,aN
     matchA = re_match(r'^(\s*)(sub|suba|subq)\.([wl])(\s+)#(-?\d+|0[xX][0-9a-fA-F]+)(?:\.[bwl])?,\s*(%a[0-7]|%sp)', line_A)
     if matchA:
@@ -12630,7 +12654,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
     # Calculating effective address involving a value and registers xN and aN.
     # If -128 <= val <= 127
-    # add.[wl]  xN,aN      ->    lea  -val(aN,xN.s),aN   ; Saves 8 cycles.
+    # add.[wl]  xN,aN      ->    lea  -val(aN,xN.s),aN     ; Saves 8 cycles.
     # sub.[wl]  #val,aN
     matchA = re_match(r'^(\s*)(add|adda)\.([wl])(\s+)(%[ad][0-7]|%sp),\s*(%a[0-7]|%sp)', line_A)
     if matchA:
@@ -12648,9 +12672,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 return (optimized_lines, 2)
 
     # Addition using indexing modes
-    # add.s   (aN,dP.z),xN  ->  adda.z  dP,aN          ; Saves [2,4] cycles. Leaves aN with different value than expected.
-    # add.s   (aN,dP.z),xM      add.s   (aN),xN
-    #                           add.s   (aN),xM
+    # add.s   (aN,dP.z),xN    ->  adda.z  dP,aN            ; Saves [2,4] cycles. Leaves aN with different value than expected.
+    # add.s   (aN,dP.z),xM        add.s   (aN),xN
+    #                             add.s   (aN),xM
     # Make sure aN is not used before is cleared/overwitten.
     matchA = re_match(r'^(\s*)(add|adda)\.([bwl])(\s+)\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_A)
     if matchA:
@@ -12669,9 +12693,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Subtraction using indexing modes.
-    # sub.s   (aN,dP.z),xN  ->  suba.z  dP,aN          ; Saves [2,4] cycles. Leaves aN different.
-    # sub.s   (aN,dP.z),xM      sub.s   (aN),xN
-    #                           sub.s   (aN),xM
+    # sub.s   (aN,dP.z),xN    ->  suba.z  dP,aN            ; Saves [2,4] cycles. Leaves aN different.
+    # sub.s   (aN,dP.z),xM        sub.s   (aN),xN
+    #                             sub.s   (aN),xM
     # Make sure aN is not used before is cleared/overwitten.
     matchA = re_match(r'^(\s*)(sub|suba)\.([bwl])(\s+)\((%a[0-7]),(%d[0-7])(\.[bwl])?\),\s*(%[ad][0-7])', line_A)
     if matchA:
@@ -12690,9 +12714,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     return (optimized_lines, 2)
 
     # Addition into data regs using indexing modes.
-    # add.s   disp(aN),dN   ->   move.s  disp(aN),dP      ; Saves 4 cycles.
-    # add.s   disp(aN),dM        add.s   dP,dN
-    #                            add.s   dP,dM
+    # add.s   disp(aN),dN    ->   move.s  disp(aN),dP      ; Saves 4 cycles.
+    # add.s   disp(aN),dM         add.s   dP,dN
+    #                             add.s   dP,dM
     # Needs a free data register dP.
     add_disp_aN_into_dN_pattern = r'^(\s*)add\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%d[0-7])'
     matchA = re_match(add_disp_aN_into_dN_pattern, line_A)
@@ -12725,9 +12749,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 2)
 
     # Subtraction into data regs using indexing modes.
-    # sub.s   disp(aN),dN   ->   move.s  disp(aN),dP      ; Saves 4 cycles.
-    # sub.s   disp(aN),dM        sub.s   dP,dN
-    #                            sub.s   dP,dM
+    # sub.s   disp(aN),dN    ->   move.s  disp(aN),dP      ; Saves 4 cycles.
+    # sub.s   disp(aN),dM         sub.s   dP,dN
+    #                             sub.s   dP,dM
     # Needs a free data register dP.
     sub_disp_aN_into_dN_pattern = r'^(\s*)sub\.([bwl])(\s+)(-?\d+|0[xX][0-9a-fA-F]+)?\((%a[0-7])\),\s*(%d[0-7])'
     matchA = re_match(sub_disp_aN_into_dN_pattern, line_A)
@@ -12760,9 +12784,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 2)
 
     # Addition into address regs using indexing modes.
-    # add.s   disp(aN),aM   ->   move.s  disp(aN),aQ      ; Saves 4 cycles.
-    # add.s   disp(aN),aP        adda.s  aQ,aM
-    #                            adda.s  aQ,aP
+    # add.s   disp(aN),aM    ->   move.s  disp(aN),aQ      ; Saves 4 cycles.
+    # add.s   disp(aN),aP         adda.s  aQ,aM
+    #                             adda.s  aQ,aP
     # Where s: w|l
     # Needs a free address register aQ.
     # aQ can be aN.
@@ -12797,9 +12821,9 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 2)
 
     # Subtraction into address regs using indexing modes.
-    # sub.s   disp(aN),aM   ->   move.s  disp(aN),aQ      ; Saves 4 cycles.
-    # sub.s   disp(aN),aP        suba.s  aQ,aM
-    #                            suba.s  aQ,aP
+    # sub.s   disp(aN),aM    ->   move.s  disp(aN),aQ      ; Saves 4 cycles.
+    # sub.s   disp(aN),aP         suba.s  aQ,aM
+    #                             suba.s  aQ,aP
     # Where s: w|l
     # Needs a free address register aQ.
     # aQ can be aN.
@@ -12861,6 +12885,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             mem1 = parseConstantSigned(matchA.group(4), 32)
             mem2 = parseConstantSigned(matchB.group(4), 32)
 
+            # Move byte constants into consecutive memory.
             # If mem1+1 == mem2
             # move.b   #x,mem1    ->    move.w  #xy,mem1       ; Saves 20 cycles.
             # move.b   #y,mem2
@@ -12877,6 +12902,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+            # Move byte constants into consecutive memory.
             # If mem1-1 == mem2
             # move.b   #x,mem1    ->    move.w  #yx,mem2       ; Saves 20 cycles.
             # move.b   #y,mem2
@@ -12904,6 +12930,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             mem1 = parseConstantSigned(matchA.group(4), 32)
             mem2 = parseConstantSigned(matchB.group(4), 32)
 
+            # Move word constants into consecutive memory.
             # If mem1+2 == mem2
             # move.w   #x,mem1    ->    move.l  #xy,mem1       ; Saves 12 cycles.
             # move.w   #y,mem2
@@ -12916,6 +12943,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
+            # Move word constants into consecutive memory.
             # If mem1-2 == mem2
             # move.w   #x,mem1    ->    move.l  #yx,mem2       ; Saves 12 cycles.
             # move.w   #y,mem2
@@ -12940,6 +12968,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
             aN = matchA.group(5)
 
+            # Move byte constants into consecutive memory calculated from effective address.
             # If disp1+1 == disp2
             # move.b   #x,disp1(aN)   ->   move.w  #xy,disp1(aN)     ; Saves 16 cycles.
             # move.b   #y,disp2(aN)
@@ -12956,6 +12985,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+            # Move byte constants into consecutive memory calculated from effective address.
             # If disp1-1 == disp2
             # move.b   #x,disp1(aN)   ->   move.w  #yx,disp2(aN)     ; Saves 16 cycles.
             # move.b   #y,disp2(aN)
@@ -12989,6 +13019,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 x = parseConstantUnsigned(matchA.group(3))
                 y = parseConstantUnsigned(matchB.group(3))
 
+                # Move byte constants into consecutive symbols.
                 # If symbolName+P + 1 = symbolName+Q
                 # move.b   #x,symbolName+P   ->   move.w  #xy,symbolName+P     ; Saves 8 cycles.
                 # move.b   #y,symbolName+Q
@@ -13004,6 +13035,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+                # Move byte constants into consecutive symbols.
                 # If symbolName+P - 1 = symbolName+Q
                 # move.b   #x,symbolName+P   ->   move.w  #yx,symbolName+Q     ; Saves 8 cycles.
                 # move.b   #y,symbolName+Q
@@ -13031,6 +13063,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             disp2 = 0 if not matchB.group(4) else parseConstantSigned(matchB.group(4), 16)
             aN = matchA.group(5)
 
+            # Move word constants into consecutive memory calculated from effective address.
             # If disp1+2 == disp2
             # move.w   #x,disp1(aN)   ->   move.l  #xy,disp1(aN)     ; Saves 8 cycles.
             # move.w   #y,disp2(aN)
@@ -13043,6 +13076,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 ]
                 return (optimized_lines, 2)
 
+            # Move word constants into consecutive memory calculated from effective address.
             # If disp1-2 == disp2
             # move.w   #x,disp1(aN)   ->   move.l  #yx,disp2(aN)     ; Saves 8 cycles.
             # move.w   #y,disp2(aN)
@@ -13072,6 +13106,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 x = parseConstantUnsigned(matchA.group(3))
                 y = parseConstantUnsigned(matchB.group(3))
 
+                # Move word constants into consecutive symbols.
                 # If symbolName+P + 2 = symbolName+Q
                 # move.w   #x,symbolName+P   ->   move.l  #xy,symbolName+P     ; Saves 8 cycles.
                 # move.w   #y,symbolName+Q
@@ -13083,6 +13118,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+                # Move word constants into consecutive symbols.
                 # If symbolName+P - 2 = symbolName+Q
                 # move.w   #x,symbolName+P   ->   move.l  #yx,symbolName+Q     ; Saves 8 cycles.
                 # move.w   #y,symbolName+Q
@@ -13193,7 +13229,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         return (optimized_lines, 2)
 
     # Move 2 consecutive word values from indirect memory to 2 consecutive indirect memory addresses.
-    # move.w   disp1(aN),disp3(aM)    ->   move.l  disp1(aN),disp3(aM)   ; Saves 8 cycles.
+    # move.w   disp1(aN),disp3(aM)    ->   move.l  disp1(aN),disp3(aM)       ; Saves 8 cycles.
     # move.w   disp2(aN),disp4(aM)
     # Displacements can be optional.
     # disp1+2 = disp2
@@ -13284,6 +13320,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         sA = matchA.group(2)
         dN = matchA.group(4)
 
+        # Negate a dN and then add/sub into dM or same dN.
         # neg.s    dN         ->    add.s   dN,dM       ; Saves 4 cycles. Leaves dN different.
         # sub.s    dN,dM
         # Leaves dN with different value than expected.
@@ -13298,6 +13335,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+        # Negate a dN and then add/sub into dM or same dN.
         # neg.s    dN         ->    eor.s   #val-1,dN   ; Saves 4 cycles.
         # add.s    #val,dN
         # Where val is 2^m, dN < val
@@ -13317,6 +13355,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                 print(f"{Fore.YELLOW}[WARNING {THIS_INVOKE_ID}]{Style.RESET_ALL} Next optimization might fail if dN >= val")
                 return (optimized_lines, 2)
 
+        # Negate a dN and then add/sub into dM or same dN.
         # neg.s    dN         ->    sub.s   dN,dM       ; Saves 4 cycles. Leaves dN different.
         # add.s    dN,dM
         # Leaves dN with different value than expected.
@@ -13347,6 +13386,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
 
             if symbolName_1 == symbolName_2:
 
+                # Clearing consecutive memory from same symbolName.
                 # If clearing symbolName and symbolName+1.
                 # clr.b   symbolName       ->    clr.w   symbolName      ; Saves 20 cycles.
                 # clr.b   symbolName+1
@@ -13361,6 +13401,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 2)
 
+                # Clearing consecutive memory from same symbolName.
                 # If clearing symbolName and symbolName-1.
                 # clr.b   symbolName       ->    clr.w   symbolName-1    ; Saves 20 cycles.
                 # clr.b   symbolName-1
@@ -13375,6 +13416,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 2)
 
+                # Clearing consecutive memory from same symbolName.
                 # If clearing symbolName and symbolName+2.
                 # clr.w   symbolName       ->    clr.l   symbolName      ; Saves 12 cycles.
                 # clr.w   symbolName+2
@@ -13385,6 +13427,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+                # Clearing consecutive memory from same symbolName.
                 # If clearing symbolName and symbolName-2.
                 # clr.w   symbolName       ->    clr.l   symbolName-2    ; Saves 12 cycles.
                 # clr.w   symbolName-2
@@ -13395,6 +13438,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+                # Clearing consecutive memory from same symbolName.
                 # If clearing symbolName and symbolName +/- 4.
                 # clr.l   symbolName       ->    moveq    #0,xN           ; Saves [16,20,24] cycles.
                 # clr.l   symbolName+/-4         move.l   xN,xM
@@ -13468,6 +13512,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                                 ]
                                 return (optimized_lines, 2)
 
+                # Clearing consecutive memory from same symbolName.
                 # If clearing symbolName and symbolName +/- 2/4. Different size accesor.
                 # clr.[wl]   symbolName         ->    moveq    #0,xN           ; Saves [8,12,16,20] cycles.
                 # clr.[wl]   symbolName +/- 2/4       move.l   xN,xM
@@ -13581,6 +13626,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             mem1 = parseConstantSigned(matchA.group(4), 32)
             mem2 = parseConstantSigned(matchB.group(4), 32)
 
+            # Clearing consecutive memory.
             # If mem1+1 == mem2
             # clr.b   mem1       ->    clr.w   mem1        ; Saves 20 cycles.
             # clr.b   mem2
@@ -13596,6 +13642,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+            # Clearing consecutive memory.
             # If mem1-1 == mem2
             # clr.b   mem1       ->    clr.w   mem2        ; Saves 20 cycles.
             # clr.b   mem2
@@ -13611,6 +13658,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+            # Clearing consecutive memory.
             # If mem1+2 == mem2
             # clr.w   mem1       ->    clr.l   mem1        ; Saves 12 cycles.
             # clr.w   mem2
@@ -13622,6 +13670,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+            # Clearing consecutive memory.
             # If mem1-2 == mem2
             # clr.w   mem1       ->    clr.l   mem2        ; Saves 12 cycles.
             # clr.w   mem2
@@ -13633,6 +13682,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+            # Clearing consecutive memory.
             # If clearing memory and memory +/- 4.
             # clr.l   mem1       ->    moveq    #0,xN           ; Saves [16,20,24] cycles.
             # clr.l   mem2             move.l   xN,xM
@@ -13706,6 +13756,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                             ]
                             return (optimized_lines, 2)
 
+            # Clearing consecutive memory.
             # If clearing memory and memory +/- 2/4. Different size accesor.
             # clr.[wl]   mem1    ->    moveq    #0,xN           ; Saves [8,12,16,20] cycles.
             # clr.[wl]   mem2          move.l   xN,xM
@@ -13814,6 +13865,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         matchB = re_match(clr_mem_ea_pattern, line_B)
         if matchB:
 
+            # Clearing consecutive memory calculated from effective address.
             # If disp1+1 == disp2
             # clr.b   disp1(aN)      ->    clr.w   disp1(aN)       ; Saves 16 cycles.
             # clr.b   disp2(aN)
@@ -13832,6 +13884,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+            # Clearing consecutive memory calculated from effective address.
             # If disp1-1 == disp2
             # clr.b   disp1(aN)      ->    clr.w   disp2(aN)       ; Saves 16 cycles.
             # clr.b   disp2(aN)
@@ -13850,6 +13903,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                         ]
                         return (optimized_lines, 2)
 
+            # Clearing consecutive memory calculated from effective address.
             # If disp1+2 == disp2
             # clr.w   disp1(aN)      ->    clr.l   disp1(aN)       ; Saves 8 cycles.
             # clr.w   disp2(aN)
@@ -13864,6 +13918,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
                     ]
                     return (optimized_lines, 2)
 
+            # Clearing consecutive memory calculated from effective address.
             # If disp1-2 == disp2
             # clr.w   disp1(aN)      ->    clr.l   disp2(aN)       ; Saves 8 cycles.
             # clr.w   disp2(aN)
@@ -13989,6 +14044,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # move.w  xN,-(sp)     ->    move.l  xN,-(sp)      ; Saves 8 cycles.
         # move.w  #0,-(sp)
         # TODO: ensure xN is already 0 in the higher word.
+        # This pattern only applied if USE_AGGRESSIVE_COMPACT_ZERO_AND_WORD_INTO_LONG_TO_PUSH_INTO_STACK is on.
         matchA = re_match(r'^(\s*)move\.w(\s+)(%[ad][0-7]),\s*-\(%sp\)', line_A)
         if matchA:
             xN = matchA.group(3)
@@ -14025,6 +14081,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.w  -(sp)     ->    subq.l  #4,sp     ; Saves 20 cycles.
         # clr.w  -(sp)
         # Also considers: move.w #0,-(sp)
+        # This pattern only applied if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         matchA_clr = clr_w_stack_by_pushing_pattern.match(line_A)
         matchA_move_0 = move_w_0_to_stack_by_pushing_pattern.match(line_A)
         matchA = matchA_clr or matchA_move_0
@@ -14041,6 +14098,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
         # clr.l  -(sp)     ->    subq.l  #8,sp     ; Saves 36 cycles.
         # clr.l  -(sp)
         # Also considers:  pea  0[.wl]
+        # This pattern only applied if USE_AGGRESSIVE_CLR_SP_OPTIMIZATION is on.
         matchA_clr = clr_l_stack_by_pushing_pattern.match(line_A)
         matchA_pea_0 = pea_0wl_pattern.match(line_A)
         matchA = matchA_clr or matchA_pea_0
@@ -14132,7 +14190,7 @@ def optimizeMultiLines_2 (i_line: int, lines: list[str], modified_lines: list[st
             val = parseConstantSigned(matchA.group(4), 8)
 
             # 0 <= x <= 7
-            # moveq    #8+x,dM    ->    ror.w  #8-x,dN      ; Saves 4+4*x cycles. Wrong flags, dM different
+            # moveq    #8+x,dM    ->    ror.w   #8-x,dN      ; Saves 4+4*x cycles. Wrong flags, dM different
             # rol.w    dM,dN
             matchB = re_match(r'^(\s*)(rol)\.w(\s+)(%d[0-7]),\s*(%d[0-7])', line_B)
             if matchB and dM == matchB.group(4):
@@ -17923,9 +17981,13 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
     We can take advantage of the sign extension nature of lea/movea/jmp/jsr instructions over the high word of 
     the canonical address to reduce its size:
     - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOW_ROM_END) -> 
-        we can use .w and let the sign extension fills higher word with 0s.
+        we can use .w and let the sign extension fills the higher word with 0s.
     - If higher word is 0xE0FF (SGDK's RAM start) and lower word >= 0x8000 (high half RAM) ->
-        we can use .w and let the sign extension fills higher word with 1s, given that the m68k cpu only cares the first 24 bits.
+        we can use .w and let the sign extension fills the higher word with 1s, given that the m68k cpu only cares the first 24 bits.
+        NOTE: when dealing with memory values, not symbols, on higher RAM the optimization fails unless SGDK_HIGH_RAM_START is 0xFFFF8000.
+    Currently:
+        SGDK_LOW_ROM_END    = 0x00007FFF
+        SGDK_HIGH_RAM_START = 0xE0FF8000
     """
 
     # Collect the symbols that has the form: symbolName +-* N
@@ -18035,13 +18097,13 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                         else:
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w'
                     else:  # move
-                        # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
-                        if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                            continue
                         aN = match.group(9)
                         if not symbol_ops and not (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{symbolName}.w,{aN}'
                         else:
+                            # NOT_WORKING: when on higher RAM, unless SGDK_HIGH_RAM_START is 0xFFFF8000
+                            if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
+                                continue
                             optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}#{mem_value_eval_ops_str}.w,{aN}'
 
         # move.s  #mem_address,aN   ->   move.s  #mem_address.w,aN         ; Saves 4 cycles
@@ -18068,7 +18130,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                     if instr == 'clr':
                         optimized_line = f'{match.group(1)}{instr}.{s}{match.group(4)}{mem_value_eval_ops_str}.w'
                     else:  # move
-                        # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
+                        # NOT_WORKING: when on higher RAM, unless SGDK_HIGH_RAM_START is 0xFFFF8000
                         if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                             continue
                         aN = match.group(9)
@@ -18129,7 +18191,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
+                    # NOT_WORKING: when on higher RAM, unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
                     mem_value_eval_ops_str = str(mem_value_eval_ops)
@@ -18196,7 +18258,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
+                    # NOT_WORKING: when on higher RAM, unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
                     aN_or_ea = match.group(9)
@@ -18257,7 +18319,7 @@ def reduce_canonical_address_using_sign_extension(lines: list[str], symbols_file
                 mem_value = parseConstantUnsigned(mem_addr)
                 mem_value_eval_ops = evaluate_instr_math_expression(str(mem_value) + mem_addr_ops)
                 if (mem_value_eval_ops & 0xFFFFFFFF) <= SGDK_LOW_ROM_END or (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
-                    # NOT_WORKING: when on higher RAM unless SGDK_HIGH_RAM_START is 0xFFFF8000
+                    # NOT_WORKING: when on higher RAM, unless SGDK_HIGH_RAM_START is 0xFFFF8000
                     if (mem_value_eval_ops & 0xFFFFFFFF) >= SGDK_HIGH_RAM_START:
                         continue
                     mem_value_eval_ops_str = str(mem_value_eval_ops)
