@@ -24,7 +24,6 @@
 
 ## `reduce_canonical_address_using_sign_extension`
 
-```text
 We can take advantage of the sign extension nature of lea/movea/jmp/jsr instructions over the high word of 
 the canonical address to reduce its size:
 - If higher word is 0x0000 (SGDK's ROM start) and lower word <= 0x7fff (SGDK_LOW_ROM_END) -> 
@@ -35,7 +34,6 @@ the canonical address to reduce its size:
 Currently:
 	SGDK_LOW_ROM_END    = 0x00007FFF
 	SGDK_HIGH_RAM_START = 0xE0FF8000
-```
 
 ```asm
 move.s  #symbolName,aN    ->   move.s  #symbol_or_mem.w,aN      ; Saves 4 cycles
@@ -94,12 +92,10 @@ jsr     mem_address    ->   jsr     mem_address.w              ; Saves 2 cycles
 
 ## `optimizeSingleLine_ShortenBranches`
 
-```text
 Optimize branch instructions by using short branch suffix ".s" if the target label is in the range of [-126,128] bytes.
 Returns a tuple of (optimized_lines, was_optimized) where:
 - optimized_lines is a list of new lines optimized lines (empty list if not).
 - was_optimized is a boolean indicating if optimization occurred.
-```
 
 ```asm
 Use short branch suffix if the label is in the range of [-127,128] bytes.
@@ -136,12 +132,10 @@ Where xN = a single register.
 
 ## `optimizeSingleLine_Peepholes`
 
-```text
 Optimize a single line of assembly code.
 Returns a tuple of (optimized_lines, was_optimized) where:
 - optimized_lines: is a list of new lines optimized lines (empty list if not).
 - was_optimized: is a boolean indicating if optimization occurred.
-```
 
 ```asm
 Where 0 < val <= 0xFFFF (65535)
@@ -743,9 +737,7 @@ It's an approximation, and is only exact when 65536/val is exact, otherwise erro
 
 ## `optimizeMultiLines_SymbolOrMemByOffset`
 
-```text
 Iterates over increasing batches of multiple lines and try to exploit the offset between symbols loaded into aN.
-```
 
 ```asm
 Loading a symbol or mem by an offset of a previous loaded symbol or mem

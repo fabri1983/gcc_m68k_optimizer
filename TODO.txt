@@ -149,21 +149,21 @@ Needs a free address register aM.
 
 # Gcc built-in signed multiplication with sign extension.
 # Replace by simple muls.w.
-move.l dN,-(sp)              ->    muls.w  dM/#imm,dN          ; Saves [68,72,76] cycles
-move.l dM/#imm,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
-jsr    __mulsi3/(aN)
-addq.l #8,sp
-ext.l  d0
-move.l d0,dN  <-- this line optional if dN is d0
+move.l    dN,-(sp)              ->    muls.w  dM/#imm,dN          ; Saves [68,72,76] cycles
+move.l    dM/#imm,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
+jsr       __mulsi3/(aN)
+addq.[wl] #8,sp
+ext.l     d0
+move.l    d0,dN  <-- this line optional if dN is d0
 # If match with jsr (aN) then search in the control flow dictionary if aN was loaded with __mulsi3.
 
 # Gcc built-in signed/unsigned multiplication without sign extension.
 # Replace by simple muls/mulu.w.
-move.l dN,-(sp)              ->    muls/mulu.w  dM/#imm,dN     ; Saves [68,72] cycles
-move.l dM/#imm,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
-jsr    __mulsi3/__umulsi3/(aN)
-addq.l #8,sp
-move.l d0,dN  <-- this line optional if dN is d0
+move.l    dN,-(sp)              ->    muls/mulu.w  dM/#imm,dN     ; Saves [68,72] cycles
+move.l    dM/#imm,-(sp)               move.l  d0,dN  <-- this line optional if dN is d0
+jsr       __mulsi3/__umulsi3/(aN)
+addq.[wl] #8,sp
+move.l    d0,dN  <-- this line optional if dN is d0
 # If match with jsr (aN) then search in the control flow dictionary if aN was loaded with __mulsi3/__umulsi3.
 
 Other functions, but better look for examples to correctly understand them: __divsi3, __udivsi3, __modsi3, __umodsi3
